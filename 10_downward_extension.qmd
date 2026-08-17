@@ -1,0 +1,409 @@
+---
+title: "10 — Downward extension (Boston Children's, ages 2–5): first look at the raw data"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    fig-width: 10
+    fig-height: 6
+execute:
+  warning: false
+  message: false
+---
+
+{{< include _disclaimer.qmd >}}
+
+# Purpose
+
+The **very first tranche** of downward-extension data — Boston Children's
+Hospital (Nelson site), children aged **2–5**, piloting the LEVANTE core tasks
+below the 5–12 range they were built for. There are **no validated scoring
+models** for this age band yet, so this is the **raw** per-site dataset
+(`pilot_bostonchildrens_us_main_raw:7e6c`, pinned to **v4_26**), not
+`levante_data_latest`.
+
+Two aims: **(A) hand-score** the tasks from trial-level correctness with simple,
+transparent rules; **(B)** describe **accuracy, time in task, and trials
+completed** across tasks and ages. Along the way we log data-quality flags —
+this is a pilot, so what breaks is as informative as what works.
+
+```{r setup}
+source(here::here("common.R"))
+library(tidyverse)
+library(patchwork)
+
+DS_REF <- "pilot_bostonchildrens_us_main_raw:7e6c"
+DS_VER <- "v4_26"
+
+# Raw tables are cached to data/ (git-ignored); pull via levante::get_raw_table()
+# if a cache is missing. Pinned to DS_VER for reproducibility.
+load_raw <- function(table) {
+  path <- here("data", glue("downex_boston_{table}_{DS_VER}.rds"))
+  if (!file_exists(path)) {
+    dir_create(here("data"))
+    write_rds(levante::get_raw_table(table, data_source = DS_REF,
+                                     data_source_version = DS_VER), path)
+  }
+  read_rds(path)
+}
+users    <- load_raw("users")
+runs     <- load_raw("runs")     |> filter(task_id != "schema_row")
+trials   <- load_raw("trials")   |> filter(task_id != "schema_row")
+variants <- load_raw("variants") |> filter(task_id != "schema_row")
+
+task_labels <- c(`hearts-and-flowers` = "Hearts & Flowers", `memory-game` = "Memory",
+                 `same-different-selection` = "Same & Different", `matrix-reasoning` = "Pattern Matching",
+                 `mental-rotation` = "Shape Rotation", `egma-math` = "Math", vocab = "Vocabulary",
+                 trog = "Sentence Underst.", pa = "ROAR-Phoneme")
+```
+
+# 1. Who and what: the sample and the runs
+
+Ages come from `birth_month`/`birth_year` and each run's `time_started`
+(month precision). Only children (`user_type == "student"`) are kept.
+
+```{r sample}
+kids <- users |> filter(user_type == "student") |>
+  select(user_id, birth_month, birth_year, sex)
+
+runs <- runs |>
+  inner_join(kids, by = "user_id") |>
+  mutate(task = task_labels[task_id],
+         age = (year(time_started) - birth_year) + (month(time_started) - birth_month) / 12,
+         age_yr = floor(age),
+         # time in task: run duration if finished, else first→last trial timestamp
+         dur_min = as.numeric(difftime(time_finished, time_started, units = "mins")))
+
+trial_span <- trials |> group_by(run_id) |>
+  summarise(span_min = as.numeric(difftime(max(server_timestamp), min(server_timestamp), units = "mins")), .groups = "drop")
+runs <- runs |> left_join(trial_span, by = "run_id") |>
+  mutate(dur_min = coalesce(dur_min, span_min))
+
+kids_age <- runs |> group_by(user_id, sex) |> summarise(age = min(age), .groups = "drop") |>
+  mutate(age_yr = floor(age))
+kids_age |> count(age_yr, sex) |> pivot_wider(names_from = sex, values_from = n, values_fill = 0) |>
+  mutate(total = rowSums(across(-age_yr))) |>
+  knitr::kable(caption = glue("Children by age (years) at first run — N = {nrow(kids_age)}"))
+```
+
+```{r runs-by-task}
+runs |> group_by(task) |>
+  summarise(runs = n(), children = n_distinct(user_id), completed = sum(completed),
+            valid = sum(valid_run), adaptive = any(variant_id %in% variants$variant_id[variants$adaptive]),
+            .groups = "drop") |>
+  arrange(desc(runs)) |>
+  knitr::kable(caption = "Runs per task (completed = dashboard flag; valid = passes the pipeline's run validation)")
+```
+
+```{r validity}
+runs |> count(completed, valid_run, validation_msg_run) |> arrange(desc(n)) |>
+  knitr::kable(caption = "Run validity flags. `less_than_10_test_trials` is the pipeline's minimum-length rule.")
+```
+
+Most runs are complete and valid, but a sizeable minority end with **fewer than
+10 test trials** — the pipeline's validity floor. Where in the age range those
+short runs sit is one of the first things to check (§3).
+
+# 2. Trial-level prep and hand-scoring rules
+
+We keep **test trials only** (`is_practice_trial == FALSE`), and apply
+minimal, task-specific rules that mirror what `levantemodels::recode_trials()`
+does for the released data:
+
+- **Hearts & Flowers**: a response is correct only if **200 ms ≤ RT ≤ 2000 ms**
+  (too-fast/too-slow → incorrect); we report raw accuracy too. Blocks are
+  `hearts` / `flowers` / `hearts and flowers` (mixed).
+- **Vocabulary**: `catch` trials (attention checks) are scored separately from
+  `test` trials.
+- **Memory (Corsi)**: span score = the **longest sequence length answered
+  correctly**, forward and backward.
+- **Math**: accuracy overall and by subtask (`corpus_trial_type`).
+- **Chance** per trial is derived from the recorded `distractors` field
+  (chance = 1 / (n distractors + 1)); Hearts & Flowers is 2-AFC by design; Memory
+  is free recall (chance 0); ROAR-Phoneme records no distractors (chance left
+  NA).
+- Everything else: proportion correct on test trials.
+
+```{r trial-prep}
+test <- trials |>
+  filter(!is_practice_trial %in% TRUE) |>
+  inner_join(runs |> select(run_id, user_id, task, age, age_yr, valid_run), by = c("run_id", "user_id")) |>
+  mutate(n_distr = if_else(is.na(distractors) | distractors %in% c("", "{}"), NA_integer_,
+                           str_count(distractors, ",") + 1L),
+         chance = case_when(task_id == "hearts-and-flowers" ~ 0.5,
+                            task_id == "memory-game" ~ 0,
+                            !is.na(n_distr) ~ 1 / (n_distr + 1),
+                            TRUE ~ NA_real_),
+         # H&F RT recode (mirrors levantemodels::recode_hf)
+         correct_hand = if_else(task_id == "hearts-and-flowers",
+                                correct & !is.na(rt_numeric) & rt_numeric >= 200 & rt_numeric <= 2000,
+                                correct))
+
+test |> group_by(task) |>
+  summarise(test_trials = n(), runs = n_distinct(run_id),
+            chance = paste(sort(unique(round(chance, 2))), collapse = "/"),
+            rt_missing = mean(is.na(rt_numeric)), .groups = "drop") |>
+  knitr::kable(digits = 2, caption = "Test trials per task, implied chance level(s), and RT missingness (Memory records no RT)")
+```
+
+```{r run-summary}
+run_sum <- test |> group_by(run_id, user_id, task, task_id, age, age_yr, valid_run) |>
+  summarise(n_trials = n(), acc = mean(correct_hand), acc_raw = mean(correct),
+            chance = mean(chance), med_rt = median(rt_numeric, na.rm = TRUE) / 1000,
+            .groups = "drop") |>
+  left_join(runs |> select(run_id, dur_min, completed, num_attempted, num_correct), by = "run_id")
+```
+
+# 3. Basic descriptives across tasks and ages
+
+Each point is one run; lines are loess smooths (age is continuous, 2.0–5.8).
+
+## 3.1 Trials completed
+
+```{r fig-trials, fig.height=7}
+ggplot(run_sum, aes(age, n_trials)) +
+  geom_point(aes(colour = valid_run), alpha = 0.7) +
+  geom_smooth(method = "loess", se = FALSE, colour = "grey30", span = 1) +
+  facet_wrap(~task, scales = "free_y") +
+  scale_colour_manual(values = c(`TRUE` = "#268bd2", `FALSE` = "#dc322f"), name = "valid run") +
+  labs(x = "Age (years)", y = "Test trials completed",
+       title = "Trials completed per run, by age") +
+  theme(legend.position = "top")
+```
+
+## 3.2 Time in task
+
+```{r fig-time, fig.height=7}
+ggplot(run_sum |> filter(!is.na(dur_min)), aes(age, dur_min)) +
+  geom_point(aes(colour = valid_run), alpha = 0.7) +
+  geom_smooth(method = "loess", se = FALSE, colour = "grey30", span = 1) +
+  facet_wrap(~task, scales = "free_y") +
+  scale_colour_manual(values = c(`TRUE` = "#268bd2", `FALSE` = "#dc322f"), name = "valid run") +
+  labs(x = "Age (years)", y = "Minutes in task",
+       title = "Time in task per run, by age",
+       subtitle = "Run duration (time_finished − time_started); first→last trial span for unfinished runs") +
+  theme(legend.position = "top")
+```
+
+## 3.3 Accuracy
+
+Dashed line = chance (task-average of the per-trial chance; Math and Same &
+Different mix response formats).
+
+```{r fig-acc, fig.height=7}
+chance_df <- run_sum |> group_by(task) |> summarise(chance = mean(chance, na.rm = TRUE), .groups = "drop")
+ggplot(run_sum, aes(age, acc)) +
+  geom_hline(data = chance_df, aes(yintercept = chance), linetype = "dashed", colour = "grey50") +
+  geom_point(aes(colour = valid_run, size = n_trials), alpha = 0.7) +
+  geom_smooth(method = "loess", se = FALSE, colour = "grey30", span = 1) +
+  facet_wrap(~task) +
+  scale_colour_manual(values = c(`TRUE` = "#268bd2", `FALSE` = "#dc322f"), name = "valid run") +
+  scale_size_area(max_size = 4, name = "test trials") +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(x = "Age (years)", y = "Proportion correct (hand-scored)",
+       title = "Accuracy per run, by age") +
+  theme(legend.position = "top")
+```
+
+## 3.4 Summary table by task × age year
+
+```{r table-by-age}
+run_sum |> group_by(task, age_yr) |>
+  summarise(runs = n(), pct_valid = mean(valid_run), trials = median(n_trials),
+            minutes = median(dur_min, na.rm = TRUE), acc = mean(acc), .groups = "drop") |>
+  mutate(across(c(pct_valid, acc), ~ round(.x, 2)), minutes = round(minutes, 1)) |>
+  pivot_wider(names_from = age_yr, values_from = c(runs, pct_valid, trials, minutes, acc),
+              names_glue = "{.value}_{age_yr}y") |>
+  select(task, starts_with("runs"), starts_with("pct_valid"), starts_with("trials"),
+         starts_with("minutes"), starts_with("acc")) |>
+  knitr::kable(caption = "Per task × age-year: runs, share valid, median trials, median minutes, mean accuracy")
+```
+
+# 4. Hand scores per task
+
+## 4.1 Sanity check: hand accuracy vs the dashboard's own count
+
+The `runs` table carries the dashboard's `num_correct`/`num_attempted`. Our
+hand-scored accuracy should agree except where our rules deliberately differ
+(H&F RT recode; vocab catch trials excluded).
+
+```{r dashboard-check}
+run_sum |> filter(!is.na(num_attempted), num_attempted > 0) |>
+  mutate(dash_acc = num_correct / num_attempted) |>
+  group_by(task) |>
+  summarise(runs = n(), r = cor(acc_raw, dash_acc, use = "complete.obs"),
+            mean_diff = mean(acc_raw - dash_acc, na.rm = TRUE),
+            trials_match = mean(n_trials == num_attempted), .groups = "drop") |>
+  knitr::kable(digits = 2, caption = "Raw hand accuracy vs dashboard num_correct/num_attempted (r, mean difference, share of runs with identical trial counts)")
+```
+
+Where the two are directly comparable (Shape Rotation, ROAR-Phoneme, Sentence
+Understanding, Vocabulary) the hand score reproduces the dashboard count
+**exactly** (r = 1, identical trial counts). Memory and Same & Different count
+"trials" differently (sequences / multi-response stages), so they don't match
+by construction; the remaining tasks have some runs with no dashboard count.
+
+## 4.2 Task-specific scores
+
+```{r hand-scores}
+# Vocabulary: test vs catch
+vocab_h <- test |> filter(task_id == "vocab") |>
+  group_by(run_id, user_id, age, kind = corpus_trial_type) |>
+  summarise(n = n(), acc = mean(correct), .groups = "drop")
+
+# Hearts & Flowers: raw vs RT-recoded, by block
+hf_h <- test |> filter(task_id == "hearts-and-flowers") |>
+  group_by(run_id, user_id, age, block = corpus_trial_type) |>
+  summarise(n = n(), acc_raw = mean(correct), acc_rt = mean(correct_hand),
+            med_rt = median(rt_numeric, na.rm = TRUE), .groups = "drop") |>
+  mutate(block = factor(block, c("hearts", "flowers", "hearts and flowers")))
+
+# Memory: longest correct span, forward / backward
+mem_h <- test |> filter(task_id == "memory-game") |>
+  separate(corpus_trial_type, into = c("direction", "span"), sep = "-", convert = TRUE) |>
+  group_by(run_id, user_id, age, direction) |>
+  summarise(n = n(), max_span = if (any(correct)) max(span[correct]) else 0, .groups = "drop")
+
+# Math: by subtask
+math_h <- test |> filter(task_id == "egma-math") |>
+  group_by(run_id, user_id, age, subtask = corpus_trial_type) |>
+  summarise(n = n(), acc = mean(correct), chance = mean(chance), .groups = "drop")
+
+# Same & Different: by trial type
+sds_h <- test |> filter(task_id == "same-different-selection") |>
+  group_by(run_id, user_id, age, type = corpus_trial_type) |>
+  summarise(n = n(), acc = mean(correct), .groups = "drop")
+```
+
+```{r fig-hand, fig.height=9}
+p_vocab <- ggplot(vocab_h, aes(age, acc, colour = kind)) + geom_point(alpha = 0.7) +
+  geom_smooth(method = "loess", se = FALSE, span = 1) + geom_hline(yintercept = 0.25, linetype = "dashed", colour = "grey50") +
+  ylim(0, 1) + labs(title = "Vocabulary: test vs catch trials", x = "Age", y = "Prop. correct", colour = NULL)
+p_hf <- hf_h |> pivot_longer(c(acc_raw, acc_rt), names_to = "scoring", values_to = "acc") |>
+  ggplot(aes(age, acc, colour = scoring)) + geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = FALSE, span = 1) + geom_hline(yintercept = 0.5, linetype = "dashed", colour = "grey50") +
+  facet_wrap(~block) + ylim(0, 1) + labs(title = "Hearts & Flowers: raw vs RT-recoded (200–2000 ms), by block", x = "Age", y = "Prop. correct", colour = NULL)
+p_mem <- ggplot(mem_h, aes(age, max_span, colour = direction)) + geom_jitter(width = 0.05, height = 0.08, alpha = 0.7) +
+  geom_smooth(method = "loess", se = FALSE, span = 1) + labs(title = "Memory: longest correct span", x = "Age", y = "Max span", colour = NULL)
+p_math <- ggplot(math_h, aes(age, acc)) + geom_point(alpha = 0.6, aes(size = n)) +
+  geom_smooth(method = "loess", se = FALSE, span = 1.2, colour = "grey30") + facet_wrap(~subtask, nrow = 2) +
+  ylim(0, 1) + scale_size_area(max_size = 3) + labs(title = "Math: accuracy by subtask", x = "Age", y = "Prop. correct")
+(p_vocab + p_mem) / p_hf / p_math + plot_layout(heights = c(1, 1, 1.4))
+```
+
+```{r table-hand}
+bind_rows(
+  vocab_h |> mutate(task = "Vocabulary", part = kind, score = acc),
+  hf_h |> mutate(task = "Hearts & Flowers", part = as.character(block), score = acc_rt),
+  mem_h |> mutate(task = "Memory (max span)", part = direction, score = max_span),
+  math_h |> mutate(task = "Math", part = subtask, score = acc),
+  sds_h |> mutate(task = "Same & Different", part = type, score = acc),
+  run_sum |> filter(task_id %in% c("matrix-reasoning", "mental-rotation", "trog", "pa")) |>
+    mutate(part = "all", score = acc)
+) |>
+  mutate(age_yr = floor(age)) |>
+  group_by(task, part, age_yr) |>
+  summarise(n_runs = n(), score = mean(score), .groups = "drop") |>
+  mutate(score = round(score, 2)) |>
+  pivot_wider(names_from = age_yr, values_from = c(n_runs, score), names_glue = "{.value}_{age_yr}y") |>
+  select(task, part, starts_with("n_runs"), starts_with("score")) |>
+  knitr::kable(caption = "Hand scores by task component × age year (mean over runs)")
+```
+
+## 4.3 The CAT's running θ as an (unvalidated) provisional score
+
+Several tasks ran as **adaptive** variants, so each trial carries the CAT's
+running `theta_estimate` on the **5–12 calibrated item bank**. That bank is out
+of range for 2–5-year-olds (see the flags below), so this is *not* a score to
+use — but its relation to hand accuracy tells us whether the CAT is
+discriminating at all down here.
+
+```{r cat-theta}
+theta_last <- test |> filter(!is.na(theta_estimate)) |>
+  group_by(run_id) |> slice_max(trial_index, n = 1, with_ties = FALSE) |>
+  select(run_id, theta_last = theta_estimate) |>
+  inner_join(run_sum, by = "run_id") |>
+  group_by(task) |> filter(n() >= 5) |> ungroup()   # drop tasks with a handful of CAT runs
+
+ggplot(theta_last, aes(acc, theta_last)) +
+  geom_point(aes(colour = age), alpha = 0.8) +
+  geom_smooth(method = "lm", se = FALSE, colour = "grey30") +
+  facet_wrap(~task, scales = "free") +
+  scale_colour_viridis_c(name = "age") +
+  labs(x = "Hand-scored proportion correct", y = "CAT final θ estimate",
+       title = "CAT running θ (5–12 item bank) vs hand accuracy, adaptive tasks only")
+
+theta_last |> group_by(task) |>
+  summarise(runs = n(), r_theta_acc = cor(theta_last, acc), r_theta_age = cor(theta_last, age),
+            mean_theta = mean(theta_last), .groups = "drop") |>
+  knitr::kable(digits = 2, caption = "Final CAT θ: agreement with hand accuracy and age, and mean level (on the 5–12 scale)")
+```
+
+The CAT does discriminate down here on Math, Shape Rotation, Sentence
+Understanding, and Vocabulary (θ–accuracy r ≈ 0.5–0.85), but the θ values are
+far below the 5–12 scale (means ≈ −2.7 to −5.2), and a whole row of runs —
+mostly the 2–3-year-olds — sits at **exactly θ = −6, the estimator's hard
+lower bound**: those are floor codes, not measurements. Same & Different's θ
+is unrelated to accuracy (r ≈ 0.1) and many of its runs sit at exactly 0 (the
+prior mean, i.e. θ never updated), consistent with its scoring being under
+revision.
+
+# 5. Data-quality flags to carry forward
+
+```{r flags}
+# How far down the age range does each Math subtask reach, and where is it above chance?
+math_h |> group_by(subtask) |>
+  summarise(kids = n_distinct(user_id), min_age = min(age), acc_under4 = mean(acc[age < 4]),
+            acc_4plus = mean(acc[age >= 4]), chance = mean(chance), .groups = "drop") |>
+  arrange(min_age) |>
+  knitr::kable(digits = 2, caption = "Math subtasks: youngest child served, and mean accuracy below vs. above age 4 (chance shown). Under 4 nothing reliably clears chance; from 4 on the number subtasks do, while Addition stays at chance throughout")
+
+# Vocabulary catch trials as an engagement gate
+vocab_h |> mutate(age_yr = floor(age)) |> group_by(age_yr, kind) |>
+  summarise(runs = n(), acc = mean(acc), .groups = "drop") |>
+  pivot_wider(names_from = kind, values_from = c(runs, acc)) |>
+  knitr::kable(digits = 2, caption = "Vocabulary: catch-trial vs test accuracy by age year")
+```
+
+- **Short / invalid runs concentrate at the young end** (see §3.1, §3.4):
+  the `<10 test trials` rule removes many 2-year-old runs — for this age band
+  the validity floor itself needs re-thinking (a 2-year-old's 8 valid trials
+  may be the whole point).
+- **2-year-olds are at chance on nearly everything** (Vocabulary, Sentence
+  Understanding, Math), and they **fail the Vocabulary catch trials** (≈ 57%
+  vs ≥ 95% from age 3) — so much of the 2-year-old data reflects
+  non-engagement/incomprehension rather than measured ability. Catch-trial
+  accuracy is a usable engagement gate; some 2-year-olds also tap through 60+
+  Sentence-Understanding trials at chance (§3.1).
+- **CAT item banks are calibrated for 5–12**: the top of the routing behaves
+  sensibly (Subtraction / Multiplication reached only 5-year-olds), but the
+  bank has **no floor for this band** — Addition items reach 2-year-olds yet
+  sit at chance across the whole 2–5 range, and **below age 4 no Math subtask
+  reliably clears chance** (the number subtasks do from 4 on). Running θ is
+  not interpretable at this age.
+- **Memory records no RT** (`rt_numeric` all NA) — known from the main
+  pipeline; fine for accuracy/span, no timing possible.
+- **Same & Different** staging is irregular in the raw table
+  (`first_response`/`second_response`/… plus blank `assessment_stage`), and
+  its scoring is under revision anyway (see LEVANTE.md); the SDS numbers here
+  are proportion-correct by trial type only.
+- **Shape Rotation** trials record **2 distractors (3-AFC)** in this dataset,
+  whereas the calibrated models use a 0.5 guessing floor — check which variant
+  ran before comparing to 5–12 data.
+- `stop_type` is entirely NA in this tranche (no early-stopping info).
+
+# Notes & next steps
+
+- **Data:** `r DS_REF` v`r DS_VER` (raw, per-site). Cached under `data/`
+  (git-ignored). Two *other* downward-extension raw datasets exist on Redivis
+  — `pilot_langcog_us_downex_raw:a6kb` (Stanford) and
+  `partner_sparklab_us_downex_raw:4n9e` — natural comparison sets once the
+  Boston picture is clear.
+- **This notebook is not wired into the public book** (`_quarto.yml` renders
+  `0[0-9]_*.qmd` only): unreleased raw child data with age/sex at N = 31.
+  Adding it to the published book is a deliberate decision, not a default.
+- **Next:** (i) decide a validity floor appropriate for 2–5; (ii) look at
+  practice-trial performance as an engagement gate; (iii) once ≥ 2 sites of
+  downward-extension data exist, item-level difficulty for a 2–5 bank; (iv)
+  compare with the Stanford / Sparklab downex tranches.
