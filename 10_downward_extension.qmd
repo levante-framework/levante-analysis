@@ -444,6 +444,83 @@ non-engagement / task-incomprehension looks like — consistent with their catch
 trial failures above. A handful of items (*sunflower, telescope, net,
 hedgehog*) show some 2-year-old signal, but on 4–10 children each.
 
+### Does the 5–12 difficulty ordering hold for preschoolers?
+
+The vocabulary CAT's item bank was calibrated on 5–12-year-olds (`by_language`
+en-US Rasch with a 0.25 guessing floor; `levante_metadata_scoring` v1_14, via
+`load_item_parameters()`). Every item the Boston children saw is in that
+calibration, so we can ask whether the 5–12 **difficulty ordering** survives
+down here — and, treating each age group as if it were a single 5–12-scale
+person, what θ its item accuracies imply. Curves are the model-implied
+P(correct) = 0.25 + 0.75·logistic(θ − b) at the group's best-fitting θ
+(binomial deviance minimised over items).
+
+```{r vocab-difficulty, fig.height=5}
+ip <- load_item_parameters() |>
+  filter(task_id == "vocab", subset == "en-US") |>
+  select(item_uid, difficulty)
+
+fit_theta <- function(k, n, b) {
+  optimize(\(th) -sum(dbinom(k, n, 0.25 + 0.75 * plogis(th - b), log = TRUE)), c(-8, 6))$minimum
+}
+
+grp_items <- vi |> mutate(grp = "all ages (2–5)") |>
+  bind_rows(vi) |>
+  group_by(grp, item, item_uid) |> summarise(n = n(), k = sum(correct), acc = mean(correct), .groups = "drop") |>
+  inner_join(ip, by = "item_uid") |>
+  filter((grp == "2-year-olds" & n >= 4) | (grp != "2-year-olds" & n >= 10)) |>
+  mutate(grp = factor(grp, c("all ages (2–5)", "3+", "2-year-olds")))
+
+grp_stats <- grp_items |> group_by(grp) |>
+  summarise(items = n(), rho = cor(acc, difficulty, method = "spearman"),
+            theta = fit_theta(k, n, difficulty), .groups = "drop")
+curves <- grp_stats |> reframe(difficulty = seq(-5, 5, 0.1), .by = c(grp, theta)) |>
+  mutate(p = 0.25 + 0.75 * plogis(theta - difficulty))
+
+ggplot(grp_items, aes(difficulty, acc)) +
+  geom_hline(yintercept = 0.25, linetype = "dashed", colour = "grey50") +
+  geom_line(data = curves, aes(y = p), colour = "grey30") +
+  geom_point(aes(size = n), colour = "#268bd2", alpha = 0.7) +
+  geom_text(data = grp_stats, aes(x = -4.8, y = 0.06,
+            label = glue("{items} items\nSpearman ρ = {round(rho, 2)}\nbest θ = {round(theta, 1)}")),
+            hjust = 0, size = 3.2) +
+  facet_wrap(~grp) +
+  scale_size_area(max_size = 4, name = "n children") +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(x = "5–12 calibrated item difficulty (en-US Rasch, logits)", y = "Preschool proportion correct",
+       title = "Vocabulary: preschool item accuracy vs. the 5–12 calibrated difficulty",
+       subtitle = "Curve = Rasch + 0.25 guessing floor at the group's best-fitting single θ") +
+  theme(legend.position = "top")
+
+grp_stats |> mutate(across(c(rho, theta), ~ round(.x, 2))) |>
+  knitr::kable(caption = "Per group: items, Spearman correlation between preschool accuracy and 5–12 difficulty, and the best-fitting single θ on the 5–12 scale")
+```
+
+```{r vocab-difficulty-prose, include=FALSE}
+gs <- grp_stats |> mutate(grp = as.character(grp))
+rho_all <- gs$rho[gs$grp == "all ages (2–5)"]; rho_3 <- gs$rho[gs$grp == "3+"]; rho_2 <- gs$rho[gs$grp == "2-year-olds"]
+th_3 <- gs$theta[gs$grp == "3+"]; th_2 <- gs$theta[gs$grp == "2-year-olds"]
+```
+
+For the 3+ children the 5–12 ordering **does carry down**: accuracy falls with
+calibrated difficulty (Spearman ρ = `r round(rho_3, 2)`), and the item points
+sit along the Rasch curve at a single θ ≈ `r round(th_3, 1)` — i.e. the 3–5
+group behaves like a low-ability 5–12-scale person, which is exactly what a
+downward extension of the *same* construct should look like. For the
+2-year-olds the relation is essentially absent (ρ = `r round(rho_2, 2)`; the
+fitted θ ≈ `r round(th_2, 1)` is just the curve hugging the guessing floor):
+the calibrated difficulties don't predict what they get right, reinforcing that
+their responses aren't measuring vocabulary. The practical implication is that
+the existing en-US bank plus its calibration is a plausible starting point for
+3–5 — the CAT was already routing these children to the bank's easy tail
+(median difficulty of items seen ≈ −1.9), and the 3+ group's average
+θ ≈ `r round(th_3, 1)` sits right there — but the bank **thins out fast below
+b ≈ −3** (only 9% of the 146 en-US items; easiest −4.4). So the average
+3–5-year-old is measurable, while younger/weaker children in the band (and
+certainly the 2-year-olds, θ ≈ `r round(th_2, 1)`) fall below where items
+exist. The bank needs easier items to cover this band, and 2-year-olds need
+something other than 4-AFC picture naming.
+
 # 5. Data-quality flags to carry forward
 
 ```{r flags}
