@@ -6,6 +6,7 @@ project:
   render:
     - index.qmd
     - "0[0-9]_*.qmd"
+    - "1[0-9]_*.qmd"
     - "tasks/*.qmd"
 
 book:
@@ -31,6 +32,7 @@ book:
         - 07_rt_variability.qmd
         - 08_accuracy_variability.qmd
         - 09_longitudinal_coverage.qmd
+        - 10_downward_extension.qmd
     - part: "Task deepdives"
       chapters:
         - tasks/hearts_and_flowers.qmd
@@ -48,7 +50,11 @@ book:
         - tasks/tom_reality_check_bug.qmd
         - tasks/roar_word.qmd
         - tasks/roar_literacy.qmd
-        - tasks/mrot/mrot_item_set_compare.qmd
+        # mrot_item_set_compare needs un-versioned inputs (levante-pilots
+        # 01_fetched_data/run_data.rds + the tasks/mrot/models/item_sets registry
+        # built by fit_item_sets.R) that aren't present locally, and it has no
+        # freeze — so it can't build here. Re-enable once those exist.
+        # - tasks/mrot/mrot_item_set_compare.qmd
         - tasks/sre.qmd
     - part: "Cross-task analyses"
       chapters:
@@ -69,7 +75,13 @@ format:
     fig-height: 5.5
 
 execute:
-  freeze: auto
+  # freeze: true = a global `quarto render` / `quarto publish` reuses the frozen
+  # code outputs in _freeze/ and never re-executes chapters (prose still
+  # re-renders). Refresh a chapter's outputs by rendering it individually:
+  # `quarto render 04_differentiation.qmd`. Set to `auto` to re-execute any
+  # chapter whose source changed on a global render — but note that needs all
+  # the data caches + Redivis access on the publishing machine.
+  freeze: true
   warning: false
   message: false
 
