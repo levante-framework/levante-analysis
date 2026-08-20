@@ -565,6 +565,119 @@ vocab_h |> mutate(age_yr = floor(age)) |> group_by(age_yr, kind) |>
   ran before comparing to 5–12 data.
 - `stop_type` is entirely NA in this tranche (no early-stopping info).
 
+# 6. Official IRT scores (processed dataset)
+
+Since the first draft of this notebook, the scoring pipeline has run: the
+processed dataset **`pilot_bostonchildrens_us_main:2fj2`** (v0_1) now carries
+EAP θ scores from the calibrated models (`multigroup_dataset` Rasch/2PL for the
+core tasks; `by_language` en-US for vocab/pa). These are still **5–12-calibrated
+models applied to 2–5-year-olds** — the θs inherit every floor problem shown
+above — but they're the pipeline's official numbers.
+
+```{r scores-load}
+SC_REF <- "pilot_bostonchildrens_us_main:2fj2"; SC_VER <- "v0_1"
+sc_path <- here("data", glue("downex_boston_scores_2fj2_{SC_VER}.rds"))
+if (!file_exists(sc_path)) write_rds(levante::get_scores(glue("{SC_REF}:{SC_VER}")), sc_path)
+scores <- read_rds(sc_path) |> mutate(task = task_labels[task_id])
+
+scores |> group_by(task) |>
+  summarise(runs = n(), scored = sum(!is.na(score)),
+            few_valid_trials = sum(exclusion %in% "few_valid_trials"),
+            incomplete = sum(exclusion %in% "incomplete"),
+            no_data = sum(exclusion %in% "no_data"), .groups = "drop") |>
+  arrange(scored / runs) |>
+  knitr::kable(caption = "Scored vs excluded runs per task. Pattern Matching is almost entirely unscorable (17 few_valid_trials + 9 no_data): the downward-extension variant's items evidently don't map into the calibrated bank.")
+```
+
+```{r fig-scores, fig.height=6.5}
+sc_ok <- scores |> filter(!is.na(score)) |> group_by(task) |> filter(n() >= 5) |> ungroup()
+ggplot(sc_ok, aes(age, score)) +
+  geom_errorbar(aes(ymin = score - score_se, ymax = score + score_se), width = 0, colour = "grey60") +
+  geom_point(colour = "#268bd2") +
+  geom_smooth(method = "lm", se = FALSE, colour = "grey30") +
+  facet_wrap(~task, scales = "free_y") +
+  labs(x = "Age (years)", y = "EAP θ (5–12 scale)",
+       title = "Official IRT scores vs age",
+       subtitle = "±1 SE; linear fit. Pattern Matching omitted (1 scored run).")
+```
+
+```{r scores-checks}
+sc_hand <- sc_ok |> inner_join(run_sum |> select(run_id, acc, n_trials), by = "run_id")
+sc_hand |> group_by(task) |>
+  summarise(n = n(), r_theta_acc = cor(score, acc), r_theta_age = cor(score, age),
+            mean_se = mean(score_se, na.rm = TRUE), .groups = "drop") |>
+  knitr::kable(digits = 2, caption = "Official θ vs our hand accuracy and age; mean posterior SE")
+```
+
+The official θs track our hand scores closely everywhere (r ≈ 0.8–1.0 with
+hand accuracy) — the pipeline and the hand scoring agree about *ordering*. The
+problems are the scale and the coverage: mean posterior SEs are large
+(≈ 0.4–0.9 vs ≈ 0.3 typical in the 5–12 data), Math θ is compressed against
+the bottom of its scale (all runs between −5.3 and −1.8), and the exclusion
+rules built for 5–12 administration (≥10 valid trials) remove most of what the
+youngest children produced — so the scored subset over-represents the 3+
+band. Within it, Sentence Understanding and Same & Different θs show the
+strongest age relations (r ≈ 0.85 and 0.81).
+
+# 7. Which tasks work for 2-year-olds?
+
+The design decision this pilot feeds is **which tasks to keep for the youngest
+band**. Two views: accuracy in fine age bins, and the trial-level logistic slope
+of accuracy on age fit to children under 3.5 (the "lift-off" test — is there a
+within-band age gradient at all?).
+
+```{r task-selection}
+fine <- test |>
+  filter(!(task_id == "vocab" & corpus_trial_type == "catch")) |>
+  mutate(bin = cut(age, c(2, 2.5, 3, 3.5, 4, 5, 6), right = FALSE,
+                   labels = c("2–2.5", "2.5–3", "3–3.5", "3.5–4", "4–5", "5–6")))
+fine |> group_by(task, bin) |>
+  summarise(acc = mean(correct_hand), kids = n_distinct(user_id), .groups = "drop") |>
+  mutate(cell = glue("{sprintf('%.2f', acc)} ({kids})")) |>
+  select(task, bin, cell) |>
+  pivot_wider(names_from = bin, values_from = cell) |>
+  left_join(chance_df |> mutate(chance = round(chance, 2)), by = "task") |>
+  knitr::kable(caption = "Hand-scored accuracy (n children) by fine age bin; rightmost column = task-average chance")
+```
+
+```{r liftoff}
+liftoff <- fine |> filter(age < 3.5) |>
+  group_by(task) |> filter(n_distinct(user_id) >= 4) |>
+  group_modify(\(d, ...) {
+    co <- summary(glm(correct_hand ~ age, binomial, d))$coefficients
+    tibble(kids = n_distinct(d$user_id), trials = nrow(d),
+           slope = co[2, 1], se = co[2, 2], p = co[2, 4])
+  }) |> ungroup() |> arrange(desc(slope))
+liftoff |> mutate(across(c(slope, se), ~ round(.x, 2)), p = signif(p, 2)) |>
+  knitr::kable(caption = "Lift-off under 3.5: logistic slope of trial correctness on age (logits/year), tasks with ≥4 children under 3.5")
+```
+
+Verdict by task, for the 2s specifically:
+
+- **Vocabulary — keep.** Steep, well-estimated lift-off (+2.2 logits/yr under
+  3.5, p < .001, on 11 kids / 337 trials): 2–2.5s are at/below chance (0.19)
+  but 2.5–3s are at 0.59, and the 2–2.5s get the easy catch items
+  (bear/ball/ant) right 57% — the format works once items are easy enough; the
+  bank, not the task, is the problem.
+- **Sentence Understanding — keep.** Clear lift-off (+1.0 logits/yr,
+  p < .001); 0.31 at 2–2.5 (chance .25) rising to 0.54 by 2.5–3, on the most
+  under-3 data of any task (11–12 kids).
+- **Math — drop for 2s.** Flat under 3.5 (slope −0.4, p = .61), at chance in
+  every bin below 3.5, and the item bank has no items down there (§5).
+- **Memory (Corsi) — drop for 2s.** Complete floor: the under-3s who reached
+  test trials got literally zero sequences correct (max span 0), and most
+  young runs died before producing 10 valid trials.
+- **Hearts & Flowers — borderline, leaning drop below ~3.** Nominally the
+  steepest lift-off (+2.8 logits/yr, but on just 5 kids) and it rises *from
+  below chance* (0.21 at 2–2.5 on a 2-AFC — systematic perseveration/too-slow
+  responding, not noise); it starts working somewhere around 3.
+- **Pattern Matching — can't tell from this tranche.** Accuracy is modestly
+  above chance but age-flat under 3.5 (+0.2, p = .73), and §6 shows the
+  downward-extension variant is unscorable against the current bank — fix the
+  item mapping before judging the task.
+- **Same & Different / Shape Rotation / ROAR-Phoneme:** almost no under-3
+  data (0–1 children); no basis to judge.
+
 # Notes & next steps
 
 - **Data:** `r DS_REF` v`r DS_VER` (raw, per-site). Cached under `data/`
