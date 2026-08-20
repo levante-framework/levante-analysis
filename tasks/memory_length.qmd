@@ -1,0 +1,367 @@
+---
+title: "Memory (Corsi) — can we shorten the task?"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    fig-width: 9
+    fig-height: 5
+execute:
+  warning: false
+  message: false
+---
+
+{{< include ../_disclaimer.qmd >}}
+
+# Scope
+
+The Memory task (`memory-game`, forward + backward Corsi block span) is one
+of the longest tasks in the battery, and — because it is an untimed
+staircase — its length grows with ability. The DCC question: **can we cut
+its length, and how?** The task is not CAT; the levers are the staircase
+rules. Candidates: get to backward faster, require fewer correct
+repetitions per span length, skip staircase steps, tighten the error
+budget. Scores are IRT (multigroup Rasch, backward items simply calibrate
+as harder items on the same dimension), so shortened runs can be rescored
+on the *same* scale — the question is what we lose in precision, validity,
+and test–retest reliability.
+
+Data: `levante_data_latest:e9pf:v1_2` (2026-08 refresh; the four
+calibration datasets), model `multigroup_dataset` scalar Rasch from
+metadata v2_3. Heavy computation cached by
+[`_prep_memory_length.R`](\_prep_memory_length.R).
+
+```{r setup}
+source(here::here("common.R"))
+library(stringr)
+
+res <- read_rds(here("data/memory_length_results.rds"))
+
+mg <- read_rds(here("data/latest_r2_trials_mg.rds")) |>
+  filter(dataset %in% res$priors$group) |>
+  mutate(dir = str_extract(item_uid, "(?<=mg_)[a-z]+"),
+         grid = str_extract(item_uid, "[23]grid"),
+         len = as.integer(str_extract(item_uid, "(?<=len)[0-9]+")),
+         correct = as.logical(correct)) |>
+  filter(!is.na(correct))
+
+sc <- read_rds(here("data/levante_data_latest__v1_2__scores.rds")) |>
+  filter(task_id == "memory-game", !is.na(score))
+
+dataset_pal <- set_names(
+  RColorBrewer::brewer.pal(4, "Set1"),
+  dataset_labels_named[c("pilot_uniandes_co_bogota", "pilot_uniandes_co_rural",
+                         "pilot_mpieva_de_main", "pilot_western_ca_main")])
+label_dataset <- \(df) df |>
+  mutate(dataset_label = factor(dataset_labels_named[dataset],
+                                levels = names(dataset_pal)))
+```
+
+# 1. Task anatomy
+
+Reverse-engineered from 1,644 runs of trial data (transition probabilities,
+episode structure, block terminations):
+
+- Forward block starts at **length 2**; **+1 length after 3 consecutive
+  correct**; an error keeps you at the same length (there is no
+  step-down).
+- A block ends after **3 cumulative errors** (modern deployments; ~15% of
+  runs, mostly early task versions, show larger budgets).
+- **Backward restarts at length 2** and runs the same rule. (386 further
+  runs stop after forward — attrition across all ability levels, not a
+  rule; they are excluded above.)
+- Items calibrate as `mg_{direction}_{grid}_len{N}-{attempt}` with
+  difficulties **tied across attempts**, so each (direction, grid, length)
+  is one difficulty — a clean ~1-logit-per-rung ladder:
+
+```{r ladder}
+res$dlook |>
+  mutate(difficulty = -d) |>
+  select(dir, grid, len, difficulty) |>
+  pivot_wider(names_from = len, values_from = difficulty) |>
+  arrange(dir, grid) |>
+  knitr::kable(digits = 1, caption = "Item difficulty (logits) by direction × grid × span length. Grid (2×2 vs 3×3) is a deployment property of the run, not a within-run phase.")
+```
+
+The design consequence: **every rung costs at least 3 correct trials**, no
+matter how far below the child's span it is, and strong children pay the
+ladder twice (forward, then backward from scratch).
+
+# 2. How long is it, and for whom?
+
+```{r durations}
+dur <- mg |>
+  group_by(dataset, run_id) |>
+  summarise(mins = as.numeric(difftime(max(timestamp), min(timestamp),
+                                       units = "mins")),
+            n_tr = n(), .groups = "drop") |>
+  filter(mins < 20) |>
+  inner_join(sc |> select(run_id, score), by = "run_id") |>
+  label_dataset()
+
+dur |>
+  group_by(dataset_label) |>
+  summarise(n = n(), median_min = median(mins), q90_min = quantile(mins, .9),
+            r_duration_theta = cor(mins, score), .groups = "drop") |>
+  knitr::kable(digits = 2, caption = "Run duration (first-to-last-trial span) and its correlation with ability")
+```
+
+```{r duration-quartile}
+dur |>
+  group_by(q = ntile(score, 4)) |>
+  summarise(n = n(), median_min = median(mins), q90_min = quantile(mins, .9),
+            median_trials = median(n_tr), .groups = "drop") |>
+  knitr::kable(digits = 1, caption = "Pooled duration by ability quartile: the top quartile takes more than twice as long as the bottom")
+```
+
+```{r duration-plot, fig.height=4.5}
+dur |>
+  ggplot(aes(x = score, y = mins, color = dataset_label)) +
+  geom_point(alpha = 0.3, size = 0.8) +
+  geom_smooth(method = "lm", se = FALSE) +
+  scale_color_manual(values = dataset_pal, name = NULL) +
+  labs(x = "Memory ability (θ)", y = "Run duration (min)",
+       title = "The Memory task is a progressive tax on ability") +
+  theme(legend.position = "bottom")
+```
+
+The claim checks out: median run ≈ 4.5 min, but duration correlates
+r ≈ .5–.8 with θ within dataset; the top ability quartile has a median of
+~6 min and a 90th percentile of ~8 min — and trial timestamps stop at the
+last trial, so with instructions/practice the experienced length for those
+children is comfortably in the reported 8–10 min range.
+
+Where do the minutes go? Per-trial time is mechanical in span length
+(sequence presentation is ~1 s per element plus reproduction):
+
+```{r time-per-trial, fig.height=3.8}
+res$dt_med |>
+  ggplot(aes(x = len, y = med)) +
+  geom_line() + geom_point() +
+  labs(x = "Span length", y = "Median seconds per trial",
+       title = sprintf("Seconds per trial ≈ %.1f + %.1f × length",
+                       res$dt_coef[1], res$dt_coef[2]))
+```
+
+```{r easy-tax}
+easy <- mg |>
+  inner_join(res$full |> select(run_id, est), by = "run_id") |>
+  left_join(res$dlook, by = c("dir", "grid", "len")) |>
+  filter(!is.na(d)) |>
+  mutate(p_hat = plogis(est + d),
+         secs = res$dt_coef[1] + res$dt_coef[2] * len)
+
+easy |>
+  group_by(q = ntile(est, 4)) |>
+  summarise(pct_time_easy = sum(secs[p_hat > .9]) / sum(secs),
+            pct_time_backward_easy = sum(secs[p_hat > .9 & dir == "backward"]) /
+              sum(secs), .groups = "drop") |>
+  knitr::kable(digits = 2, caption = "Share of testing time spent on trials the child passes with >90% probability ('easy-trial tax'), by ability quartile")
+```
+
+# 3. Rescoring machinery (validation)
+
+All shortened variants are rescored with the calibrated Rasch difficulties
+and each dataset's EAP prior via direct quadrature. Full-length rescoring
+reproduces the published pipeline scores:
+
+```{r validation}
+knitr::kable(res$validation, digits = 3,
+             caption = "Quadrature EAP on full runs vs published scores")
+```
+
+And the Rasch model is well-calibrated for *simulating* responses —
+predicted vs observed accuracy by ability quintile × length:
+
+```{r calib, fig.height=4}
+res$calib |>
+  ggplot(aes(x = pred_acc, y = obs_acc, color = factor(q))) +
+  geom_abline(lty = 3) +
+  geom_point(aes(size = n), alpha = 0.7) +
+  scale_size_area(max_size = 4, guide = "none") +
+  scale_color_viridis_d(name = "θ quintile") +
+  labs(x = "Model-predicted accuracy", y = "Observed accuracy",
+       title = "Simulation validity: Rasch predictions track observed accuracy")
+```
+
+# 4. Exact replay: tightening the error budget
+
+A smaller error budget is a pure truncation of the observed data (the path
+up to the Nth error is identical under either rule), so these need no
+simulation — we rescore what children actually did.
+
+```{r replay}
+retest_pairs <- function(scored, min_gap_mo = 2) {
+  scored |>
+    inner_join(sc |> select(run_id, age), by = "run_id") |>
+    group_by(dataset, user_id) |>
+    filter(n() >= 2, !is.na(age)) |>
+    arrange(age) |>
+    summarise(gap_mo = (age[2] - age[1]) * 12,
+              t1 = est[1], t2 = est[2], .groups = "drop") |>
+    filter(gap_mo >= min_gap_mo)
+}
+
+replay_all <- bind_rows(res$full |> mutate(policy = "budget3 (current)"),
+                        res$replay)
+
+replay_summary <- replay_all |>
+  group_by(policy) |>
+  summarise(median_min = median(mins),
+            mean_se = mean(se), .groups = "drop") |>
+  left_join(
+    replay_all |>
+      inner_join(res$full |> select(run_id, full_est = est), by = "run_id") |>
+      group_by(policy) |>
+      summarise(r_with_full = cor(est, full_est), .groups = "drop"),
+    by = "policy") |>
+  left_join(
+    replay_all |>
+      group_by(policy) |>
+      group_modify(~{
+        p <- retest_pairs(.x)
+        tibble(
+          retest_de = cor(p$t1[p$dataset == "pilot_mpieva_de_main"],
+                          p$t2[p$dataset == "pilot_mpieva_de_main"]),
+          n_de = sum(p$dataset == "pilot_mpieva_de_main"),
+          stability_bogota = cor(p$t1[p$dataset == "pilot_uniandes_co_bogota"],
+                                 p$t2[p$dataset == "pilot_uniandes_co_bogota"]),
+          n_bog = sum(p$dataset == "pilot_uniandes_co_bogota"))
+      }) |> ungroup(),
+    by = "policy")
+
+knitr::kable(replay_summary, digits = 2,
+             caption = "Error-budget truncations, rescored from observed data. median_min = predicted time on the retained trials (per-trial time model); DE retest ≈ 3.6 months; Bogotá stability ≈ 16 months.")
+```
+
+# 5. Simulation: restructuring the staircase
+
+Path-changing policies are simulated from each run's full-data θ̂ using the
+calibrated difficulties (the anchor policy S0 replicates the current rules
+— compare it to the observed row to calibrate trust; policy *differences*
+within the simulation are the inference target).
+
+Policies:
+
+- **S0** current rules (anchor)
+- **S1** promote after **2** consecutive correct (not 3)
+- **S2** backward starts at length **3**
+- **S3** = S1 + S2
+- **S4** = S1 + both blocks start at length 3
+- **S5** = S1 + error budget **2** + backward starts at 3 (aggressive)
+
+```{r sims}
+sim_summary <- res$sims |>
+  group_by(policy) |>
+  summarise(median_min = median(mins), q90_min = quantile(mins, .9),
+            mean_se = mean(se), .groups = "drop") |>
+  left_join(
+    res$sims |>
+      group_by(policy, rep) |>
+      summarise(r = cor(est, theta), .groups = "drop_last") |>
+      summarise(r_with_full = mean(r), .groups = "drop"),
+    by = "policy")
+
+# simulated retest: per rep, pair each retest user's two waves
+sim_pairs <- res$sims |>
+  inner_join(sc |> select(run_id, age), by = "run_id") |>
+  group_by(policy, rep, dataset, user_id) |>
+  filter(n() >= 2, !is.na(age)) |>
+  arrange(age) |>
+  summarise(gap_mo = (age[2] - age[1]) * 12, t1 = est[1], t2 = est[2],
+            .groups = "drop") |>
+  filter(gap_mo >= 2)
+
+sim_retest <- sim_pairs |>
+  filter(dataset %in% c("pilot_mpieva_de_main", "pilot_uniandes_co_bogota")) |>
+  group_by(policy, rep, dataset) |>
+  summarise(r = cor(t1, t2), n = n(), .groups = "drop") |>
+  group_by(policy, dataset) |>
+  summarise(r = mean(r), .groups = "drop") |>
+  pivot_wider(names_from = dataset, values_from = r) |>
+  rename(sim_retest_de = pilot_mpieva_de_main,
+         sim_stability_bog = pilot_uniandes_co_bogota)
+
+sim_table <- sim_summary |> left_join(sim_retest, by = "policy")
+
+obs_row <- tibble(policy = "OBSERVED (current)",
+                  median_min = median(res$full$mins),
+                  q90_min = quantile(res$full$mins, .9),
+                  mean_se = mean(res$full$se),
+                  r_with_full = 1,
+                  sim_retest_de = replay_summary$retest_de[
+                    replay_summary$policy == "budget3 (current)"],
+                  sim_stability_bog = replay_summary$stability_bogota[
+                    replay_summary$policy == "budget3 (current)"])
+
+knitr::kable(bind_rows(obs_row, sim_table), digits = 2,
+             caption = "Simulated staircase policies. Minutes are trial time only (no instructions). The OBSERVED row uses real data; S0 is the simulation anchor — trust differences between S-rows, calibrated by S0 vs OBSERVED.")
+```
+
+```{r sim-quartile-minutes}
+res$sims |>
+  group_by(policy, q = ntile(theta, 4)) |>
+  summarise(median_min = median(mins), .groups = "drop") |>
+  pivot_wider(names_from = q, values_from = median_min,
+              names_prefix = "θ Q") |>
+  knitr::kable(digits = 1, caption = "Median simulated minutes by ability quartile: where each policy saves its time")
+```
+
+# Verdict
+
+**1. The length complaint is verified and is a tax on ability.** Duration
+correlates r ≈ .5–.8 with θ; the top ability quartile has a median of
+~6 min and a 90th percentile of ~8 min of pure trial time — with
+instructions and practice, that is the reported 8–10 minute experience.
+Top-quartile children spend **29% of their testing time on trials they
+pass with >90% probability**, mostly re-climbing rungs far below their
+span.
+
+**2. Don't touch the error budget — it is where the measurement lives.**
+The exact-replay analysis (real data, truncated and rescored) shows that
+cutting the per-block error budget from 3 to 2 saves ~27% of time but
+costs real reliability: DE 3.6-month retest drops **.58 → .48** and
+Bogotá 16-month stability **.46 → .32**. Errors are the informative
+trials — they bracket the child's ceiling where Rasch information peaks —
+and the three errors per block are most of the task's signal.
+
+**3. The fat is the promotion rule and the restarts.** In the calibrated
+simulation (anchor S0 reproduces the current rules; sim retest values are
+attenuated relative to observed — compare S-rows to each other, not to
+the observed row):
+
+- **Promote after 2 consecutive correct** (S1): −13% median time, −18%
+  at the 90th percentile; SE .50 vs .48; retest within simulation noise
+  of the anchor.
+- **Start backward at length 3** (S2): −4% overall (concentrated in
+  able kids); no reliability cost.
+- **Both, plus forward also starts at 3** (S4): **−22% median, −25% at
+  q90** (top-quartile median 5.4 → 4.0 min of trial time); SE .53 vs
+  .48; retest indistinguishable from the anchor (DE .37 vs .41,
+  Bogotá .38 vs .37 — differences within rep noise).
+- The aggressive add-on (S5: also budget 2) reaches −40% but inherits
+  the replay-demonstrated reliability cost of the smaller error budget.
+
+**Recommendation to the DCC:** adopt **S4** — advance after **2**
+consecutive correct (not 3), start **both** blocks at length **3**, keep
+the 3-error budget. Expected effect: roughly a quarter of task time
+removed, concentrated on the longest sessions (the top quartile saves
+~1.4 min of trial time; with per-trial overhead the experienced saving is
+larger), at a precision cost of ~.05 SD units of SE and no detectable
+reliability cost. If a more conservative step is preferred, S3 (promote-2
++ backward-starts-3, forward still starts at 2) yields −16%/−21% with the
+same reliability profile. Child-experience risk is low: length 3 is still
+very easy for nearly everyone (P(correct) ≈ .8 even at θ = −1), children
+below that floor produce interpretable all-error records exactly as they
+do now at length 2, and the number of *failures* a child experiences is
+governed by the error budget, which is unchanged.
+
+Two caveats. First, the simulation trusts the Rasch model's person
+homogeneity (no sequence-specific effects beyond length; the calibration
+plot in §3 supports this). Second, changing the staircase changes which
+attempt-numbered items exist, so the scoring bank needs the new
+(direction × grid × length) items mapped — trivial under the current
+tied-difficulty convention, but it should be done deliberately, and a
+recalibration pass once ~500 runs of the new form exist would confirm the
+difficulty ladder transfers.

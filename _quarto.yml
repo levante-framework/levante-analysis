@@ -37,6 +37,7 @@ book:
       chapters:
         - tasks/hearts_and_flowers.qmd
         - tasks/memory.qmd
+        - tasks/memory_length.qmd
         - tasks/same_different.qmd
         - tasks/math.qmd
         - tasks/math_item_calibration.qmd
