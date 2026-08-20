@@ -308,6 +308,75 @@ res$sims |>
   knitr::kable(digits = 1, caption = "Median simulated minutes by ability quartile: where each policy saves its time")
 ```
 
+# 6. Round 2: the team proposal, a CAT topline, and a fast-track
+
+Three further variants (simulated the same way,
+[`_prep_memory_length2.R`](\_prep_memory_length2.R)):
+
+- **S6 ramp-1 + verify** (team proposal): advance after a **single**
+  correct ("even if a learner gets lucky, they will stall at the next");
+  fail-out = 3 errors at the current length; then **2 verification trials
+  at length n−1**; both blocks start at 2.
+- **S7 CAT** (topline, deliberately infeasible UX): each trial presents
+  the maximum-information length (either direction) given the running
+  EAP, at fixed test lengths of 8/12/16 trials — the
+  information-per-minute bound that any staircase approximates.
+- **S8 fast-track**: the S4 rules, plus "if you're good at forward, get
+  to backward sooner" — clearing forward length 5 exits the forward
+  block immediately, and backward then starts at length 4.
+
+```{r sims2}
+res2_file <- here("data/memory_length_results2.rds")
+res2 <- read_rds(res2_file)
+
+all_sims <- bind_rows(res$sims |> filter(policy %in% c("S0_current",
+                                                       "S4_promote2_starts3")),
+                      res2$sims)
+
+sims2_summary <- all_sims |>
+  group_by(policy) |>
+  summarise(median_min = median(mins), q90_min = quantile(mins, .9),
+            median_trials = median(n_tr), mean_se = mean(se),
+            .groups = "drop") |>
+  left_join(all_sims |>
+              group_by(policy, rep) |>
+              summarise(r = cor(est, theta), .groups = "drop_last") |>
+              summarise(r_with_full = mean(r), .groups = "drop"),
+            by = "policy")
+
+sims2_retest <- all_sims |>
+  inner_join(sc |> select(run_id, age), by = "run_id") |>
+  group_by(policy, rep, dataset, user_id) |>
+  filter(n() >= 2, !is.na(age)) |>
+  arrange(age) |>
+  summarise(gap_mo = (age[2] - age[1]) * 12, t1 = est[1], t2 = est[2],
+            .groups = "drop") |>
+  filter(gap_mo >= 2,
+         dataset %in% c("pilot_mpieva_de_main", "pilot_uniandes_co_bogota")) |>
+  group_by(policy, rep, dataset) |>
+  summarise(r = cor(t1, t2), .groups = "drop") |>
+  group_by(policy, dataset) |>
+  summarise(r = mean(r), .groups = "drop") |>
+  pivot_wider(names_from = dataset, values_from = r) |>
+  rename(sim_retest_de = pilot_mpieva_de_main,
+         sim_stability_bog = pilot_uniandes_co_bogota)
+
+sims2_summary |>
+  left_join(sims2_retest, by = "policy") |>
+  arrange(median_min) |>
+  knitr::kable(digits = 2,
+               caption = "Round-2 policies vs the round-1 anchor (S0) and winner (S4). Same simulation caveats: compare rows to each other, not to observed values.")
+```
+
+```{r sims2-quartiles}
+all_sims |>
+  group_by(policy, q = ntile(theta, 4)) |>
+  summarise(median_min = median(mins), .groups = "drop") |>
+  pivot_wider(names_from = q, values_from = median_min,
+              names_prefix = "θ Q") |>
+  knitr::kable(digits = 1, caption = "Median simulated minutes by ability quartile, round 2")
+```
+
 # Verdict
 
 **1. The length complaint is verified and is a tax on ability.** Duration
@@ -356,6 +425,37 @@ very easy for nearly everyone (P(correct) ≈ .8 even at θ = −1), children
 below that floor produce interpretable all-error records exactly as they
 do now at length 2, and the number of *failures* a child experiences is
 governed by the error budget, which is unchanged.
+
+**4. Round-2 verdicts.**
+
+- **The ramp-on-1 proposal (S6) is measurement-neutral but
+  time-negative.** Its precision and reliability exactly match the
+  current task (SE .48, r .90, simulated retest .41/.39 — the best of any
+  variant), but it takes *longer* than the current rules (median 4.33 vs
+  3.54 min; q90 6.16 vs 5.80). The intuition — "a lucky pass stalls at
+  the next length" — is exactly right about validity, but the stall is
+  where the cost lives: under promote-on-1, the 1–2 errors a child
+  accumulates before each lucky pass count toward no budget and reset on
+  promotion, so every rung becomes a small grind, and the final fail-out
+  (3-at-length, plus 2 verification trials) happens at the child's
+  *longest, slowest* trial lengths. Time shifts from cheap short trials
+  to expensive long ones. The verification idea itself is fine — it is
+  the promote-on-1 error-reset that backfires.
+- **The CAT topline says the staircase is already near the frontier.** A
+  max-information CAT matched to current precision (16 trials: SE .47,
+  r .90, retest .41/.35) saves only ~8% of time over the current task —
+  because informative trials for able children are *long* trials, CAT
+  cannot escape the seconds-per-length physics. CAT-12 lands on
+  essentially the S4 tradeoff (SE .53, retest .37/.34, 2.44 vs 2.76 min).
+  So there is no large adaptive headroom left on the table: **S4 captures
+  most of what even an infeasible CAT could deliver.**
+- **The forward fast-track (S8) is a worthwhile optional add-on to S4.**
+  Exiting forward after clearing length 5 (backward then starts at 4)
+  specifically attacks the longest sessions: q90 falls 4.33 → 3.39 min
+  (top-quartile median 4.0 → 3.1), at a small further precision cost
+  (SE .55 vs .53) and unchanged reliability (.35/.35 vs .37/.38 — within
+  rep noise). If the DCC wants the worst-case session under ~5 minutes
+  including instructions, S4 + fast-track is the package.
 
 Two caveats. First, the simulation trusts the Rasch model's person
 homogeneity (no sequence-specific effects beyond length; the calibration
