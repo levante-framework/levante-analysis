@@ -24,6 +24,17 @@ renders are gone: all within-child slopes are now positive (e.g. Math ≈ 0.6
 figures.
 :::
 
+::: {.callout-note}
+## 2026-08 data update: rural Colombia's second wave
+The 2026-08 snapshot adds **Caquetá/Boyacá** as a fourth longitudinal dataset
+(~213 repeat kids at a ~9.6-month gap, concentrated in ROAR + Math). Its
+within-child growth is clean and — notably — **almost exactly matches the
+cross-sectional age gradient**: Math 0.45 θ/yr within vs 0.45 across, ROAR-Word
+0.47 vs 0.49, ROAR-Phoneme 0.28 vs 0.28, ROAR-Sentence 0.22 vs 0.23. Math
+repeats are CAT→CAT (no mode transition), making this the cleanest
+within-child growth replication in the project so far.
+:::
+
 # Purpose
 
 00 inventoried what data we have; 01 audited per-(site, task) data integrity
@@ -35,15 +46,18 @@ focuses on the datasets that actually have repeat assessments and asks:
 2.  Are within-individual growth rates broadly consistent with the
     cross-sectional age gradient in that dataset?
 
-We restrict attention to the three datasets with meaningful longitudinal
-signal as of the current `levante_data_latest` release:
+We restrict attention to the four datasets with meaningful longitudinal
+signal as of the 2026-08 per-site snapshot:
 
 - **Germany — Leipzig** (mpieva-de): ~3- and 7-month retest, ~226 kids.
 - **Colombia — Bogotá** (uniandes-co-bogota): ~15-month gap, ~420 kids.
-- **Canada — Ontario** (western-ca): ~12-month gap. More two-wave data in
-  v1.2 than before, but still only ~10–21 repeat kids per task, so it usually
-  falls below the ≥ 30-per-task threshold for the mixed models and mainly
-  appears in the spaghetti/cross-sectional views.
+- **Colombia — Caquetá/Boyacá** (uniandes-co-rural): **new in the 2026-08
+  update** — a ~9.6-month-gap second wave, ~213 repeat kids. Repeats are
+  concentrated in **ROAR (pa/swr/sre) and Math** (~170–210 pairs each; Math is
+  cleanly CAT→CAT); the other core tasks are still cross-sectional here.
+- **Canada — Ontario** (western-ca): ~12-month gap, still only ~10–21 repeat
+  kids per task, so it falls below the ≥ 30-per-task threshold for the mixed
+  models and mainly appears in the spaghetti/cross-sectional views.
 
 ```{r setup}
 source(here::here("common.R"))
@@ -59,6 +73,7 @@ scores_all <- read_rds(here("data", "scores_all_sites.rds"))
 ```{r long-datasets}
 long_datasets <- c("pilot_mpieva_de_main",
                    "pilot_uniandes_co_bogota",
+                   "pilot_uniandes_co_rural",
                    "pilot_western_ca_main")
 
 scores <- scores_all |>
@@ -128,6 +143,19 @@ repeats |>
   scale_color_manual(values = c(`TRUE` = "firebrick", `FALSE` = "steelblue"),
                      na.value = "grey60") +
   labs(title = "Colombia — Bogotá spaghetti (kids with ≥ 2 runs)",
+       x = "Age (years)", y = "IRT ability")
+```
+
+```{r spaghetti-co-rural, fig.height=7}
+repeats |>
+  filter(dataset == "pilot_uniandes_co_rural") |>
+  ggplot(aes(x = age, y = score, group = user_id, color = adaptive)) +
+  geom_line(alpha = 0.3) +
+  geom_point(alpha = 0.3, size = 0.6) +
+  facet_wrap(vars(task_category, task_label), scales = "free_y") +
+  scale_color_manual(values = c(`TRUE` = "firebrick", `FALSE` = "steelblue"),
+                     na.value = "grey60") +
+  labs(title = "Colombia — Caquetá/Boyacá spaghetti (kids with ≥ 2 runs; new in 2026-08)",
        x = "Age (years)", y = "IRT ability")
 ```
 

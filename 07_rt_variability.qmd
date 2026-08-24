@@ -538,7 +538,7 @@ pw <- pooled |> select(user_id, short, wave, iivz) |> pivot_wider(names_from = w
 pooled_r <- cor(pw$w1, pw$w2)
 stab |> mutate(disattenuated = test_retest/within_session) |> arrange(desc(test_retest)) |>
   mutate(across(where(is.numeric), \(x) round(x, 3))) |>
-  knitr::kable(caption = glue::glue("Longitudinal test–retest stability of RT-IIV (Leipzig + Bogotá; pooled across tasks r = {round(pooled_r,3)}, n = {nrow(pw)})"))
+  knitr::kable(caption = glue::glue("Longitudinal test–retest stability of RT-IIV (Leipzig + Colombia urban/rural; pooled across tasks r = {round(pooled_r,3)}, n = {nrow(pw)})"))
 ```
 
 ```{r stability-plot, fig.height=4.3}
@@ -554,19 +554,20 @@ stab |> select(short, `within-session (split-half)` = within_session, `across-wa
 ```
 
 RT-IIV is **partly trait-like, partly state**. Pooled across tasks the
-test–retest correlation is ≈ 0.22, and even the best tasks — Hearts & Flowers
-(0.47), Same-&-Different (0.40), ROAR-Word (0.37) — sit well below their
-within-session reliabilities (0.6–0.92). The drop is the gap between the two
+test–retest correlation is ≈ 0.24, and even the best tasks — ROAR-Word (0.55,
+now on n = 389 with rural Colombia's second wave), Hearts & Flowers (0.46),
+Same-&-Different (0.40), ROAR-Sentence (0.39) — sit well below their
+within-session reliabilities (0.6–0.93). The drop is the gap between the two
 series in the plot: a large share of a child's RT-IIV on any given day is
 **occasion-specific**, not a stable trait. Two things sharpen the read:
 
-- The **speeded tasks** (H&F, ROAR-Word) that anchored the cross-task factor
-  (§3) are again the most stable, reinforcing that the durable RT-IIV signal
-  lives there.
+- The **speeded tasks** (ROAR-Word, H&F, ROAR-Sentence) that anchored the
+  cross-task factor (§3) are again the most stable — and with the 2026-08 rural
+  retest data ROAR-Word overtakes H&F as the single most stable task.
 - Even **disattenuated** for within-session unreliability, stability tops out
-  around 0.4–0.5 — so the *true* RT-IIV trait still carries substantial
+  around 0.5–0.6 — so the *true* RT-IIV trait still carries substantial
   year-to-year change (partly real developmental change: the speeded-task gaps
-  span ~1.3 yr vs ~0.3–0.5 yr for the core tasks).
+  span ~0.8–1.3 yr vs ~0.3–0.5 yr for the core tasks).
 
 ## Do the two-factor scores hold up better?
 
@@ -595,25 +596,20 @@ fac_stab |> left_join(contrast, by = "fac") |> mutate(across(where(is.numeric), 
   knitr::kable(caption = "Two-factor RT-IIV factor-score stability vs single-task stability")
 ```
 
-Aggregation **does not help** here. The cognitive factor score (test–retest
-≈ 0.25, n = 304) only edges past the mean single cognitive task (≈ 0.20) and
-matches the best single task; the speeded factor score (≈ 0.20, n = 57) is
-actually *below* the best single speeded task (Hearts & Flowers alone, 0.47). The
-reason follows from §3: the RT-IIV factors are still only modestly intercorrelated
-(≈ 0.13–0.20), so the shared variance the factor score targets is small, and
-pooling mostly averages task-specific noise. The durable RT-IIV signal is
-**task-specific** — carried by individual high-trial speeded tasks like H&F —
-rather than by a shared RT-IIV factor.
-
-The speeded factor's small n (57) is a **coverage** artifact, not missing data:
-each speeded task individually has ~190–260 two-wave children, but the three are
-repeated in *different* longitudinal subsamples — **H&F mainly in Leipzig**
-(207 vs 52/0 in Bogotá urban/rural), **ROAR-Word/Sentence mainly in Bogotá**
-(~165 vs ~22 in Leipzig). So only 57 children have ≥ 2 speeded tasks repeated
-(511 have just one), and that composite is effectively the ROAR-Word + ROAR-Sentence
-pair in Bogotá — which is why it underperforms H&F alone (a Leipzig task absent
-from most of those 57). The four cognitive tasks are all core-battery tasks given
-together, so they co-occur within child (n = 304).
+**2026-08 update: this table reverses the June conclusion for the speeded
+factor.** In the June render only 57 children had ≥ 2 speeded tasks repeated —
+a *coverage* artifact (H&F repeats lived mainly in Leipzig, ROAR repeats in
+Bogotá-urban, and almost no child had both) — and the speeded factor score
+(≈ 0.20) sat *below* H&F alone, which we then read as "the durable RT-IIV
+signal is task-specific." Rural Colombia's second wave repairs exactly that
+coverage gap: its children repeat ROAR-Word *and* ROAR-Sentence together,
+giving **n = 224**, and the speeded factor score's stability jumps to
+**≈ 0.63 — above the best single task (ROAR-Word, 0.55)**. Aggregation *does*
+help once the tasks actually co-occur: the speeded RT-IIV factor is now the
+most stable within-child variability index in the project. The cognitive
+factor is unchanged in its verdict (factor 0.24, n = 312, vs best single task
+0.26 — no gain), consistent with §3: the durable shared variance is specific
+to the speeded cluster, not a general RT-IIV trait.
 
 # Synthesis
 
@@ -646,18 +642,19 @@ write_rds(list(summary = summ, cor_all = cmat, cor_reliable = cmatf,
   site is only ~4.6% of total IIV variance) that may reflect administration medium,
   setting, or population and cautions against treating RT-IIV as directly
   cross-site comparable.
-- **Only moderately stable over time.** Across ~1-year waves (Leipzig + Bogotá),
-  RT-IIV test–retest is ≈ 0.22 pooled (up to 0.47 for H&F) — well below its
-  within-session reliability, so much of a child's RT-IIV on a given day is
-  occasion-specific. It is *partly* trait-like, and again most so for the speeded
-  tasks. **Aggregating into the two-factor scores does not improve stability**
-  (cognitive ≈ 0.25, speeded ≈ 0.20) — because the factors are only modestly
-  intercorrelated, the durable RT-IIV signal is task-specific (esp. H&F), not
-  shared-factor.
+- **Moderately stable over time; the speeded composite is the keeper.** Across
+  ~1-year waves (Leipzig + Colombia urban/rural), RT-IIV test–retest is ≈ 0.24
+  pooled — well below within-session reliability, so much of a child's RT-IIV
+  on a given day is occasion-specific. But (2026-08 revision, with rural's
+  second wave repairing the old coverage gap) the **speeded factor score
+  (swr/sre/hf) reaches test–retest ≈ 0.63 (n = 224), above any single task** —
+  aggregation does help once the speeded tasks co-occur within child. The
+  cognitive factor still shows no aggregation gain (≈ 0.24): the durable signal
+  is the speeded cluster, not a general RT-IIV trait.
 - **Implication.** If LEVANTE wants RT-IIV as an individual-difference measure,
   the leverage is in **speeded tasks with many trials**; reading it off untimed or
   short tasks will mostly capture task-specific strategy noise. This is a sharper,
   more optimistic read than 06's flat null — purification + trial-count awareness
-  surfaces a real (if narrow) speeded-task RT-IIV factor — but its modest
-  year-to-year stability means it is better treated as a partly-stable index than
-  a fixed trait.
+  surfaces a real (if narrow) speeded-task RT-IIV factor, and (as of the 2026-08
+  data) its **composite is decently stable (≈ 0.63)** — a usable partly-stable
+  index, though still not a fixed trait.

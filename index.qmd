@@ -8,9 +8,14 @@ title: "Overview"
 
 An exploratory analysis of the **LEVANTE core-task battery** — a sequence of
 reproducible notebooks that walk from raw data validation through construct
-structure to within-child variability. Data come from `levante_data_latest` on
-Redivis (currently the bug-fixed **v1.2** release) via the `levantemodels` package;
-shared conventions, palettes, and loaders live in `common.R`.
+structure to within-child variability. Data come from the **per-site processed
+datasets** on Redivis (pinned 2026-08 snapshot — the unified
+`levante_data_latest` is still at its June v1.2 release, so the loaders bind
+the per-site datasets directly; see chapter 00) via the `levante` /
+`levantemodels` packages; shared conventions, palettes, and loaders live in
+`common.R`. The 2026-08 update adds **rural Colombia's second wave** (the
+project's third substantial longitudinal cell) and four newly-collecting
+cross-sectional sites.
 
 Each chapter computes its results inline from the data, so every number and
 figure is current with the code that produced it.
@@ -65,10 +70,11 @@ test–retest figures, and the training-vs-development comparison.
   and Canada.
 - The battery is **highly compressible** — administration time can be roughly
   halved while still recovering every construct at ≈ 0.9 determinacy.
-- **Within-child variability** is elusive: RT variability carries a real but
-  narrow, speeded-task signal (cleanest after detrending item difficulty);
-  accuracy variability, properly de-confounded, is essentially ability in
-  disguise.
+- **Within-child variability** is elusive but not empty: RT variability
+  carries a real, narrow speeded-task signal (cleanest after detrending item
+  difficulty) whose composite reaches **test–retest ≈ 0.63** with the 2026-08
+  rural retest data; accuracy variability, properly de-confounded, is
+  essentially ability in disguise.
 
 ## Reproducibility & provenance
 

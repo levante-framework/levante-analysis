@@ -121,7 +121,8 @@ dur |> select(short, minutes) |> arrange(desc(minutes)) |>
 ```
 
 ToM is by far the longest (≈10 min — it has spoken-story stimuli); ROAR-Word
-(≈8 min, 120 quick items) is next. The full 12-task battery runs ≈ **59 min**.
+(≈8 min, 120 quick items) is next. The full 12-task battery runs ≈ **55 min**
+(2026-08 durations; ≈59 min in the June render).
 
 ## The calibrated measurement model
 
@@ -263,7 +264,7 @@ bind_rows(
 ```
 
 The frontier is steep then flat: recovery climbs fast over the first ~30 minutes
-and then **barely improves** — going from 30 to 59 minutes buys < 0.04 in
+and then **barely improves** — going from 30 to 55 minutes buys < 0.04 in
 determinacy. The 2-factor (broad) target sits well above the 4-factor target, so
 if only the fluid/verbal split is needed the battery can be far shorter.
 
@@ -294,7 +295,7 @@ versions |> select(version, n, minutes, tasks) |> mutate(minutes = round(minutes
   knitr::kable(caption = "Tasks in each version")
 ```
 
-- **Full (12 tasks, ~59 min).** Recovers all four factors at 0.94–0.96.
+- **Full (12 tasks, ~55 min).** Recovers all four factors at 0.94–0.96.
 - **Minor reduction (10 tasks, ~44 min, 74% of the time).** Drops **ToM** (the
   single longest task, ≈10 min) and **Same & Different** (longest-running EF
   task with the weakest, still-provisional scoring). Recovery essentially
@@ -304,9 +305,13 @@ versions |> select(version, n, minutes, tasks) |> mutate(minutes = round(minutes
   keeps two indicators per 4-factor construct. Recovery 0.91–0.95 — reading
   takes the largest hit (0.94→0.91) because dropping ROAR-Word leaves the two
   efficiency/phoneme measures. **Halves administration time for ≈0.03 loss.**
-- **Broad screen (4 tasks, ~16 min, 26% of the time).** If only the
+- **Broad screen (4 tasks, ~14 min, 26% of the time).** If only the
   *fluid vs verbal* distinction is needed, four tasks recover both broad factors
-  at ≈0.90 — a viable rapid screener.
+  at ≈0.90 — a viable rapid screener. (2026-08 note: with the updated
+  durations/reliabilities the frontier now picks **math + sds + sre + vocab**;
+  the June render picked hf instead of sds. Treat the sds slot with caution —
+  its scoring is still provisional — hf's screener was within a hair of the
+  frontier and is the safer deployment choice.)
 
 ## What each task buys (leave-one-out)
 
@@ -347,7 +352,7 @@ write_rds(list(rel = rel, dur = dur, g2 = g2, g4 = g4,
   reasoning ≈ EF and they pool. Reading is the factor to protect when trimming —
   keep ROAR-Word if reading scores matter.
 - For triage/screening where only the broad fluid/verbal split is needed, a
-  **~16-minute four-task screener** recovers both factors at ≈ 0.90.
+  **~14-minute four-task screener** recovers both factors at ≈ 0.90.
 
 **Caveats.** Durations are median wall-clock (include instructions/pauses) for
 the deployed adaptive versions; composition-only — we did **not** model

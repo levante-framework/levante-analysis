@@ -1,10 +1,13 @@
 # levante-longitudinal
 
 Exploratory longitudinal analyses of LEVANTE core-task data, built as a
-sequence of reproducible Quarto notebooks. Data come from `levante_data_latest`
-on Redivis (currently **v1.2**, the bug-fixed release) via the `rlevante`
-package. Shared conventions, palettes, loaders, and cleaning helpers live in
-`common.R`; every notebook starts with `source(here::here("common.R"))`.
+sequence of reproducible Quarto notebooks. Data come from the **per-site
+processed datasets** on Redivis, bound at pinned versions (2026-08 snapshot;
+see `common.R::levante_site_specs`) via the `levante` package — the unified
+`levante_data_latest` is still at its June v1.2 release, so the loaders bind
+per-site datasets directly. Shared conventions, palettes, loaders, and
+cleaning helpers live in `common.R`; every notebook starts with
+`source(here::here("common.R"))`.
 
 See [`levante-meta/LEVANTE.md`](https://github.com/levante-framework/levante-data-meta/blob/main/LEVANTE.md) for cross-project LEVANTE context.
 
@@ -51,11 +54,11 @@ clearance note here current after each publish.
 
 | Notebook | What it does |
 |---|---|
-| `00_load_data.qmd` | Pull + cache `levante_data_latest` v1.2, apply cleaning, inventory by site/task/age, **log of known data issues**. Writes `data/scores_all_sites.rds` (cleaned) and `scores_raw.rds`. |
+| `00_load_data.qmd` | Pull + cache the per-site processed datasets (2026-08 snapshot: 11 datasets incl. rural Colombia's new wave 2 and four new cross-sectional sites), apply cleaning (incl. the new `exclusion` rows), inventory by site/task/age, **log of known data issues**. Writes `data/scores_all_sites.rds` (cleaned) and `scores_raw.rds`. |
 | `01_data_integrity.qmd` | Per-(site, task) audit + verdict table (`data/task_site_verdict.rds`). Adaptive/mode coverage, RTM, extreme scores, score SE. |
-| `02_growth.qmd` | Per-task longitudinal growth (LMMs) for Leipzig / Bogotá; within-child vs cross-sectional slopes. |
+| `02_growth.qmd` | Per-task longitudinal growth (LMMs) for Leipzig / Bogotá / rural Colombia (new wave 2: Math + ROAR, within-child slopes ≈ cross-sectional gradients); within-child vs cross-sectional slopes. |
 | `03_structure_invariance.qmd` | **Construct structure & measurement invariance.** Disattenuated (fixed-error) task correlations (single-indicator problem); structure comparison g/2f/3f/bifactor read propriety→BIC→fit (+ clean SEM path diagrams; ROAR-robustness 12-task check; age→latent regressions); per-site replication; site (DE+CA) and age-bin **measurement-invariance ladders**. (Previous latent-growth version preserved in `old/03_sem_growth_lgc.qmd`.) |
-| `04_differentiation.qmd` | Construct structure with the **full 13-measure set** — ROAR (reading) and MEFS (EF) treated as real measures, not validators. ESEM first (~2 factors: fluid + verbal/literacy; MEFS→fluid, ROAR→verbal), then age-differentiation (local SEM) of the **2-factor** (fluid/verbal, 03's preferred structure; fluid–verbal r falls 0.93→0.83 with age, **replicating across all four sites**, Δ 0.06–0.16), plus a shared-speed/method check. |
+| `04_differentiation.qmd` | Construct structure with the **full 13-measure set** — ROAR (reading) and MEFS (EF) treated as real measures, not validators. ESEM first (~2 factors: fluid + verbal/literacy; MEFS→fluid, ROAR→verbal), then age-differentiation (local SEM) of the **2-factor** (fluid/verbal, 03's preferred structure; fluid–verbal r falls 0.96→0.87 with age on the 2026-08 sample, **replicating across all four sites**, Δ 0.06–0.15), plus a shared-speed/method check. |
 | `05_battery_design.qmd` | **Battery-length optimization.** Combines the calibrated factor structure, per-task marginal reliabilities, and per-task durations (newest/adaptive versions) to find how well shorter task subsets recover factor scores (factor-score determinacy, Monte-Carlo validated). Enumerates the full minutes-vs-recovery frontier; defines Full / Minor / Minimal / broad-screen versions. |
 | `06_within_child_variability.qmd` | **Within-child variability (exploratory).** Extracts three naive per-child indices — RT intra-individual variability (SD log-RT), person-misfit (IRT infit), 2-wave growth deviation — assesses their reliability, then asks whether they cohere across tasks/indices and change with age. §4 adds model-based upgrades (guessing-aware person-fit via recorded `chance`; random-slope growth; RT-IIV variance-components). |
 | `07_rt_variability.qmd` | **RT-IIV deep dive.** Purifies the RT signal — the pipeline is chosen by a systematic 2⁴ sweep (§1.4: detrend by trial? all/correct? **detrend by item difficulty?** remove autocorrelation?) scored on split-half reliability + test–retest → `log RT ~ ns(trial) + difficulty×trial + site`, all trials, autocorrelation kept. Then cross-task structure (correlation + factor analysis), reliability vs trial count, **site & age differences**, and **longitudinal test–retest stability** (Leipzig + Bogotá). |
@@ -94,7 +97,7 @@ retired exploratory notebooks. Data and rendered HTML are git-ignored.
   no separate EF factor, and reasoning & EF stay fused (r≈0.92, flat with age).
   The verbal/reading domains **differentiate with age** from the fluid core *and
   from each other* (every language/reading pair falls ~0.9→0.7 across ages 7–11;
-  broad fluid–verbal 0.93→0.83). Reading relates to *g* about as much as to
+  broad fluid–verbal 0.96→0.87 on 2026-08 data). Reading relates to *g* about as much as to
   language → differential validity is weak at these ages.
 - **Within-child variability indices don't cohere — yet** (`06_within_child_variability.qmd`):
   three naive consistency indices (RT intra-individual variability, IRT person-misfit
@@ -125,11 +128,12 @@ retired exploratory notebooks. Data and rendered HTML are git-ignored.
   RT-IIV declines with age (speeded factor ≈−0.19 z/yr; untimed-cognitive only
   ≈−0.06) and is markedly higher in Bogotá (urban +0.29, rural +0.38 SD vs Leipzig,
   age-adjusted; Western ≈ Leipzig; site ~4.6% of total variance). **Longitudinal
-  stability** (~1-yr waves): test–retest r ≈ 0.22 pooled (up to 0.47 for H&F) — well
-  below within-session reliability, so RT-IIV is *partly* trait-like, most stable
-  for the speeded tasks. Aggregating into the §3 two-factor scores does **not**
-  improve stability (cognitive ≈0.25, speeded ≈0.20) — the durable RT-IIV signal is
-  task-specific (esp. H&F), not shared-factor.
+  stability** (~1-yr waves, 2026-08 data incl. rural wave 2): test–retest r ≈ 0.24
+  pooled; best single task now ROAR-Word (0.55, n=389). **2026-08 reversal:** the
+  speeded factor score (swr/sre/hf) reaches **≈ 0.63 (n=224), above any single
+  task** — June's "aggregation doesn't help" verdict was a coverage artifact
+  (only 57 kids had ≥2 speeded tasks repeated; rural's ROAR-heavy second wave
+  fixes that). The cognitive factor still shows no aggregation gain (≈0.24).
 - **Accuracy variability is ability in disguise** (`08_accuracy_variability.qmd`):
   accuracy MSSD (trial-to-trial flip rate) is reliable (≈0.44) and longitudinally
   stable (≈0.38) — but *only* because it mechanically re-encodes accuracy level

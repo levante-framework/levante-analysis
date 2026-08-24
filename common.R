@@ -55,11 +55,19 @@ scale_colour_task <- function(...) scale_colour_manual(values = task_pal, ...)
 scale_color_task  <- scale_colour_task
 scale_fill_task   <- function(...) scale_fill_manual(values = task_pal, ...)
 
-# Site palette (solarized) — mapped to internal site codes
-site_pal <- solarized_pal()(6) |>
-  rlang::set_names(c("pilot_uniandes_co", "pilot_mpieva_de",
-                     "pilot_western_ca", "partner_mpib_de",
-                     "partner_sparklab_us", "pilot_langcog_us"))
+# Site palette (solarized for the original six; manual hexes for sites added
+# in the 2026-08 data update) — mapped to internal site codes
+site_pal <- c(
+  solarized_pal()(6) |>
+    rlang::set_names(c("pilot_uniandes_co", "pilot_mpieva_de",
+                       "pilot_western_ca", "partner_mpib_de",
+                       "partner_sparklab_us", "pilot_langcog_us")),
+  rfp1_sheffield_gb        = "#7570b3",
+  rfp1_mpib_intl           = "#e7298a",
+  rfp1_utdt_intl           = "#66a61e",
+  pilot_bostonchildrens_us = "#a6761d",
+  pilot_capecoast_gh       = "#666666"
+)
 
 scale_colour_site <- function(...) {
   scale_colour_manual(values = site_pal, labels = site_labels_named, ...)
@@ -73,23 +81,33 @@ scale_fill_site  <- function(...) {
 
 # Internal site → friendly label
 site_labels_named <- c(
-  pilot_uniandes_co   = "Colombia",
-  pilot_mpieva_de     = "Germany (MPI EVA Leipzig)",
-  pilot_western_ca    = "Canada (Western)",
-  partner_mpib_de     = "Germany (MPIB Berlin)",
-  partner_sparklab_us = "US (Sparklab, downext)",
-  pilot_langcog_us    = "US (LangCog, downext)"
+  pilot_uniandes_co        = "Colombia",
+  pilot_mpieva_de          = "Germany (MPI EVA Leipzig)",
+  pilot_western_ca         = "Canada (Western)",
+  partner_mpib_de          = "Germany (MPIB Berlin)",
+  partner_sparklab_us      = "US (Sparklab, downext)",
+  pilot_langcog_us         = "US (LangCog, downext)",
+  rfp1_sheffield_gb        = "UK (Sheffield)",
+  rfp1_mpib_intl           = "Germany (MPIB, RfP1 YS)",
+  rfp1_utdt_intl           = "Argentina (UTDT, RfP1 YS)",
+  pilot_bostonchildrens_us = "US (Boston, downext)",
+  pilot_capecoast_gh       = "Ghana (Cape Coast)"
 )
 
 # dataset → finer label (preserves bogota / rural / main distinctions)
 dataset_labels_named <- c(
-  pilot_uniandes_co_bogota   = "Colombia — Bogotá",
-  pilot_uniandes_co_rural    = "Colombia — Caquetá/Boyacá",
-  pilot_mpieva_de_main       = "Germany — Leipzig",
-  pilot_western_ca_main      = "Canada — Ontario",
-  partner_mpib_de_main       = "Germany — Berlin (MPIB)",
-  partner_sparklab_us_downex = "US — Sparklab (downext)",
-  pilot_langcog_us_downex    = "US — LangCog (downext)"
+  pilot_uniandes_co_bogota      = "Colombia — Bogotá",
+  pilot_uniandes_co_rural       = "Colombia — Caquetá/Boyacá",
+  pilot_mpieva_de_main          = "Germany — Leipzig",
+  pilot_western_ca_main         = "Canada — Ontario",
+  partner_mpib_de_main          = "Germany — Berlin (MPIB)",
+  partner_sparklab_us_downex    = "US — Sparklab (downext)",
+  pilot_langcog_us_downex       = "US — LangCog (downext)",
+  rfp1_sheffield_gb_main        = "UK — Sheffield",
+  rfp1_mpib_intl_ys             = "Germany — MPIB (RfP1 YS)",
+  rfp1_utdt_intl_ys             = "Argentina — UTDT (RfP1 YS)",
+  pilot_bostonchildrens_us_main = "US — Boston Children's (downext)",
+  pilot_capecoast_gh_main       = "Ghana — Cape Coast"
 )
 
 # task_id → short label + category + display label
@@ -120,17 +138,111 @@ core_task_ids <- c(
 )
 
 # ---- Data loading -----------------------------------------------------------
+#
+# DATA SOURCE SWITCH (2026-08 update): `levante_data_latest` is still at v1_2
+# (June snapshot; 4 data-rich sites, 2 waves) — the months of new data live
+# only in the per-site *processed* datasets. The loaders below therefore
+# default to `version = "sites-2026-08"`, which binds the per-site datasets in
+# `levante_site_specs` (pinned versions, pulled 2026-08-24). Pass
+# version = "v1_2" to reproduce the old unified-dataset pull.
 
-#' Load the unified LEVANTE scores dataset (levante_data_latest), with
-#' on-disk cache.
+# Per-site processed datasets + pinned versions for the 2026-08 snapshot.
+# Datasets with a processed release but zero scored rows as of the pull
+# (capecoast, sheffield_intl_ys, utdt_ar_main) are listed in 00's prose but
+# excluded here. `site` backfills the NA site column in the newest processing.
+levante_site_specs <- tibble::tribble(
+  ~name,                                ~version, ~site,
+  "pilot_mpieva_de_main:8wjx",          "v3_2",  "pilot_mpieva_de",
+  "pilot_uniandes_co_bogota:d0c5",      "v4_3",  "pilot_uniandes_co",
+  "pilot_uniandes_co_rural:bxgv",       "v5_0",  "pilot_uniandes_co",
+  "pilot_western_ca_main:bgcj",         "v3_3",  "pilot_western_ca",
+  "partner_mpib_de_main:6bvk",          "v3_4",  "partner_mpib_de",
+  "rfp1_mpib_intl_ys:cqyz",             "v1_0",  "rfp1_mpib_intl",
+  "rfp1_sheffield_gb_main:3pzs",        "v1_0",  "rfp1_sheffield_gb",
+  "rfp1_utdt_intl_ys:csvh",             "v1_1",  "rfp1_utdt_intl",
+  "pilot_bostonchildrens_us_main:2fj2", "v1_0",  "pilot_bostonchildrens_us",
+  "pilot_langcog_us_downex:d3f2",       "v3_5",  "pilot_langcog_us",
+  "partner_sparklab_us_downex:4090",    "v3_5",  "partner_sparklab_us"
+)
+levante_sites_snapshot <- "2026-08-24"
+
+#' Load scores bound across the per-site processed datasets (2026-08 snapshot).
+#' Post-processing: backfill NA `site` from the spec; drop the ToM placeholder
+#' rows (each theory-of-mind run carries an all-NA duplicate row in the new
+#' processing — upstream quirk, flagged in 00); attach labels.
+load_levante_scores_sites <- function(refresh = FALSE, cache_dir = here("data")) {
+  dir_create(cache_dir)
+  cache_path <- file.path(cache_dir, glue("scores_sites_{levante_sites_snapshot}.rds"))
+  if (refresh || !file_exists(cache_path)) {
+    pulls <- purrr::pmap(levante_site_specs, \(name, version, site)
+      levante::get_scores(name, version = version))
+    write_rds(bind_rows(pulls), cache_path)
+  }
+  read_rds(cache_path) |>
+    left_join(levante_site_specs |> select(dataset_stub = name, site_spec = site) |>
+                mutate(dataset_stub = sub(":.*", "", dataset_stub)),
+              by = c("dataset" = "dataset_stub")) |>
+    mutate(site = coalesce(site, site_spec)) |>
+    select(-site_spec) |>
+    group_by(run_id, task_id) |>
+    filter(!(n() > 1 & is.na(score_type) & is.na(score))) |>
+    ungroup() |>
+    label_levante_scores()
+}
+
+#' Load trials for given tasks from the per-site processed datasets
+#' (2026-08 snapshot). Per-dataset pulls are cached under
+#' data/trials_sites_<snapshot>/<dataset>.rds; a per-task slice cache makes
+#' repeated task-specific loads fast.
+load_levante_trials_sites <- function(task_ids = NULL, refresh = FALSE,
+                                      cache_dir = here("data")) {
+  trials_dir <- file.path(cache_dir, glue("trials_sites_{levante_sites_snapshot}"))
+  dir_create(trials_dir)
+  key <- if (is.null(task_ids)) "all" else paste(sort(task_ids), collapse = "-")
+  slice_path <- file.path(trials_dir, glue("bytask_{substr(digest::digest(key), 1, 8)}.rds"))
+  if (!refresh && file_exists(slice_path)) return(read_rds(slice_path))
+
+  per_ds <- purrr::pmap(levante_site_specs, \(name, version, site) {
+    stub <- sub(":.*", "", name)
+    path <- file.path(trials_dir, paste0(stub, ".rds"))
+    if (refresh || !file_exists(path)) {
+      write_rds(levante::get_trials(name, version = version), path)
+    }
+    out <- read_rds(path)
+    if (!is.null(task_ids)) out <- out |> filter(task_id %in% task_ids)
+    if (!"site" %in% names(out)) out <- out |> mutate(site = site)
+    out |> mutate(site = coalesce(site, !!site))
+  })
+  # Normalize to the v1_2 unified trials schema: the newest per-site
+  # processing adds columns (language, team, task_version, adaptive) that the
+  # unified table never had; downstream notebooks join scores-side language
+  # etc. onto trials, so carrying them here causes .x/.y suffix collisions.
+  unified_cols <- c("redivis_source","site","dataset","task_id","user_id",
+                    "run_id","trial_id","trial_number","item_uid","item_task",
+                    "item_group","item","correct","original_correct","rt",
+                    "rt_numeric","response","response_type","item_original",
+                    "answer","distractors","chance","difficulty",
+                    "theta_estimate","theta_se","timestamp")
+  res <- bind_rows(per_ds) |>
+    select(any_of(unified_cols)) |>
+    label_levante_scores()
+  write_rds(res, slice_path)
+  res
+}
+
+#' Load the unified LEVANTE scores dataset, with on-disk cache.
 #'
 #' @param refresh re-download even if cached
-#' @param version Redivis version qualifier; defaults to v1_2 (corrected scores; v1.0 had the
-#'        documented in the levantemodels warning. Use "current" to always pull
-#'        the latest.
+#' @param version "sites-2026-08" (default) binds the per-site processed
+#'        datasets (see `levante_site_specs`); "v1_2" reproduces the June
+#'        unified `levante_data_latest` pull; "current" pulls the latest
+#'        unified release.
 load_levante_scores <- function(refresh = FALSE,
-                                version = "v1_2",
+                                version = "sites-2026-08",
                                 cache_dir = here("data")) {
+  if (version == "sites-2026-08") {
+    return(load_levante_scores_sites(refresh = refresh, cache_dir = cache_dir))
+  }
   dir_create(cache_dir)
   cache_path <- file.path(cache_dir,
                           glue("levante_data_latest__{version}__scores.rds"))
@@ -149,16 +261,21 @@ load_levante_scores <- function(refresh = FALSE,
   out
 }
 
-#' Load trial-level data for one task (or all tasks) from
-#' levante_data_latest. The full trials table is ~280 MB so we cache it
-#' once and slice by task on demand.
+#' Load trial-level data for one task (or all tasks). Default source is the
+#' per-site processed datasets (2026-08 snapshot); pass version = "v1_2" for
+#' the old unified pull. The unified trials table is ~280 MB so it is cached
+#' once and sliced by task on demand.
 #'
 #' @param task_ids character vector of task_ids to keep, or NULL for all
 #' @param refresh re-download even if cached
-#' @param version Redivis version qualifier (default "v1_2"; v1.0 was pre-bugfix)
+#' @param version "sites-2026-08" (default) or a levante_data_latest qualifier
 load_levante_trials <- function(task_ids = NULL, refresh = FALSE,
-                                version = "v1_2",
+                                version = "sites-2026-08",
                                 cache_dir = here("data")) {
+  if (version == "sites-2026-08") {
+    return(load_levante_trials_sites(task_ids = task_ids, refresh = refresh,
+                                     cache_dir = cache_dir))
+  }
   dir_create(cache_dir)
   cache_path <- file.path(cache_dir,
                           glue("levante_data_latest__{version}__trials.rds"))

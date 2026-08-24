@@ -132,7 +132,7 @@ ld_emerg |>
   scale_x_continuous(breaks = 7:11) + coord_cartesian(ylim = c(0.75, 1)) +
   labs(x = "Focal age (years)", y = "Fluid–verbal correlation",
        title = "The two abilities differentiate with age",
-       subtitle = "Fluid–verbal correlation falls from ≈ 0.93 (age 7) to ≈ 0.83 (age 11)")
+       subtitle = "Fluid–verbal correlation falls from ≈ 0.96 (age 7) to ≈ 0.87 (age 11)")
 ```
 
 ```{r losem-tab}
@@ -142,7 +142,9 @@ ld_emerg |> filter(focal_age %in% c(7, 9, 11)) |>
 ```
 
 The fluid and verbal abilities **differentiate with age**: their correlation
-falls from ≈ 0.93 at age 7 to ≈ 0.83 at age 11. So even the two broad,
+falls from ≈ 0.96 at age 7 to ≈ 0.87 at age 11 (June render: 0.93 → 0.83 —
+the 2026-08 rural addition raises the overall level of integration but leaves
+the decline intact). So even the two broad,
 heavily-correlated dimensions pull apart as children get older — the
 developmental de-correlation (Spearman's "law of diminishing returns") is visible
 at the coarsest level of structure. And per `03` this is **structural, not
@@ -243,7 +245,7 @@ big picture is unchanged and now better-anchored:
 | ≈ **two** correlated dimensions, not three | ESEM: fluid (incl. MEFS) + verbal/literacy (incl. ROAR), r ≈ 0.67 |
 | Reasoning & EF do **not** separate | fused at r ≈ 0.92, flat across all ages; no distinct EF factor in ESEM |
 | External measures behave as theory predicts | MEFS → fluid side (.59); ROAR reading → verbal/literacy side (.49–.84) |
-| Dimensions **differentiate with age** | fluid–verbal correlation falls 0.93→0.83 (age 7→11); structural, not loading drift (03); replicates across sites (Δ 0.06–0.16) |
+| Dimensions **differentiate with age** | fluid–verbal correlation falls 0.96→0.87 (age 7→11, 2026-08 data); structural, not loading drift (03); replicates across sites (Δ 0.06–0.15) |
 | g-loading is substantive | not a site-mean effect (03), not a speed artifact (§3) |
 
 The battery, at these ages, measures a **strong fluid/executive ability and a

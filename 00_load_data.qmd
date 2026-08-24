@@ -1,5 +1,5 @@
 ---
-title: "00 — Load data from levante-data-latest"
+title: "00 — Load data (per-site processed datasets, 2026-08 snapshot)"
 format:
   html:
     toc: true
@@ -17,17 +17,30 @@ execute:
 # Purpose
 
 This notebook is the entry point for the LEVANTE longitudinal analysis
-project. It downloads the unified `levante_data_latest` dataset from Redivis,
-caches it locally, attaches LEVANTE-standard labels and palettes, and then
-summarizes:
+project. It downloads the scores data from Redivis, caches it locally,
+attaches LEVANTE-standard labels and palettes, and then summarizes:
 
 - which sites have data (and how much),
 - which tasks are covered at each site/dataset,
 - age distributions,
 - longitudinal coverage (how many children have repeat assessments).
 
-Most non-pilot sites are early in data collection, so many will have little
-or no data — that's expected.
+**Data source (2026-08 update).** The unified `levante_data_latest` dataset is
+still at v1_2 (a June snapshot), but months of new data have since landed in
+the **per-site processed datasets** — so the loaders now bind those directly
+(`common.R::levante_site_specs`, pinned versions, pulled
+2026-08-24). Relative to the June snapshot, the changes are precisely:
+**Caquetá/Boyacá (rural Colombia) gained its second wave** — +2,016 scored
+rows, +89 children, and repeat child×task pairs up from **32 to 811** (median
+gap ~9.6 months) — and four newly-collecting sites appear: UK (Sheffield),
+Germany (MPIB RfP1 young sample), Argentina (UTDT young sample), and Boston
+Children's (downward extension; see chapter 10), all cross-sectional so far
+(~1,100 scored rows total). **Bogotá, Leipzig, and Western are unchanged** —
+their apparent raw-row growth is entirely unscoreable ghost rows now marked by
+the `exclusion` column. Cape Coast, Sheffield intl-YS, and UTDT-AR have
+processed datasets but no scored rows yet. The per-site scores were also
+**re-scored with newer models** (registry v2_3 vs v1_14) — see *Known data
+issues*.
 
 ```{r setup}
 source(here::here("common.R"))
@@ -51,7 +64,12 @@ through 02 / 03 / `tasks/` notebooks. See the "Known data issues" section
 at the bottom of this notebook for the full justification.
 
 ```{r cleaning}
+# New in the 2026-08 per-site processing: an `exclusion` column marks runs the
+# pipeline could not score (no_data / incomplete / few_valid_trials /
+# duplicate). These rows carry no score; dropping them is what un-inflates the
+# handful of rural kids that otherwise show 8-10 "runs" of one task.
 basic_cleaned <- scores_raw |>
+  filter(is.na(exclusion)) |>
   filter(!is.na(age), age >= 2, age <= 14) |>
   filter(is.na(score) | (score > -8 & score < 8))
 
@@ -208,6 +226,29 @@ glue("Saved {nrow(scores)} cleaned score rows ({nrow(scores_raw)} raw) from {nro
 
 # Known data issues
 
+## 2026-08 data-update notes (per-site processed datasets)
+
+New issues observed in the per-site processing that the loaders / cleaning
+handle, plus one substantive change to be aware of:
+
+- **Re-scored with updated models (registry v2_3 vs June's v1_14) — an
+  intentional, across-the-board scoring-model update (confirmed by the DCC).**
+  On overlapping runs, new-vs-old scores correlate r ≥ 0.99 for most tasks but
+  **r = 0.88 for Theory of Mind** and **r = 0.94 for Hearts & Flowers** (max
+  per-run |Δθ| up to ~3 logits) — the largest shifts, plausibly including the
+  ToM item-identity repairs documented in `tasks/tom_reality_check_bug`.
+  Task-level ToM conclusions from June (the `tasks/` ToM chapters) predate the
+  re-scoring and should be re-checked before being quoted.
+- **ToM placeholder rows:** every theory-of-mind run carries an all-NA
+  duplicate row; `load_levante_scores_sites()` drops them (912 rows).
+- **`site` is NA** in the newest processing for rural, Sheffield, and Boston;
+  backfilled from `levante_site_specs`.
+- **`exclusion` column** replaces silent row absence for unscoreable runs
+  (dropped in cleaning above; 1,167 rows).
+- The per-site scores tables now carry `time_started`/`time_finished` for
+  recently-processed datasets (rural, Sheffield, Boston) but not yet for the
+  older ones.
+
 **Now on `levante_data_latest` v1.2 (corrected).** The major IRT
 column-order scoring bug we found (see `reports/rlevante_handoff.md`) has been
 fixed in levantemodels and the data re-released; we verified v1.2 published scores
@@ -299,10 +340,12 @@ LGC with metric invariance, which is identified.
 
 # Notes
 
-- `levante_data_latest` rolls the bogota and rural Colombia samples together
-  under `site = pilot_uniandes_co` but keeps them separable via `dataset`.
-  We carry both labels (`site_label`, `dataset_label`) downstream.
-- We use Redivis version qualifier `v1_0` — bump in `common.R` when a new
-  release lands.
+- The bogota and rural Colombia samples share `site = pilot_uniandes_co` but
+  stay separable via `dataset`. We carry both labels (`site_label`,
+  `dataset_label`) downstream.
+- Data come from the per-site processed datasets pinned in
+  `common.R::levante_site_specs` (snapshot 2026-08-24) — update the specs and
+  the snapshot constant when new versions land, or pass `version = "v1_2"` to
+  the loaders to reproduce the June unified pull.
 - Compare what we see here to <https://levante-framework.github.io/levante-datapage/>
   as a sanity check on the inventory.

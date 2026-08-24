@@ -143,11 +143,14 @@ lavInspect(fits[["3-factor"]], "cor.lv")[c("reasoning","ef","language"), c("reas
 The **bifactor is improper** (a Heywood case — its specific factors
 collapse/explode), itself a finding: *beyond g, domain-specific variance is
 negligible.* Among the **proper** models the **2-factor (fluid/verbal) is
-BIC-preferred** (BIC 25638 vs 3-factor 25657 vs g 25708) and ties the 3-factor on
-fit (CFI ≈ 0.95) — the third factor does not earn its parsimony cost. And the
-3-factor's factors are near-collinear (reasoning–EF ≈ 0.96). So the honest read
-is **a dominant general factor with ~two weakly-separable domains** ("g plus
-modest domains"), consistent with 04's ESEM. We carry the proper candidates
+BIC-preferred** (BIC 27947 vs 3-factor 27968 vs g 28023, on the 2026-08
+N = 2,151 sample) and ties the 3-factor on fit (CFI ≈ 0.91) — the third factor
+does not earn its parsimony cost. And the 3-factor's factors are near-collinear
+(reasoning–EF ≈ 0.99). So the honest read is **a dominant general factor with
+~two weakly-separable domains** ("g plus modest domains"), consistent with
+04's ESEM. (Relative to the June render — N = 2,063, BIC 25638/25657/25708,
+reasoning–EF 0.96 — the added rural children left the model ordering intact
+and made the fluid factors *more* collinear.) We carry the proper candidates
 (g / 2-factor / 3-factor) into the invariance tests.
 
 The three proper candidates as path diagrams (standardized loadings, pooled

@@ -502,7 +502,22 @@ verdict <- tribble(
   "Colombia — Bogotá",       "Stories (ToM)",         "DROP",     "Zero T2 data (cross-sectional only).",
   "Colombia — Bogotá",       "ROAR-Sentence",         "OK",       "n≈165 with repeats; raw scale stable.",
   "Colombia — Bogotá",       "ROAR-Word",             "OK",       "Engagement filter applied (accuracy<.4 or median RT<500ms); floor cases are genuine non-readers.",
-  "Colombia — Bogotá",       "ROAR-Phoneme",          "OK",       "Clean."
+  "Colombia — Bogotá",       "ROAR-Phoneme",          "OK",       "Clean.",
+
+  # Caquetá/Boyacá (rural Colombia) — wave 2 landed in the 2026-08 update.
+  # Repeats concentrate in ROAR + Math; other tasks are cross-sectional so far.
+  "Colombia — Caquetá/Boyacá", "Math",                 "OK",       "2026-08: 204 repeat pairs, cleanly CAT→CAT (mode-stable); mind EAP shrinkage.",
+  "Colombia — Caquetá/Boyacá", "ROAR-Word",            "OK",       "2026-08: 201 repeat pairs, non-adaptive both waves; engagement filter applied.",
+  "Colombia — Caquetá/Boyacá", "ROAR-Sentence",        "OK",       "2026-08: 174 repeat pairs; raw (guessing-adjusted) scale, non-IRT.",
+  "Colombia — Caquetá/Boyacá", "ROAR-Phoneme",         "OK",       "2026-08: 210 repeat pairs, the largest ROAR-Phoneme longitudinal cell anywhere.",
+  "Colombia — Caquetá/Boyacá", "Sentence Understanding","CAVEAT",  "Only 6 repeat pairs so far — cross-sectional for now.",
+  "Colombia — Caquetá/Boyacá", "Vocabulary",           "CAVEAT",   "Only 4 repeat pairs so far — cross-sectional for now.",
+  "Colombia — Caquetá/Boyacá", "Stories (ToM)",        "CAVEAT",   "Cross-sectional; also re-scored under registry v2_3 (see 00).",
+  "Colombia — Caquetá/Boyacá", "Memory",               "DROP",     "Same release-notes scoring flag as Bogotá; 2 repeat pairs.",
+  "Colombia — Caquetá/Boyacá", "Same and Different",   "CAVEAT",   "Scoring update pending; cross-sectional.",
+  "Colombia — Caquetá/Boyacá", "Hearts and Flowers",   "CAVEAT",   "4 repeat pairs; cross-sectional for now.",
+  "Colombia — Caquetá/Boyacá", "Pattern Matching",     "CAVEAT",   "5 repeat pairs; cross-sectional for now.",
+  "Colombia — Caquetá/Boyacá", "Shape Rotation",       "CAVEAT",   "1 repeat pair; cross-sectional for now."
 )
 
 verdict |>
@@ -550,7 +565,18 @@ drop_short_runs <- function(scores, min_attempted = 5) {
 write_rds(verdict, here("data", "task_site_verdict.rds"))
 ```
 
-# Summary (v1.2)
+# Summary (v1.2, updated for the 2026-08 per-site snapshot)
+
+**2026-08 update.** The audit now runs on the per-site processed datasets
+(see 00). What's new for integrity purposes: (a) **rural Colombia's second
+wave** — repeats concentrate in ROAR (pa/swr/sre) + Math, with Math cleanly
+CAT→CAT (no mode transition to worry about), while the other core tasks remain
+cross-sectional there; (b) the new sites (Sheffield, MPIB-YS, UTDT-YS, Boston)
+are single-wave, so no growth verdicts yet — their rows will be added when
+repeats land; (c) scores were **re-scored under registry v2_3** — ToM changed
+most (r = 0.88 vs June scores), so ToM-specific conclusions should be
+re-validated; (d) unscoreable runs now arrive as explicit `exclusion` rows
+(dropped in 00's cleaning) rather than being silently absent.
 
 With the column-order scoring bug fixed upstream, most tasks are now **OK** —
 the large mode-confound caveats from the v1.0 audit were the bug, not the
