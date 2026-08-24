@@ -20,9 +20,11 @@ Re-run on `levante_data_latest` **v1.2** (IRT column-order scoring bug fixed).
 The large adaptive/non-adaptive **mode shifts** this audit originally flagged
 were mostly that bug: they have collapsed from ~+2.4 (Leipzig Math) and +1.1
 (Vocab) to < 0.75 logits across the board. The "OK-mode" cautions below are
-therefore much less pressing; the genuinely remaining issues are Memory & Same-
-and-Different scoring (release notes), ROAR-Word non-engagement, and a small
-residual EAP-shrinkage difference across the mode boundary.
+therefore much less pressing. As of 2026-08 the Memory and Same-&-Different
+scoring concerns are also resolved (Memory: grid handled, switch-test passes —
+tasks/memory §4; SDS: corrected scoring landed in registry v2_3, final). The
+genuinely remaining issues are ROAR-Word non-engagement and a small residual
+EAP-shrinkage difference across the mode boundary.
 :::
 
 # Purpose
@@ -51,8 +53,9 @@ Concerns originally flagged from the v1.0 spaghetti plots — math/vocab
 out to be **overwhelmingly the column-order scoring bug** (see
 `reports/rlevante_handoff.html`). On v1.2 they have collapsed (mode shifts now
 < 0.75 logits). What this audit now isolates are the *genuinely* remaining
-issues: Memory & Same-and-Different scoring (release notes), ROAR-Word
-non-engagement, and the unflagged `adaptive` rows.
+issues: ROAR-Word non-engagement and the unflagged `adaptive` rows (the
+Memory and Same-&-Different scoring flags were resolved in 2026-08 — see the
+verdict table).
 
 ```{r setup}
 source(here::here("common.R"))
@@ -479,8 +482,8 @@ verdict <- tribble(
   ~dataset_label,            ~task_label,             ~status,    ~notes,
   # Leipzig
   "Germany — Leipzig",       "Hearts and Flowers",    "OK",       "Always non-adaptive at both waves; clean.",
-  "Germany — Leipzig",       "Memory",                "DROP",     "Release notes: scoring issue (2x2 vs 3x3 grid). Awaiting re-release.",
-  "Germany — Leipzig",       "Same and Different",    "CAVEAT",   "Release notes: scoring update pending.",
+  "Germany — Leipzig",       "Memory",                "OK",       "2026-08: DROP lifted. Grid is a calibrated item dimension, and the wave-1→2 grid switch shows continuous within-child θ (tasks/memory §4). Do not use raw sumscores across grids.",
+  "Germany — Leipzig",       "Same and Different",    "OK",       "2026-08: corrected scoring landed (registry v2_3, DCC-confirmed final).",
   "Germany — Leipzig",       "Pattern Matching",      "OK",       "v1.2: bug fixed. Minor residual mode shift (+0.73); note T2>T1 training concern.",
   "Germany — Leipzig",       "Shape Rotation",        "OK",       "v1.2: bug fixed. Residual mode shift small.",
   "Germany — Leipzig",       "Math",                  "OK",       "v1.2: bug fixed; non-adapt−adapt shift now +0.30 (was +2.4). Mild EAP shrinkage across mode boundary.",
@@ -492,8 +495,8 @@ verdict <- tribble(
 
   # Bogotá
   "Colombia — Bogotá",       "Hearts and Flowers",    "OK",       "Always non-adaptive.",
-  "Colombia — Bogotá",       "Memory",                "DROP",     "Release notes scoring issue + observed super-low scores.",
-  "Colombia — Bogotá",       "Same and Different",    "DROP",     "Zero T2 data + release-notes scoring flag.",
+  "Colombia — Bogotá",       "Memory",                "OK",       "2026-08: DROP lifted (see tasks/memory §4); super-low scores were the v1.0 bug. Sumscores not comparable across grids — use θ.",
+  "Colombia — Bogotá",       "Same and Different",    "OK-mode",  "2026-08: corrected scoring landed (final). Still zero T2 at Bogotá — cross-sectional use only.",
   "Colombia — Bogotá",       "Pattern Matching",      "OK",       "v1.2: bug fixed. Residual mode shift −0.40.",
   "Colombia — Bogotá",       "Shape Rotation",        "OK",       "v1.2: bug fixed.",
   "Colombia — Bogotá",       "Math",                  "OK",       "v1.2: bug fixed; the apparent 'RTM' was the bug. Two-wave kids are NA→CAT, so mind mild EAP shrinkage.",
@@ -513,8 +516,8 @@ verdict <- tribble(
   "Colombia — Caquetá/Boyacá", "Sentence Understanding","CAVEAT",  "Only 6 repeat pairs so far — cross-sectional for now.",
   "Colombia — Caquetá/Boyacá", "Vocabulary",           "CAVEAT",   "Only 4 repeat pairs so far — cross-sectional for now.",
   "Colombia — Caquetá/Boyacá", "Stories (ToM)",        "CAVEAT",   "Cross-sectional; also re-scored under registry v2_3 (see 00).",
-  "Colombia — Caquetá/Boyacá", "Memory",               "DROP",     "Same release-notes scoring flag as Bogotá; 2 repeat pairs.",
-  "Colombia — Caquetá/Boyacá", "Same and Different",   "CAVEAT",   "Scoring update pending; cross-sectional.",
+  "Colombia — Caquetá/Boyacá", "Memory",               "CAVEAT",   "2026-08: scoring concern resolved (tasks/memory §4) but only 2 repeat pairs — cross-sectional for now.",
+  "Colombia — Caquetá/Boyacá", "Same and Different",   "CAVEAT",   "2026-08: corrected scoring landed (final); cross-sectional so far.",
   "Colombia — Caquetá/Boyacá", "Hearts and Flowers",   "CAVEAT",   "4 repeat pairs; cross-sectional for now.",
   "Colombia — Caquetá/Boyacá", "Pattern Matching",     "CAVEAT",   "5 repeat pairs; cross-sectional for now.",
   "Colombia — Caquetá/Boyacá", "Shape Rotation",       "CAVEAT",   "1 repeat pair; cross-sectional for now."
@@ -582,11 +585,14 @@ With the column-order scoring bug fixed upstream, most tasks are now **OK** —
 the large mode-confound caveats from the v1.0 audit were the bug, not the
 data. Three genuinely-remaining issues survive:
 
-1. **Memory (`memory-game`) — DROP.** Release notes flag a scoring issue
-   (2×2 vs 3×3 grid complexity not modeled); reinforced by super-low Bogotá
-   scores. Awaiting the next scoring update.
-2. **Same & Different (`same-different-selection`) — CAVEAT/DROP.** Scoring
-   update pending (release notes); also zero T2 at Bogotá.
+1. **Memory (`memory-game`) — DROP lifted (2026-08).** Grid is a calibrated
+   item dimension, and the Leipzig wave-1→2 grid switch shows continuous
+   within-child θ while raw sumscores visibly break (tasks/memory §4). Use θ,
+   never cross-grid sumscores. The old super-low Bogotá scores were the v1.0
+   bug.
+2. **Same & Different — resolved (2026-08).** Corrected scoring landed in
+   registry v2_3 (DCC-confirmed final). Still zero T2 at Bogotá →
+   cross-sectional there.
 3. **ROAR-Word non-engagement — handled in cleaning.** A subset of runs floor
    at θ = −6: ~17 are rushers (median RT < 500 ms), the rest genuine
    near-chance non-readers. `00` applies the filter (accuracy < 0.4 OR median

@@ -125,21 +125,127 @@ Item accuracies correlate **r ≈ 0.90** across the two sites — the difficulty
 accuracy), but that is a level difference (sample/age), not disorder or noise
 in the measure.
 
-# Verdict
+# 4. 2026-08 update: run-level comparability — sumscores vs IRT, and the grid question sharpened
+
+Sections 1–3 established that grid is a calibrated item dimension. But the
+sharper comparability question is at the **run level**: in practice, **runs are
+pure-grid** — a child gets an all-2×2 or an all-3×3 administration (only 4
+mixed runs among ~2,000), and grid assignment differs by site and wave (rural
+Colombia is ~99% 3×3; Leipzig and Bogotá are split). So no child ever links
+the two grids *within* a run, and cross-grid comparability rests entirely on
+the scoring model. Here we test it against model-free sumscores, exploiting
+the task's **staircase** design: every run starts at length 2 and stops
+upward, so a span level the child never reached can be scored as failed —
+"imputing zeros for unreached steps" gives ladder scores that are well-defined
+across runs of different lengths.
+
+```{r run-scores}
+tr2 <- load_levante_trials(task_ids = "memory-game") |>
+  filter(!is.na(item_uid), str_detect(item_uid, "^mg_")) |>
+  mutate(direction = str_extract(item_uid, "forward|backward"),
+         grid = str_extract(item_uid, "2grid|3grid"),
+         len = as.integer(str_extract(item_uid, "(?<=len)[0-9]+")),
+         correct = as.numeric(correct)) |>
+  filter(len <= 7)
+
+rs <- tr2 |> group_by(dataset, user_id, run_id) |>
+  summarise(grid = names(sort(table(grid), decreasing = TRUE))[1],
+            ntr = n(), ncorr = sum(correct, na.rm = TRUE), .groups = "drop")
+# ladder score: a (direction, length) level counts as passed with >=2 correct;
+# levels never reached count 0 automatically (staircase imputation)
+lev <- tr2 |> group_by(run_id, direction, len) |>
+  summarise(pass = sum(correct, na.rm = TRUE) >= 2, .groups = "drop") |>
+  group_by(run_id) |> summarise(levels_passed = sum(pass), .groups = "drop")
+span <- tr2 |> filter(correct == 1) |> group_by(run_id, direction) |>
+  summarise(mx = max(len), .groups = "drop") |>
+  group_by(run_id) |> summarise(maxspan = mean(mx), .groups = "drop")
+
+mem <- read_rds(here::here("data/scores_all_sites.rds")) |>
+  filter(task_id == "memory-game", !is.na(score)) |>
+  select(run_id, user_id, dataset, dataset_label, age, score, score_se) |>
+  inner_join(rs |> select(run_id, grid, ntr, ncorr), by = "run_id") |>
+  left_join(lev, by = "run_id") |> left_join(span, by = "run_id")
+
+mem |> group_by(dataset_label, grid) |>
+  summarise(runs = n(), mean_age = mean(age), .groups = "drop") |>
+  pivot_wider(names_from = grid, values_from = c(runs, mean_age)) |>
+  knitr::kable(digits = 1, caption = "Scored memory runs by grid × dataset — runs are pure-grid, and assignment is site- and wave-structured")
+```
+
+## 4.1 Sumscores vs IRT θ
+
+```{r sum-vs-theta}
+cors <- function(d) tibble(
+  n = nrow(d),
+  total_correct = cor(d$score, d$ncorr),
+  levels_passed = cor(d$score, d$levels_passed),
+  max_span = cor(d$score, d$maxspan, use = "pair"))
+bind_rows(pooled = cors(mem), `2×2 runs` = cors(mem |> filter(grid == "2grid")),
+          `3×3 runs` = cors(mem |> filter(grid == "3grid")), .id = "scope") |>
+  knitr::kable(digits = 3, caption = "Correlation of IRT θ with model-free sumscores")
+```
+
+Within 3×3 runs, θ is nearly a rescaling of the sumscores (r ≈ 0.96); within
+2×2 runs the correlation with total-correct is lower (r ≈ 0.75; max-span does
+better at 0.92), reflecting the 2×2 form's compressed range and its
+concentration in the younger/earlier administrations. Ordering-wise, the model
+and the ladder agree.
+
+## 4.2 The empirical grid test: Leipzig's wave-1→2 grid switch
+
+Leipzig switched most children from 2×2 (wave 1) to 3×3 (wave 2) at a ~5-month
+gap, while 42 children stayed 3×3→3×3 — a natural experiment for the model's
+cross-grid linkage. If the linkage were wrong, the switchers would show a step
+in θ relative to the stayers.
+
+```{r switch}
+lw <- mem |> filter(dataset == "pilot_mpieva_de_main") |>
+  group_by(user_id) |> arrange(age) |> mutate(wave = row_number(), nw = n()) |>
+  filter(nw >= 2, wave <= 2) |> ungroup()
+sw <- lw |> select(user_id, wave, grid, score, levels_passed, maxspan, age) |>
+  pivot_wider(names_from = wave, values_from = c(grid, score, levels_passed, maxspan, age)) |>
+  filter(!is.na(score_2)) |>
+  mutate(path = paste0(str_sub(grid_1, 1, 1), "→", str_sub(grid_2, 1, 1)),
+         d_theta = score_2 - score_1, d_levels = levels_passed_2 - levels_passed_1,
+         d_span = maxspan_2 - maxspan_1, gap = age_2 - age_1)
+sw |> group_by(path) |> filter(n() > 5) |>
+  summarise(n = n(), gap_yr = mean(gap), `Δ θ` = mean(d_theta),
+            `Δ levels` = mean(d_levels), `Δ max-span` = mean(d_span), .groups = "drop") |>
+  knitr::kable(digits = 2, caption = "Within-child change across Leipzig waves, by grid path")
+```
+
+The sumscores expose their own non-comparability across the switch: **max-span
+*drops* (−0.4) while levels-passed *jumps* (+2.2)** for the same children —
+raw ladder scores mean different things on different boards. **θ, by contrast,
+moves smoothly**: switchers gain ≈ +0.15 over ~5 months while 3×3-stayers gain
+≈ +0.01 over ~3 months — both consistent with modest within-year WM growth and
+with each other (≈ +0.3–0.4 θ/yr vs ≈ 0), with no step at the grid boundary.
+The model's grid linkage passes the one empirical test the data afford.
+
+One caveat stands: at matched levels-passed, pooled θ differs by grid by more
+than the ~0.3-logit item offsets alone would imply — but that comparison
+confounds grid with site and with the per-dataset EAP priors (2×2 runs live
+disproportionately in Leipzig/Bogotá wave 1). The switcher test above is the
+cleaner read, and it is reassuring.
+
+# Verdict (updated 2026-08)
 
 - **Memory is well-behaved on corrected data.** Difficulty is cleanly ordered
   by span length, backward > forward, and the structure replicates across
   sites (r ≈ 0.90).
-- **The "2×2 vs 3×3" concern is already handled** — grid is a separate item
-  dimension with its own calibrated difficulties, so scoring is not blind to
-  it. The 3×3 penalty (~+0.3 logits) is captured.
-- This supports the hypothesis that **the earlier Memory problems were the
-  column-order scoring bug, not the grid issue.** With v1.2, the task looks
-  usable.
-- **Recommendation:** revisit the DROP verdict — Memory appears suitable for
-  growth/SEM on corrected data. (One housekeeping edge case: a few `len8`
-  trials exist in the data but were not calibrated and show ~0% accuracy;
-  exclude them.)
+- **The "2×2 vs 3×3" concern is handled at both levels.** Grid is a separate
+  calibrated item dimension (§2), and — the sharper run-level question — the
+  model's cross-grid linkage passes the Leipzig wave-1→2 switch test (§4.2):
+  within-child θ is continuous across the grid change while raw sumscores
+  visibly are not. Sumscores and θ agree on ordering (r ≈ 0.88–0.96).
+- **Do not substitute raw sumscores across grids** — max-span and
+  ladder-total move in opposite directions across a grid switch; if a
+  model-free score is ever needed, it must be within-grid only.
+- **Recommendation: lift the DROP.** Memory appears suitable for growth/SEM
+  on the current (registry v2_3) scores. Residual caveats: the pooled
+  grid-offset at matched sumscore partly reflects per-dataset EAP priors (not
+  a pure item effect), and a few uncalibrated `len8` trials should be
+  excluded.
 
 ```{r save}
 write_rds(ip, here::here("data", "memory_item_difficulties.rds"))

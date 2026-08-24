@@ -319,13 +319,15 @@ known property of EAP (see the EAP-vs-WLE discussion); not a bug. Every
 two-wave Bogotá math kid is still non-adaptive at T1 → CAT at T2, so interpret
 those θ deltas with the residual shrinkage in mind.
 
-**4. Memory task scoring (release notes).** The data release notes call out
-Memory scoring as having known issues (grid size 2×2 vs 3×3 not accounted
-for) and recommend not using until the next release. 01_data_integrity
-flags this as DROP in the verdict table.
+**4. Memory task scoring — RESOLVED (2026-08).** The release-notes concern
+(grid size 2×2 vs 3×3) is handled: grid is a calibrated item dimension, and
+the Leipzig wave-1→2 grid switch shows continuous within-child θ while raw
+sumscores break across grids (`tasks/memory` §4). 01 now marks Memory OK;
+the operational rule is *use θ, never cross-grid sumscores*.
 
-**5. Same & Different scoring (release notes).** Will be updated in the next
-data release. Treated as CAVEAT for this analysis pass.
+**5. Same & Different scoring — RESOLVED (2026-08).** The corrected scoring
+landed in the registry v2_3 re-scoring and is final per the DCC. 01 upgrades
+SDS to OK (OK-mode at Bogotá, which still has no T2).
 
 **6. Pattern Matching / Sentence Understanding training effects.** Both
 show systematic T2 > T1 within mode-stable subsets per the release notes.
