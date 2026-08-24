@@ -553,6 +553,49 @@ stab |> select(short, `within-session (split-half)` = within_session, `across-wa
   theme(legend.position = "bottom")
 ```
 
+## Test–retest by site
+
+The same wave-1 vs wave-2 pairs, split by site. Two things are visible at
+once: **the speeded tasks (blue) are the stable ones at every site** (r ≈
+0.3–0.5, vs ≈ 0.1–0.2 for the untimed tasks), and **rural Colombia's second
+wave adds a large new mass of speeded pairs at the top of that range**
+(speeded r ≈ 0.51) — which is what moves the aggregate stability numbers, and
+what makes the speeded factor-score composite (next section) finally
+computable on a real sample.
+
+```{r stability-site-scatter, fig.height=4.6, fig.width=10.5}
+site_lbl <- c(pilot_mpieva_de_main = "Germany — Leipzig",
+              pilot_uniandes_co_bogota = "Colombia — Bogotá (urban)",
+              pilot_uniandes_co_rural = "Colombia — Caquetá/Boyacá (rural)")
+speeded_set <- c("swr", "sre", "hf")
+pw_site <- pooled |>
+  select(user_id, dataset, short, wave, iivz) |>
+  pivot_wider(names_from = wave, values_from = iivz, names_prefix = "w") |>
+  filter(!is.na(w1), !is.na(w2)) |>
+  mutate(site = factor(site_lbl[dataset], levels = site_lbl),
+         cluster = if_else(short %in% speeded_set, "speeded (swr/sre/hf)", "untimed-cognitive"))
+site_r <- pw_site |> group_by(site) |>
+  summarise(n = n(), r = cor(w1, w2),
+            n_speeded = sum(cluster != "untimed-cognitive"),
+            r_speeded = cor(w1[cluster != "untimed-cognitive"], w2[cluster != "untimed-cognitive"]),
+            .groups = "drop")
+ggplot(pw_site, aes(w1, w2)) +
+  geom_abline(slope = 1, intercept = 0, colour = "grey75", lty = 3) +
+  geom_point(aes(colour = cluster), alpha = 0.45, size = 1.1) +
+  geom_smooth(method = "lm", se = FALSE, colour = "grey25", linewidth = 0.7) +
+  geom_text(data = site_r, aes(x = -2.1, y = 3.4,
+            label = glue::glue("r = {round(r, 2)} (n = {n})\nspeeded r = {round(r_speeded, 2)} (n = {n_speeded})")),
+            hjust = 0, size = 3.1) +
+  facet_wrap(~site) +
+  scale_colour_manual(values = c(`speeded (swr/sre/hf)` = "#268bd2",
+                                 `untimed-cognitive` = "#93a1a1"), name = NULL) +
+  coord_equal(xlim = c(-2.3, 3.7), ylim = c(-2.3, 3.7)) +
+  labs(x = "RT-IIV, wave 1 (z within task)", y = "RT-IIV, wave 2 (z within task)",
+       title = "RT-IIV test–retest by site: the speeded tasks are the stable ones everywhere",
+       subtitle = "Each point = one child × task; purified RT-IIV; ~1-year gap (rural ≈ 9.6 mo)") +
+  theme(legend.position = "bottom")
+```
+
 RT-IIV is **partly trait-like, partly state**. Pooled across tasks the
 test–retest correlation is ≈ 0.24, and even the best tasks — ROAR-Word (0.55,
 now on n = 389 with rural Colombia's second wave), Hearts & Flowers (0.46),
