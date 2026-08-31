@@ -1,5 +1,5 @@
 ---
-title: "10 — Downward extension (Boston Children's, ages 2–5): first look at the raw data"
+title: "10 — Downward extension (Boston Children's, ages 2–5): hand scores, official scores, and task selection"
 format:
   html:
     toc: true
@@ -16,11 +16,13 @@ execute:
 
 # Purpose
 
-The **very first tranche** of downward-extension data — Boston Children's
-Hospital (Nelson site), children aged **2–5**, piloting the LEVANTE core tasks
-below the 5–12 range they were built for. There are **no validated scoring
-models** for this age band yet, so this is the **raw** per-site dataset
-(`pilot_bostonchildrens_us_main_raw:7e6c`, pinned to **v4_26**), not
+Downward-extension data from Boston Children's Hospital (Nelson site) —
+children aged **2–5**, piloting the LEVANTE core tasks below the 5–12 range
+they were built for. **Updated 2026-08-31**: the sample has grown to **44
+children / 378 runs** (from 31/228 in the first June–August tranche), with
+collection through Aug 29. There are still **no validated scoring models** for
+this age band, so hand-scoring uses the **raw** per-site dataset
+(`pilot_bostonchildrens_us_main_raw:7e6c`, pinned to **v5_0**), not
 `levante_data_latest`.
 
 Two aims: **(A) hand-score** the tasks from trial-level correctness with simple,
@@ -34,7 +36,7 @@ library(tidyverse)
 library(patchwork)
 
 DS_REF <- "pilot_bostonchildrens_us_main_raw:7e6c"
-DS_VER <- "v4_26"
+DS_VER <- "v5_0"
 
 # Raw tables are cached to data/ (git-ignored); pull via levante::get_raw_table()
 # if a cache is missing. Pinned to DS_VER for reproducibility.
@@ -502,15 +504,15 @@ rho_all <- gs$rho[gs$grp == "all ages (2–5)"]; rho_3 <- gs$rho[gs$grp == "3+"]
 th_3 <- gs$theta[gs$grp == "3+"]; th_2 <- gs$theta[gs$grp == "2-year-olds"]
 ```
 
-For the 3+ children the 5–12 ordering **does carry down**: accuracy falls with
+For the 3+ children the 5–12 ordering **carries down**: accuracy falls with
 calibrated difficulty (Spearman ρ = `r round(rho_3, 2)`), and the item points
-sit along the Rasch curve at a single θ ≈ `r round(th_3, 1)` — i.e. the 3–5
-group behaves like a low-ability 5–12-scale person, which is exactly what a
-downward extension of the *same* construct should look like. For the
-2-year-olds the relation is essentially absent (ρ = `r round(rho_2, 2)`; the
-fitted θ ≈ `r round(th_2, 1)` is just the curve hugging the guessing floor):
-the calibrated difficulties don't predict what they get right, reinforcing that
-their responses aren't measuring vocabulary. The practical implication is that
+sit along the Rasch curve at a single θ ≈ `r round(th_3, 1)` — the 3–5 group
+behaves like a low-ability 5–12-scale person, which is what a downward
+extension of the *same* construct should look like. For the 2-year-olds the
+relation is much weaker (ρ = `r round(rho_2, 2)`, fitted θ ≈
+`r round(th_2, 1)` near the guessing floor) — **but with the larger sample it
+is no longer zero** (the June tranche gave ρ ≈ −0.16): the oldest/most-engaged
+2-year-olds are starting to show the same ordering. The practical implication is that
 the existing en-US bank plus its calibration is a plausible starting point for
 3–5 — the CAT was already routing these children to the bank's easy tail
 (median difficulty of items seen ≈ −1.9), and the 3+ group's average
@@ -542,12 +544,14 @@ vocab_h |> mutate(age_yr = floor(age)) |> group_by(age_yr, kind) |>
   the `<10 test trials` rule removes many 2-year-old runs — for this age band
   the validity floor itself needs re-thinking (a 2-year-old's 8 valid trials
   may be the whole point).
-- **2-year-olds are at chance on nearly everything** (Vocabulary, Sentence
-  Understanding, Math), and they **fail the Vocabulary catch trials** (≈ 57%
-  vs ≥ 95% from age 3) — so much of the 2-year-old data reflects
-  non-engagement/incomprehension rather than measured ability. Catch-trial
-  accuracy is a usable engagement gate; some 2-year-olds also tap through 60+
-  Sentence-Understanding trials at chance (§3.1).
+- **2–2.5-year-olds sit at chance on the core tasks** (Vocabulary 0.26,
+  Sentence Understanding 0.31, Math at/below chance) and pass the Vocabulary
+  catch trials only ≈ 50% (vs ≈ 90–100% from age 3) — much of the *youngest*
+  data reflects partial engagement rather than measured ability. But the
+  2026-08 sample softens the June picture: by **2.5–3** every language/
+  reasoning task clears chance (Vocab 0.49, TROG 0.46, Matrix 0.51, SDS
+  0.74), so the practical cut for the current battery is ~2.5, not 3.
+  Catch-trial accuracy remains a usable engagement gate.
 - **CAT item banks are calibrated for 5–12**: the top of the routing behaves
   sensibly (Subtraction / Multiplication reached only 5-year-olds), but the
   bank has **no floor for this band** — Addition items reach 2-year-olds yet
@@ -568,14 +572,16 @@ vocab_h |> mutate(age_yr = floor(age)) |> group_by(age_yr, kind) |>
 # 6. Official IRT scores (processed dataset)
 
 Since the first draft of this notebook, the scoring pipeline has run: the
-processed dataset **`pilot_bostonchildrens_us_main:2fj2`** (v0_1) now carries
-EAP θ scores from the calibrated models (`multigroup_dataset` Rasch/2PL for the
-core tasks; `by_language` en-US for vocab/pa). These are still **5–12-calibrated
-models applied to 2–5-year-olds** — the θs inherit every floor problem shown
-above — but they're the pipeline's official numbers.
+processed dataset **`pilot_bostonchildrens_us_main:2fj2`** (unreleased draft,
+pulled 2026-08-31) now carries
+EAP θ scores from the calibrated models for **42 of the 44 children**
+(`multigroup_dataset` Rasch/2PL for the core tasks; `by_language` en-US for
+vocab/pa). These are still **5–12-calibrated models applied to
+2–5-year-olds** — the θs inherit every floor problem shown above — but they're
+the pipeline's official numbers.
 
 ```{r scores-load}
-SC_REF <- "pilot_bostonchildrens_us_main:2fj2"; SC_VER <- "v0_1"
+SC_REF <- "pilot_bostonchildrens_us_main:2fj2"; SC_VER <- "next-2026-08-31"
 sc_path <- here("data", glue("downex_boston_scores_2fj2_{SC_VER}.rds"))
 if (!file_exists(sc_path)) write_rds(levante::get_scores(glue("{SC_REF}:{SC_VER}")), sc_path)
 scores <- read_rds(sc_path) |> mutate(task = task_labels[task_id])
@@ -586,7 +592,7 @@ scores |> group_by(task) |>
             incomplete = sum(exclusion %in% "incomplete"),
             no_data = sum(exclusion %in% "no_data"), .groups = "drop") |>
   arrange(scored / runs) |>
-  knitr::kable(caption = "Scored vs excluded runs per task. Pattern Matching is almost entirely unscorable (17 few_valid_trials + 9 no_data): the downward-extension variant's items evidently don't map into the calibrated bank.")
+  knitr::kable(caption = "Scored vs excluded runs per task. Pattern Matching remains ~unscorable (4 of 50 runs; 26 few_valid_trials + 15 no_data): the downward-extension variant's items don't map into the calibrated bank.")
 ```
 
 ```{r fig-scores, fig.height=6.5}
@@ -654,40 +660,44 @@ liftoff |> mutate(across(c(slope, se), ~ round(.x, 2)), p = signif(p, 2)) |>
 
 Verdict by task, for the 2s specifically:
 
-- **Vocabulary — keep.** Steep, well-estimated lift-off (+2.2 logits/yr under
-  3.5, p < .001, on 11 kids / 337 trials): 2–2.5s are at/below chance (0.19)
-  but 2.5–3s are at 0.59, and the 2–2.5s get the easy catch items
-  (bear/ball/ant) right 57% — the format works once items are easy enough; the
-  bank, not the task, is the problem.
-- **Sentence Understanding — keep.** Clear lift-off (+1.0 logits/yr,
-  p < .001); 0.31 at 2–2.5 (chance .25) rising to 0.54 by 2.5–3, on the most
-  under-3 data of any task (11–12 kids).
-- **Math — drop for 2s.** Flat under 3.5 (slope −0.4, p = .61), at chance in
-  every bin below 3.5, and the item bank has no items down there (§5).
+- **Vocabulary — keep.** Clear lift-off (+1.4 logits/yr under 3.5, p < .001,
+  now on 16 kids / 891 trials): 2–2.5s sit at chance (0.26) but 2.5–3s are at
+  0.49, and 2-year-olds pass the easy catch items at 50% vs 25% chance — the
+  format works once items are easy enough; the bank, not the task, is the
+  problem.
+- **Sentence Understanding — keep.** Clear lift-off (+1.4 logits/yr,
+  p < .001); 0.31 at 2–2.5 (chance .25) rising to 0.46 by 2.5–3, on the most
+  under-3 data of any task (17 kids under 3.5).
+- **Math — drop for 2s.** Still the clearest negative: slope −0.8 (p = .26)
+  under 3.5, at/below chance in every bin below 3.5, and the item bank has no
+  items down there (§5).
 - **Memory (Corsi) — drop for 2s.** Complete floor: the under-3s who reached
   test trials got literally zero sequences correct (max span 0), and most
   young runs died before producing 10 valid trials.
-- **Hearts & Flowers — borderline, leaning drop below ~3.** Nominally the
-  steepest lift-off (+2.8 logits/yr, but on just 5 kids) and it rises *from
-  below chance* (0.21 at 2–2.5 on a 2-AFC — systematic perseveration/too-slow
-  responding, not noise); it starts working somewhere around 3.
-- **Pattern Matching — can't tell from this tranche.** Accuracy is modestly
-  above chance but age-flat under 3.5 (+0.2, p = .73), and §6 shows the
-  downward-extension variant is unscorable against the current bank — fix the
-  item mapping before judging the task.
-- **Same & Different / Shape Rotation / ROAR-Phoneme:** almost no under-3
-  data (0–1 children); no basis to judge.
+- **Hearts & Flowers — borderline, leaning drop below ~3.** Lift-off is real
+  (+0.9 logits/yr, p = .004, 13 kids) but rises *from below chance* (0.33 at
+  2–2.5 on a 2-AFC — systematic perseveration/too-slow responding, not
+  noise); it doesn't clear chance until ~3.5.
+- **Pattern Matching — behaviorally promising, blocked by scoring
+  (changed verdict).** With the larger sample the downward-extension variant
+  shows clear lift-off (+1.3 logits/yr, p = .004; chance 0.25 at 2–2.5 →
+  0.51 at 2.5–3) — but §6 shows it is still ~unscorable against the current
+  bank (4 of 50 runs). Calibrating the downex items is now clearly worth it.
+- **Same & Different — promising from ~2.5 (changed verdict).** Now has
+  under-3 data (10 kids): lift-off +1.2 logits/yr (p = .003), 0.42 at 2–2.5
+  (chance ≈ 0.30) rising to 0.74 at 2.5–3.
+- **Shape Rotation / ROAR-Phoneme:** still almost no under-3 data; no basis
+  to judge.
 
 # Notes & next steps
 
-- **Data:** `r DS_REF` v`r DS_VER` (raw, per-site). Cached under `data/`
+- **Data:** `r DS_REF` `r DS_VER` (raw, per-site) + the unreleased processed draft (pulled 2026-08-31). Cached under `data/`
   (git-ignored). Two *other* downward-extension raw datasets exist on Redivis
   — `pilot_langcog_us_downex_raw:a6kb` (Stanford) and
   `partner_sparklab_us_downex_raw:4n9e` — natural comparison sets once the
   Boston picture is clear.
-- **This notebook is not wired into the public book** (`_quarto.yml` renders
-  `0[0-9]_*.qmd` only): unreleased raw child data with age/sex at N = 31.
-  Adding it to the published book is a deliberate decision, not a default.
+- **In the published book** (since 2026-08-17, by explicit decision); sample
+  now N = 44.
 - **Next:** (i) decide a validity floor appropriate for 2–5; (ii) look at
   practice-trial performance as an engagement gate; (iii) once ≥ 2 sites of
   downward-extension data exist, item-level difficulty for a 2–5 bank; (iv)

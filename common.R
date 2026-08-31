@@ -65,6 +65,7 @@ site_pal <- c(
   rfp1_sheffield_gb        = "#7570b3",
   rfp1_mpib_intl           = "#e7298a",
   rfp1_utdt_intl           = "#66a61e",
+  rfp1_utdt_ar             = "#1b9e77",
   pilot_bostonchildrens_us = "#a6761d",
   pilot_capecoast_gh       = "#666666"
 )
@@ -90,6 +91,7 @@ site_labels_named <- c(
   rfp1_sheffield_gb        = "UK (Sheffield)",
   rfp1_mpib_intl           = "Germany (MPIB, RfP1 YS)",
   rfp1_utdt_intl           = "Argentina (UTDT, RfP1 YS)",
+  rfp1_utdt_ar             = "Argentina (UTDT)",
   pilot_bostonchildrens_us = "US (Boston, downext)",
   pilot_capecoast_gh       = "Ghana (Cape Coast)"
 )
@@ -106,6 +108,7 @@ dataset_labels_named <- c(
   rfp1_sheffield_gb_main        = "UK — Sheffield",
   rfp1_mpib_intl_ys             = "Germany — MPIB (RfP1 YS)",
   rfp1_utdt_intl_ys             = "Argentina — UTDT (RfP1 YS)",
+  rfp1_utdt_ar_main             = "Argentina — UTDT (main)",
   pilot_bostonchildrens_us_main = "US — Boston Children's (downext)",
   pilot_capecoast_gh_main       = "Ghana — Cape Coast"
 )
@@ -150,21 +153,30 @@ core_task_ids <- c(
 # Datasets with a processed release but zero scored rows as of the pull
 # (capecoast, sheffield_intl_ys, utdt_ar_main) are listed in 00's prose but
 # excluded here. `site` backfills the NA site column in the newest processing.
+# 2026-08-31 snapshot: pulled from each dataset's UNRELEASED "next" draft
+# (that is where the newest data lives — the released versions lag). The cache
+# rds files are therefore the reproducibility anchor, not the version tags;
+# data/scores_sites_2026-08-31_meta.csv records what was pulled.
 levante_site_specs <- tibble::tribble(
   ~name,                                ~version, ~site,
-  "pilot_mpieva_de_main:8wjx",          "v3_2",  "pilot_mpieva_de",
-  "pilot_uniandes_co_bogota:d0c5",      "v4_3",  "pilot_uniandes_co",
-  "pilot_uniandes_co_rural:bxgv",       "v5_0",  "pilot_uniandes_co",
-  "pilot_western_ca_main:bgcj",         "v3_3",  "pilot_western_ca",
-  "partner_mpib_de_main:6bvk",          "v3_4",  "partner_mpib_de",
-  "rfp1_mpib_intl_ys:cqyz",             "v1_0",  "rfp1_mpib_intl",
-  "rfp1_sheffield_gb_main:3pzs",        "v1_0",  "rfp1_sheffield_gb",
-  "rfp1_utdt_intl_ys:csvh",             "v1_1",  "rfp1_utdt_intl",
-  "pilot_bostonchildrens_us_main:2fj2", "v1_0",  "pilot_bostonchildrens_us",
-  "pilot_langcog_us_downex:d3f2",       "v3_5",  "pilot_langcog_us",
-  "partner_sparklab_us_downex:4090",    "v3_5",  "partner_sparklab_us"
+  "pilot_mpieva_de_main:8wjx",          "next",  "pilot_mpieva_de",
+  "pilot_uniandes_co_bogota:d0c5",      "next",  "pilot_uniandes_co",
+  "pilot_uniandes_co_rural:bxgv",       "next",  "pilot_uniandes_co",
+  "pilot_western_ca_main:bgcj",         "next",  "pilot_western_ca",
+  "partner_mpib_de_main:6bvk",          "next",  "partner_mpib_de",
+  "rfp1_mpib_intl_ys:cqyz",             "next",  "rfp1_mpib_intl",
+  "rfp1_sheffield_gb_main:3pzs",        "next",  "rfp1_sheffield_gb",
+  "rfp1_utdt_intl_ys:csvh",             "next",  "rfp1_utdt_intl",
+  "rfp1_utdt_ar_main:2b4m",             "next",  "rfp1_utdt_ar",
+  "pilot_bostonchildrens_us_main:2fj2", "next",  "pilot_bostonchildrens_us",
+  "pilot_langcog_us_downex:d3f2",       "next",  "pilot_langcog_us",
+  "partner_sparklab_us_downex:4090",    "next",  "partner_sparklab_us"
 )
-levante_sites_snapshot <- "2026-08-24"
+levante_sites_snapshot <- "2026-08-31"
+# Trials stay on the 2026-08-24 released-version pulls (re-pulling ~500MB of
+# draft trials was not needed for the scores-level chapters); the ROAR-Word
+# engagement filter therefore covers runs through 08-24 only.
+levante_trials_snapshot <- "2026-08-24"
 
 #' Load scores bound across the per-site processed datasets (2026-08 snapshot).
 #' Post-processing: backfill NA `site` from the spec; drop the ToM placeholder
@@ -178,7 +190,9 @@ load_levante_scores_sites <- function(refresh = FALSE, cache_dir = here("data"))
       levante::get_scores(name, version = version))
     write_rds(bind_rows(pulls), cache_path)
   }
-  read_rds(cache_path) |>
+  out <- read_rds(cache_path)
+  if (!"site" %in% names(out)) out$site <- NA_character_
+  out |>
     left_join(levante_site_specs |> select(dataset_stub = name, site_spec = site) |>
                 mutate(dataset_stub = sub(":.*", "", dataset_stub)),
               by = c("dataset" = "dataset_stub")) |>
@@ -196,7 +210,7 @@ load_levante_scores_sites <- function(refresh = FALSE, cache_dir = here("data"))
 #' repeated task-specific loads fast.
 load_levante_trials_sites <- function(task_ids = NULL, refresh = FALSE,
                                       cache_dir = here("data")) {
-  trials_dir <- file.path(cache_dir, glue("trials_sites_{levante_sites_snapshot}"))
+  trials_dir <- file.path(cache_dir, glue("trials_sites_{levante_trials_snapshot}"))
   dir_create(trials_dir)
   key <- if (is.null(task_ids)) "all" else paste(sort(task_ids), collapse = "-")
   slice_path <- file.path(trials_dir, glue("bytask_{substr(digest::digest(key), 1, 8)}.rds"))

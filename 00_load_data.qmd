@@ -1,5 +1,5 @@
 ---
-title: "00 — Load data (per-site processed datasets, 2026-08 snapshot)"
+title: "00 — Load data (per-site processed datasets, 2026-08-31 draft snapshot)"
 format:
   html:
     toc: true
@@ -25,22 +25,27 @@ attaches LEVANTE-standard labels and palettes, and then summarizes:
 - age distributions,
 - longitudinal coverage (how many children have repeat assessments).
 
-**Data source (2026-08 update).** The unified `levante_data_latest` dataset is
-still at v1_2 (a June snapshot), but months of new data have since landed in
-the **per-site processed datasets** — so the loaders now bind those directly
-(`common.R::levante_site_specs`, pinned versions, pulled
-2026-08-24). Relative to the June snapshot, the changes are precisely:
-**Caquetá/Boyacá (rural Colombia) gained its second wave** — +2,016 scored
-rows, +89 children, and repeat child×task pairs up from **32 to 811** (median
-gap ~9.6 months) — and four newly-collecting sites appear: UK (Sheffield),
-Germany (MPIB RfP1 young sample), Argentina (UTDT young sample), and Boston
-Children's (downward extension; see chapter 10), all cross-sectional so far
-(~1,100 scored rows total). **Bogotá, Leipzig, and Western are unchanged** —
-their apparent raw-row growth is entirely unscoreable ghost rows now marked by
-the `exclusion` column. Cape Coast, Sheffield intl-YS, and UTDT-AR have
-processed datasets but no scored rows yet. The per-site scores were also
-**re-scored with newer models** (registry v2_3 vs v1_14) — see *Known data
-issues*.
+**Data source (2026-08-31 update, presentation snapshot).** The unified
+`levante_data_latest` dataset is still at v1_2 (June); the loaders bind the
+**per-site processed datasets** directly, and this snapshot pulls each
+dataset's **unreleased "next" draft** — the absolute newest processed data
+(`common.R::levante_site_specs`; the cached rds is the reproducibility anchor
+since drafts are mutable; provenance in
+`data/scores_sites_2026-08-31_meta.csv`). Relative to the June release this
+adds, cumulatively: **rural Colombia's second wave** (repeat child×task pairs
+32 → 1,239; ~9.6-month gap, led by ROAR + Math);
+**Leipzig's third wave, which began arriving 2026-08-29** — 39 children
+re-tested on the full battery through Aug 30, already scored in the draft
+(**167 three-wave child×task cells**, the project's first); **Argentina (UTDT
+main) coming online at scale** — 788 children, 12 tasks, ages 4.8–8.4
+(es-AR); **Western's June–August backlog entering processing** (+863 scored rows vs
+the 08-24 snapshot — doubling Western's longitudinal sample to 263 repeat
+pairs / 46 children); Sheffield more than tripling (755 rows); and
+Boston's downward extension growing to 42 children (chapter 10). The per-site
+scores are all under the updated (registry v2_3) scoring models. Cape Coast
+and Sheffield intl-YS still have no scored rows. Note: trial-level pulls (and
+therefore the ROAR-Word engagement filter) remain at the 08-24 released
+versions — the filter does not yet cover the newest runs.
 
 ```{r setup}
 source(here::here("common.R"))

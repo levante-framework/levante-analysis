@@ -33,6 +33,13 @@ cross-sectional age gradient**: Math 0.45 θ/yr within vs 0.45 across, ROAR-Word
 0.47 vs 0.49, ROAR-Phoneme 0.28 vs 0.28, ROAR-Sentence 0.22 vs 0.23. Math
 repeats are CAT→CAT (no mode transition), making this the cleanest
 within-child growth replication in the project so far.
+
+**2026-08-31:** Leipzig's **third wave** began arriving (39 children re-tested
+on the full battery Aug 29–30, already scored in the draft snapshot) — the
+first ≥3-timepoint children in the project. They appear in the Leipzig
+spaghetti below as three-point trajectories (max within-child span now
+24 months); per-child growth-curve models become identifiable once this wave
+completes.
 :::
 
 # Purpose
