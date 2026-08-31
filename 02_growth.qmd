@@ -115,7 +115,9 @@ scores |>
 # Spaghetti plots
 
 Every child with ≥ 2 runs on a given task, one line per child, raw IRT score.
-Color marks adaptive vs non-adaptive runs.
+Children with **≥ 3 timepoints** (new with Leipzig's third wave) are
+highlighted in orange; task panels with fewer than 10 repeat children are
+suppressed.
 
 ```{r repeat-data}
 repeats <- scores |>
@@ -125,58 +127,49 @@ repeats <- scores |>
   arrange(dataset, user_id, task_id, age)
 
 glue("Repeat (dataset, child, task) cells: {n_distinct(paste(repeats$dataset, repeats$user_id, repeats$task_id))}")
+
+spaghetti <- function(ds, title) {
+  d <- repeats |>
+    filter(dataset == ds) |>
+    group_by(task_id) |> filter(n_distinct(user_id) >= 10) |> ungroup() |>
+    group_by(user_id, task_id) |>
+    mutate(waves = if_else(n_distinct(run_id) >= 3, "3+ timepoints", "2 timepoints")) |>
+    ungroup()
+  ggplot(d, aes(x = age, y = score, group = user_id)) +
+    geom_line(data = d |> filter(waves == "2 timepoints"),
+              aes(color = waves), alpha = 0.25, linewidth = 0.35) +
+    geom_line(data = d |> filter(waves == "3+ timepoints"),
+              aes(color = waves), alpha = 0.9, linewidth = 0.6) +
+    facet_wrap(vars(task_category, task_label), scales = "free_y") +
+    scale_color_manual(values = c(`2 timepoints` = "grey45",
+                                  `3+ timepoints` = "#cb4b16"), name = NULL) +
+    guides(color = guide_legend(override.aes = list(alpha = 1, linewidth = 1))) +
+    labs(title = title, x = "Age (years)", y = "IRT ability") +
+    theme(legend.position = "bottom")
+}
 ```
 
 ```{r spaghetti-de, fig.height=7}
-repeats |>
-  filter(dataset == "pilot_mpieva_de_main") |>
-  ggplot(aes(x = age, y = score, group = user_id, color = adaptive)) +
-  geom_line(alpha = 0.4) +
-  geom_point(alpha = 0.4, size = 0.6) +
-  facet_wrap(vars(task_category, task_label), scales = "free_y") +
-  scale_color_manual(values = c(`TRUE` = "firebrick", `FALSE` = "steelblue"),
-                     na.value = "grey60") +
-  labs(title = "Germany — Leipzig spaghetti (kids with ≥ 2 runs)",
-       x = "Age (years)", y = "IRT ability")
+spaghetti("pilot_mpieva_de_main",
+          "Germany — Leipzig spaghetti (3-wave children in orange)")
 ```
 
 ```{r spaghetti-co, fig.height=7}
-repeats |>
-  filter(dataset == "pilot_uniandes_co_bogota") |>
-  ggplot(aes(x = age, y = score, group = user_id, color = adaptive)) +
-  geom_line(alpha = 0.3) +
-  geom_point(alpha = 0.3, size = 0.6) +
-  facet_wrap(vars(task_category, task_label), scales = "free_y") +
-  scale_color_manual(values = c(`TRUE` = "firebrick", `FALSE` = "steelblue"),
-                     na.value = "grey60") +
-  labs(title = "Colombia — Bogotá spaghetti (kids with ≥ 2 runs)",
-       x = "Age (years)", y = "IRT ability")
+spaghetti("pilot_uniandes_co_bogota", "Colombia — Bogotá spaghetti")
 ```
 
 ```{r spaghetti-co-rural, fig.height=7}
-repeats |>
-  filter(dataset == "pilot_uniandes_co_rural") |>
-  ggplot(aes(x = age, y = score, group = user_id, color = adaptive)) +
-  geom_line(alpha = 0.3) +
-  geom_point(alpha = 0.3, size = 0.6) +
-  facet_wrap(vars(task_category, task_label), scales = "free_y") +
-  scale_color_manual(values = c(`TRUE` = "firebrick", `FALSE` = "steelblue"),
-                     na.value = "grey60") +
-  labs(title = "Colombia — Caquetá/Boyacá spaghetti (kids with ≥ 2 runs; new in 2026-08)",
-       x = "Age (years)", y = "IRT ability")
+spaghetti("pilot_uniandes_co_rural",
+          "Colombia — Caquetá/Boyacá spaghetti (new in 2026-08; sparse panels suppressed)")
 ```
 
+(Rural's few ≥3-run children include **short-gap repeat administrations** —
+the near-vertical orange segments; treat those individual trajectories with
+care. Leipzig's orange three-wave children, by contrast, are the designed
+third wave.)
+
 ```{r spaghetti-ca, fig.height=7}
-repeats |>
-  filter(dataset == "pilot_western_ca_main") |>
-  ggplot(aes(x = age, y = score, group = user_id, color = adaptive)) +
-  geom_line(alpha = 0.5) +
-  geom_point(alpha = 0.5, size = 0.8) +
-  facet_wrap(vars(task_category, task_label), scales = "free_y") +
-  scale_color_manual(values = c(`TRUE` = "firebrick", `FALSE` = "steelblue"),
-                     na.value = "grey60") +
-  labs(title = "Canada — Ontario spaghetti (kids with ≥ 2 runs)",
-       x = "Age (years)", y = "IRT ability")
+spaghetti("pilot_western_ca_main", "Canada — Ontario spaghetti")
 ```
 
 # Simple growth models per (dataset, task)
