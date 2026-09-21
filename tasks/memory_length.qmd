@@ -377,6 +377,155 @@ all_sims |>
   knitr::kable(digits = 1, caption = "Median simulated minutes by ability quartile, round 2")
 ```
 
+# 7. Round 3: the deployed rules, exactly — and an age-safe package
+
+Dev feedback (2026-09) clarified the deployed implementation: blocks end
+at **min(a hardcoded trial cap of 21, 3 cumulative errors)**, and trials
+come from a fixed corpus. Both claims check out in the data:
+
+```{r rules-confirm}
+blocks <- mg |>
+  group_by(dataset, run_id, dir) |>
+  summarise(n_tr = n(), n_err = sum(!correct), .groups = "drop")
+
+blocks |>
+  mutate(ending = case_when(n_tr == 21 ~ "hit 21-trial cap",
+                            n_err >= 3 ~ "3+ errors",
+                            TRUE ~ "incomplete/other")) |>
+  count(dir, ending) |>
+  group_by(dir) |>
+  mutate(pct = round(n / sum(n), 3)) |>
+  knitr::kable(caption = "How blocks end. No block exceeds 21 trials; cap-bound blocks with >3 errors are older task versions with different error budgets.")
+```
+
+Notes for implementation:
+
+- The **3-cumulative-errors rule is confirmed** (it is what rounds 1–2
+  reverse-engineered), as is promotion after 3 consecutive correct:
+  across 4,087 post-error transitions, length *never* advances after an
+  error, so the deployed corpus pointer is behaviorally a staircase.
+- The **cap binds for the able kids**: 5.2% of forward blocks (1.4%
+  backward) end at 21 trials with <3 errors in modern deployments.
+  Because rounds 1–2 simulated without the cap, they overstated time for
+  exactly those children — hence this cap-aware rerun.
+- **Corpus-trim vs rule-based is psychometrically a wash**: the published
+  trials carry no attempt index (`mg_forward_3grid_len4`); attempt
+  numbering happens at scoring prep, and difficulties are tied across
+  attempts. Any implementation producing the same length schedule scores
+  identically — the choice is engineering, not measurement.
+
+## Should forward still start at 2? The youngest kids say yes
+
+```{r age-evidence}
+sc1 <- sc |> distinct(run_id, .keep_all = TRUE)
+mga <- mg |>
+  inner_join(sc1 |> select(run_id, age), by = "run_id") |>
+  filter(!is.na(age)) |>
+  mutate(age_band = cut(age, c(4, 6, 7, 8, 10, 13),
+                        labels = c("5-6", "6-7", "7-8", "8-10", "10+")))
+
+first_enc <- mga |>
+  filter(dir == "forward") |>
+  group_by(run_id, age_band, len) |>
+  slice_min(trial_number, n = 1) |>
+  ungroup() |>
+  filter(len <= 4) |>
+  group_by(age_band, len) |>
+  summarise(n = n(), accuracy = mean(correct), .groups = "drop") |>
+  pivot_wider(names_from = len, values_from = c(n, accuracy))
+
+stuck <- mga |>
+  filter(dir == "forward") |>
+  group_by(run_id, age_band) |>
+  summarise(mx = max(len), .groups = "drop") |>
+  group_by(age_band) |>
+  summarise(n = n(), pct_never_pass_len2 = mean(mx == 2), .groups = "drop")
+
+knitr::kable(first_enc, digits = 2,
+             caption = "Forward first-encounter accuracy by age band × length. Length-3 rows are survivors of length 2 — unconditional accuracy at 3 would be lower.")
+knitr::kable(stuck, digits = 2,
+             caption = "Share of runs that never pass forward length 2, by age band")
+```
+
+For 5–6-year-olds, length 2 is not a warm-up: first-encounter accuracy
+is .72 and **31% of their runs never pass length 2 at all** (vs 5–7% at
+ages 8+). Starting forward at 3 would hand a third of the youngest
+children nothing but failures. The age-safe move: keep forward starting
+at 2 (with promote-on-2 the cost to able kids is a single extra ~16 s of
+easy trials), and start backward at 3 **only for children who cleared
+forward length 3**.
+
+## Cap-aware policy comparison
+
+Policies (all end blocks at min(cap, 3 errors);
+[`_prep_memory_length3.R`](\_prep_memory_length3.R)):
+
+- **C0** deployed rules (promote-3, starts 2/2, caps 21/21) — anchor
+- **C1** dev proposal: caps cut to **14 (fwd) / 12 (bwd)**, rules
+  otherwise unchanged
+- **C2** promote-2 only (caps 21/21)
+- **C3 "age-safe package"**: promote-2, forward starts 2, backward
+  starts 3 if forward cleared 3, caps 14/12
+- **C4** the round-1 S4 with caps: promote-2, both start 3, caps 14/12
+
+```{r sims3}
+res3 <- read_rds(here("data/memory_length_results3.rds"))
+
+sims3_summary <- res3$sims |>
+  group_by(policy) |>
+  summarise(median_min = median(mins), q90_min = quantile(mins, .9),
+            mean_se = mean(se), .groups = "drop") |>
+  left_join(res3$sims |>
+              group_by(policy, rep) |>
+              summarise(r = cor(est, theta), .groups = "drop_last") |>
+              summarise(r_with_full = mean(r), .groups = "drop"),
+            by = "policy")
+
+sims3_retest <- res3$sims |>
+  inner_join(sc1 |> select(run_id, age), by = "run_id") |>
+  group_by(policy, rep, dataset, user_id) |>
+  filter(n() >= 2, !is.na(age)) |>
+  arrange(age) |>
+  summarise(gap_mo = (age[2] - age[1]) * 12, t1 = est[1], t2 = est[2],
+            .groups = "drop") |>
+  filter(gap_mo >= 2,
+         dataset %in% c("pilot_mpieva_de_main", "pilot_uniandes_co_bogota")) |>
+  group_by(policy, rep, dataset) |>
+  summarise(r = cor(t1, t2), .groups = "drop") |>
+  group_by(policy, dataset) |>
+  summarise(r = mean(r), .groups = "drop") |>
+  pivot_wider(names_from = dataset, values_from = r) |>
+  rename(sim_retest_de = pilot_mpieva_de_main,
+         sim_stability_bog = pilot_uniandes_co_bogota)
+
+sims3_summary |>
+  left_join(sims3_retest, by = "policy") |>
+  knitr::kable(digits = 2,
+               caption = "Cap-aware policies. C0 is the deployed-rules anchor; compare rows to each other.")
+```
+
+```{r sims3-strata}
+theta_q <- res3$sims |> distinct(run_id, theta) |>
+  mutate(q = ntile(theta, 4)) |> select(run_id, q)
+
+res3$sims |>
+  inner_join(theta_q, by = "run_id") |>
+  group_by(policy, q) |>
+  summarise(median_min = median(mins), .groups = "drop") |>
+  pivot_wider(names_from = q, values_from = median_min,
+              names_prefix = "θ Q") |>
+  knitr::kable(digits = 1, caption = "Median simulated minutes by ability quartile, cap-aware")
+
+res3$sims |>
+  filter(theta < -1.5) |>
+  group_by(policy) |>
+  summarise(n_runs = n_distinct(run_id),
+            mean_fwd_successes = mean(n_succ_fwd),
+            median_min = median(mins), .groups = "drop") |>
+  knitr::kable(digits = 1,
+               caption = "Experience of low-ability children (θ < −1.5): forward successes per run under each policy")
+```
+
 # Verdict
 
 **1. The length complaint is verified and is a tax on ability.** Duration
@@ -412,19 +561,10 @@ the observed row):
 - The aggressive add-on (S5: also budget 2) reaches −40% but inherits
   the replay-demonstrated reliability cost of the smaller error budget.
 
-**Recommendation to the DCC:** adopt **S4** — advance after **2**
-consecutive correct (not 3), start **both** blocks at length **3**, keep
-the 3-error budget. Expected effect: roughly a quarter of task time
-removed, concentrated on the longest sessions (the top quartile saves
-~1.4 min of trial time; with per-trial overhead the experienced saving is
-larger), at a precision cost of ~.05 SD units of SE and no detectable
-reliability cost. If a more conservative step is preferred, S3 (promote-2
-+ backward-starts-3, forward still starts at 2) yields −16%/−21% with the
-same reliability profile. Child-experience risk is low: length 3 is still
-very easy for nearly everyone (P(correct) ≈ .8 even at θ = −1), children
-below that floor produce interpretable all-error records exactly as they
-do now at length 2, and the number of *failures* a child experiences is
-governed by the error budget, which is unchanged.
+**Recommendation to the DCC (round 1, later refined):** adopt promote-2
+with higher starts (S4). *Round 3 — after the dev team clarified the
+deployed 21-trial cap and the youngest children's data were examined —
+revises this to the C3 package below; see point 5.*
 
 **4. Round-2 verdicts.**
 
@@ -456,6 +596,35 @@ governed by the error budget, which is unchanged.
   (SE .55 vs .53) and unchanged reliability (.35/.35 vs .37/.38 — within
   rep noise). If the DCC wants the worst-case session under ~5 minutes
   including instructions, S4 + fast-track is the package.
+
+**5. Round 3 (final): the deployed rules are cap + errors, and the
+levers are complementary.** With the deployed 21-trial cap in the
+simulation (C0 anchor):
+
+- **The dev's cap-only reduction (14/12) fixes the top and nothing
+  else**: q90 falls 5.80 → 4.63 min but the median barely moves (3.53 →
+  3.44) — the error-bound majority is untouched. Conversely promote-2
+  alone (C2) fixes the middle (median −13%) but leaves the cap-bound top
+  long (q90 4.77). The two levers address different children.
+- **The youngest children argue against starting forward at 3**: 31% of
+  5–6-year-olds never pass forward length 2, their first-encounter
+  accuracy at length 2 is .72, and under start-at-3 (C4) low-ability
+  children's forward successes per run drop from 4.1 to **2.6** — a
+  meaningfully harsher experience for ~0.2 min of extra saving.
+- **Final recommendation — C3, the age-safe package**: promote after
+  **2** consecutive correct; forward starts at **2**; backward starts at
+  **3 only if the child cleared forward length 3** (else 2); caps
+  **14 forward / 12 backward**; 3-error budget unchanged. Effect vs
+  deployed rules: median −15% (3.53 → 3.00 min of trial time), 90th
+  percentile −21% (5.80 → 4.57), SE .48 → .51, simulated retest within
+  rep noise (DE .38 vs .42; Bogotá .34 vs .36), and the youngest
+  children's success experience preserved.
+- Implementation note: under the tied-difficulty scoring convention,
+  trimming the fixed corpus vs moving to rule-based generation are
+  measurement-equivalent — whichever is easier to build. The corpus just
+  needs enough sequences per length to cover repeats within a block
+  (current bank depth: 6–15 presentations per direction × grid × length
+  were observed and calibrated).
 
 Two caveats. First, the simulation trusts the Rasch model's person
 homogeneity (no sequence-specific effects beyond length; the calibration
