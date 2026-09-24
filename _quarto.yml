@@ -15,7 +15,7 @@ book:
   author: "Michael C. Frank & the LEVANTE Data Coordinating Center"
   date: today
   search: true
-  repo-url: https://github.com/levante-framework/levante-longitudinal
+  repo-url: https://github.com/levante-framework/levante-analysis
   sidebar:
     style: docked
   chapters:

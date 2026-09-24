@@ -81,7 +81,7 @@ test–retest figures, and the training-vs-development comparison.
 The notebooks render from Redivis data (gitignored; access via `levantemodels`).
 `common.R` is sourced by every chapter. This book was assembled with
 [Quarto](https://quarto.org); see the
-[source repository](https://github.com/levante-framework/levante-longitudinal).
+[source repository](https://github.com/levante-framework/levante-analysis).
 
 This is **internal, exploratory work of the LEVANTE Data Coordinating Center** —
 please read the two banners above before using anything here.
