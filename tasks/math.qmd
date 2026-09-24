@@ -1,5 +1,19 @@
 ---
 title: "Math (EGMA) — trial-level investigation of the apparent regression-to-mean in Bogotá"
+levante:
+  summary: "Is Bogotá Math's apparent T1→T2 regression to the mean real, or an artifact of the non-adaptive → CAT mode switch between waves?"
+  status: superseded
+  superseded_by: tasks/math_eap_vs_ml.qmd
+  task_ids: [egma-math]
+  datasets: [pilot_uniandes_co_bogota]
+  data:
+    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+  depends_on: [00_load_data.qmd]
+  findings:
+    - "Attributes the pattern to CAT routing onto number-line items; tasks/math_eap_vs_ml.qmd later traced the compression mainly to the v1.0 column-order scoring bug."
+    - "Still valid: on items shared across waves, every T1 quartile is more accurate at T2."
+  last_run: 2026-07-16
 format:
   html:
     toc: true

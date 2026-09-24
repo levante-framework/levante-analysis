@@ -1,3 +1,15 @@
+---
+levante:
+  summary: "Scratch exploration: fit multigroup IRT models to mental rotation with items differentiated by angle vs collapsed."
+  status: draft
+  task_ids: [mental-rotation]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota, pilot_uniandes_co_rural, pilot_western_ca_main]
+  data:
+    - {source: "../levante-pilots/01_fetched_data/task_data_nested.rds", table: "trials"}
+    - {source: "../levante-pilots/01_fetched_data/run_data.rds", table: "runs"}
+  last_run: 2026-07-20
+---
+
 ```{r}
 library(tidyverse)
 library(here)

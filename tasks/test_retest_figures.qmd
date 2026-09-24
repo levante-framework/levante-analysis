@@ -1,5 +1,16 @@
 ---
 title: "Test–retest figures (corrected v1.2) — Colombia & Germany"
+levante:
+  summary: "Test–retest scatter figures (T1 vs T2 per task, coloured by age) for Bogotá and Leipzig, in the style of the core-tasks paper."
+  status: draft
+  task_ids: [hearts-and-flowers, memory-game, same-different-selection, matrix-reasoning, mental-rotation, egma-math, vocab, trog, theory-of-mind, swr, sre, pa]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota]
+  data:
+    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
+  depends_on: [00_load_data.qmd]
+  findings:
+    - "Figures only; written to figures/test_retest_colombia.png and figures/test_retest_germany.png."
+  last_run: 2026-07-16
 format:
   html:
     toc: true

@@ -1,5 +1,19 @@
 ---
 title: "Cross-language DIF screen — Math, Pattern Matching, Shape Rotation, H&F, Memory"
+levante:
+  summary: "QA screen for cross-language DIF on the five multigroup-scalar tasks: per-language Rasch fits (German, Spanish, English), centered and compared item by item."
+  status: draft
+  task_ids: [egma-math, matrix-reasoning, mental-rotation, hearts-and-flowers, memory-game]
+  datasets: all
+  data:
+    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+  depends_on: [00_load_data.qmd]
+  findings:
+    - "The five tasks are broadly cross-language invariant; Shape Rotation is near-perfect, Math and Hearts & Flowers lower but item-specific."
+    - "No broken items on the scale of the TROG German item; the largest gaps (~1.5–2.2 logits) are worth spot-checking."
+    - "Vocabulary and the by-language ROAR tasks still need the anchored multigroup screen."
+  last_run: 2026-07-16
 format:
   html:
     toc: true

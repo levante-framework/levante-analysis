@@ -1,5 +1,19 @@
 ---
 title: "Vocabulary — item-level analysis & rescoring (Leipzig + Bogotá)"
+levante:
+  summary: "Is the apparent within-child Vocabulary decline (non-adaptive → adaptive), strongest at Leipzig, a ceiling effect or a scoring bug?"
+  status: draft
+  task_ids: [vocab]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota]
+  data:
+    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+    - {source: "load_item_parameters", version: "v1_14", table: "item_parameters"}
+  depends_on: [00_load_data.qmd]
+  findings:
+    - "Mostly the column-order bug: DE mean within-child change is −0.91 logits in the published pipeline vs −0.00 with corrected EAP."
+    - "The easy-item ceiling leaves high-ability DE non-adaptive T1 θs with large SEs; propagate score_se rather than treating θ as error-free."
+  last_run: 2026-07-22
 format:
   html:
     toc: true

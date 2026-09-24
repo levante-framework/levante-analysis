@@ -1,5 +1,20 @@
 ---
 title: "ROAR literacy tasks — Sentence (SRE) & Phoneme (PA)"
+levante:
+  summary: "Are ROAR-Phoneme (by-language Rasch) and ROAR-Sentence (speeded, guessing-adjusted count) valid and well-behaved?"
+  status: draft
+  task_ids: [pa, sre]
+  datasets: all
+  data:
+    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+    - {source: "load_item_parameters", version: "v1_14", table: "item_parameters"}
+  depends_on: [00_load_data.qmd]
+  findings:
+    - "Both rise with age at every site (PA r ≈ 0.34–0.54; SRE r ≈ 0.27–0.63)."
+    - "PA: first-sound easier than last-sound; calibrated by language (no German), so not on one cross-language scale."
+    - "SRE is a reading-efficiency count on a task-internal z-scale, not an IRT θ."
+  last_run: 2026-07-16
 format:
   html:
     toc: true

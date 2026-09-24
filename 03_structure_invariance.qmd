@@ -1,5 +1,19 @@
 ---
 title: "03 — Construct structure & measurement invariance"
+levante:
+  summary: "What latent structure organizes the nine core tasks, and is its measurement model invariant across site and age?"
+  status: draft
+  task_ids: [hearts-and-flowers, memory-game, same-different-selection, matrix-reasoning, mental-rotation, egma-math, vocab, trog, theory-of-mind]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota, pilot_uniandes_co_rural, pilot_western_ca_main]
+  data:
+    - {source: "load_levante_scores", version: "2026-08-24", table: "scores"}
+  depends_on: [00_load_data.qmd]
+  findings:
+    - "Disattenuated task correlations form a strong positive manifold; ToM is not separable from the verbal cluster (error-corrected r ≈ 0.9)."
+    - "A dominant general factor with ~two weakly separable domains: the 2-factor (fluid/verbal) model is BIC-preferred and proper in every site; the bifactor's specifics degenerate."
+    - "The structure replicates across Germany, Bogotá, and Canada, with configural and approximate metric invariance but not scalar invariance, so absolute levels are not comparable across sites."
+    - "Loadings are ~invariant across age while intercepts shift, so age differentiation (04) is structural, not a measurement artifact."
+  last_run: 2026-08-24
 format:
   html:
     toc: true

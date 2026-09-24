@@ -1,5 +1,21 @@
 ---
 title: "06 — Within-child variability: do consistency measures cohere, and change with age?"
+levante:
+  summary: "Do per-child variability indices (RT-IIV, IRT person-misfit, 2-wave growth deviation) cohere across tasks and indices, and do they change with age?"
+  status: draft
+  task_ids: [hearts-and-flowers, memory-game, same-different-selection, matrix-reasoning, mental-rotation, egma-math, vocab, trog, theory-of-mind]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota, pilot_uniandes_co_rural, pilot_western_ca_main]
+  data:
+    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+    - {source: "load_item_parameters", version: "v1_14", table: "item_parameters"}
+  depends_on: [00_load_data.qmd]
+  findings:
+    - "Robust null on a general within-child variability trait: the indices show near-zero cross-task generality and are mutually uncorrelated."
+    - "Person-misfit scored against the model's actual response function (fixed guessing floor) has ≈ 0 reliability; the earlier 'reliable, age-declining' misfit was an artifact of a plain-logistic IRF."
+    - "Two waves cannot identify individual growth differences (slope reliability ≈ 0)."
+    - "RT-IIV is reliable per task but only ~4% stable-person variance across tasks."
+  last_run: 2026-07-13
 format:
   html:
     toc: true

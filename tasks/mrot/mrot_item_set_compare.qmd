@@ -1,5 +1,20 @@
 ---
 title: "Mental rotation: item-set x model-type comparison"
+levante:
+  summary: "Mental rotation: compare 8 item-collapsing schemes × IRT model types (Rasch/2PL; configural/metric/scalar) on fit, reliability, age correlation, and test–retest."
+  status: draft
+  task_ids: [mental-rotation]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota, pilot_uniandes_co_rural, pilot_western_ca_main]
+  data:
+    - {source: "../levante-pilots/01_fetched_data/task_data_nested.rds", table: "trials"}
+    - {source: "../levante-pilots/01_fetched_data/run_data.rds", table: "runs"}
+  depends_on: [tasks/mrot/fit_item_sets.R]
+  findings:
+    - "Model type matters more than item granularity; 2PL scalar wins BIC in 6 of 8 item sets and has much higher marginal reliability than Rasch (~0.7–0.8 vs ~0.43)."
+    - "At three of four sites, marginal reliability declines as items are split more finely; DE stays flat."
+    - "Age correlation and test–retest are essentially unaffected by item-set choice."
+    - "Not built in the book: needs un-versioned levante-pilots inputs and the fit_item_sets.R registry."
+  last_run: 2026-07-20
 ---
 
 Cross the three item-collapsing dimensions (angle vs. angle_full, stimulus vs.

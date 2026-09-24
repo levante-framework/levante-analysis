@@ -1,5 +1,20 @@
 ---
 title: "05 — Battery design: how short can the battery be and still recover the factors?"
+levante:
+  summary: "How short can the battery be and still recover the factor scores? Combines the calibrated factor model, per-task reliabilities, and administration times into a minutes-vs-recovery frontier."
+  status: draft
+  task_ids: [hearts-and-flowers, memory-game, same-different-selection, matrix-reasoning, mental-rotation, egma-math, vocab, trog, theory-of-mind, swr, sre, pa]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota, pilot_uniandes_co_rural, pilot_western_ca_main]
+  data:
+    - {source: "load_levante_scores", version: "2026-08-24", table: "scores"}
+    - {source: "load_levante_trials", version: "2026-08-24", table: "trials"}
+  depends_on: [00_load_data.qmd, 03_structure_invariance.qmd, 04_differentiation.qmd]
+  findings:
+    - "Cutting administration time roughly in half (59 → ~31 min) still recovers every construct at ≈ 0.91–0.95 factor-score determinacy."
+    - "Dropping only ToM and Same & Different (→ ~44 min) costs almost nothing."
+    - "Reading is the binding constraint: keep ROAR-Word if reading scores matter."
+    - "A ~14-minute four-task screener recovers the broad fluid/verbal split at ≈ 0.90."
+  last_run: 2026-08-24
 format:
   html:
     toc: true

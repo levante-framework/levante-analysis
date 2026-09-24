@@ -1,5 +1,20 @@
 ---
 title: "08 — Accuracy variability: MSSD, the accuracy-level confound, and whether anything survives it"
+levante:
+  summary: "Does accuracy variability (MSSD, the trial-to-trial flip rate) carry reliable individual differences once its mechanical dependence on accuracy level is removed?"
+  status: draft
+  task_ids: [egma-math, matrix-reasoning, mental-rotation, trog, vocab, same-different-selection, hearts-and-flowers, theory-of-mind, memory-game, swr, sre, pa]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota, pilot_uniandes_co_rural, pilot_western_ca_main]
+  data:
+    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+    - {source: "load_item_parameters", version: "v1_14", table: "item_parameters"}
+  depends_on: [00_load_data.qmd, 07_rt_variability.qmd]
+  findings:
+    - "Raw and detrended MSSD are reliable and stable only because they re-encode accuracy level (confound ≈ −0.7)."
+    - "The de-confounded index (excess over independence ≡ lag-1 autocorrelation) has reliability ≈ 0.03 and stability ≈ 0.02."
+    - "Do not use accuracy MSSD as a variability measure; the leverage is RT on speeded, high-trial tasks (07)."
+  last_run: 2026-07-13
 format:
   html:
     toc: true

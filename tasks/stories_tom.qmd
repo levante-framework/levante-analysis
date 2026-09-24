@@ -1,5 +1,21 @@
 ---
 title: "Stories (Theory of Mind) — structure, rescoring, and item analysis"
+levante:
+  summary: "Stories (ToM) deep dive: rescore with the column-order fix, test the construct schemes and the role of reality-check controls, and screen items for DIF."
+  status: draft
+  task_ids: [theory-of-mind]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota, pilot_western_ca_main]
+  data:
+    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+    - {source: "load_item_parameters", version: "v1_14", table: "item_parameters"}
+  depends_on: [00_load_data.qmd, tasks/build_tom_metadata.R]
+  findings:
+    - "The column-order fix improves DE test–retest (~0.45 → 0.53); CO was not affected."
+    - "Question type (target/control/reference), not the story-construct labels, structures item difficulty."
+    - "ToM is not cleanly unidimensional; a single θ is a rough summary."
+    - "The cross-site DIF signal on controls was later traced mostly to data defects (tasks/tom_reality_check_bug.qmd)."
+  last_run: 2026-07-22
 format:
   html:
     toc: true

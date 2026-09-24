@@ -1,5 +1,18 @@
 ---
 title: "Stories (ToM) — the reality-check DIF was (mostly) data defects: a forensic reconstruction"
+levante:
+  summary: "Was the large cross-site DIF on ToM reality-check items a data-flow defect rather than real item functioning? Forensic reconstruction from raw Bogotá and Leipzig data."
+  status: draft
+  task_ids: [theory-of-mind]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota]
+  data:
+    - {source: "data/tom_raw/", table: "trials"}
+  findings:
+    - "Largely yes: proven defects include 4 answer-key inversions across both sites, hostile-attribution content mislabeled as ToM (110 DE runs), and trial-map shifts."
+    - "Repairing only the provable defects removes ~70% of scalar non-invariance (χ² 702 → 212)."
+    - "Every one of the paper's 12 hand-flagged items maps onto an identified defect."
+    - "Inputs are caches from a shadow re-processing pipeline that is not versioned in this repo."
+  last_run: 2026-07-21
 format:
   html:
     toc: true

@@ -1,5 +1,17 @@
 ---
 title: "Corrected longitudinal trajectories — math & vocab, CO & DE"
+levante:
+  summary: "Presentation figures: before/after longitudinal trajectories for Math and Vocabulary at Bogotá and Leipzig, published (v1.0, buggy) vs rescored with the column-order fix."
+  status: draft
+  task_ids: [egma-math, vocab]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota]
+  data:
+    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+  depends_on: [00_load_data.qmd, tasks/math_eap_vs_ml.qmd, tasks/vocab.qmd]
+  findings:
+    - "Figures only; written to figures/trajectories_before_after.png and figures/t1_t2_scatter_before_after.png."
+  last_run: 2026-07-22
 format:
   html:
     toc: true

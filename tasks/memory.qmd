@@ -1,5 +1,21 @@
 ---
 title: "Memory (Corsi) — item difficulty structure & the '2×2 vs 3×3' question"
+levante:
+  summary: "Was Memory's DROP flag (grid size 2×2 vs 3×3 not accounted for in scoring) a real problem, or an artifact of the v1.0 column-order scoring bug?"
+  status: draft
+  task_ids: [memory-game]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota]
+  data:
+    - {source: "load_item_parameters", version: "v1_14", table: "item_parameters"}
+    - {source: "load_levante_trials", version: "2026-08-24", table: "trials"}
+    - {source: "load_levante_scores", version: "2026-08-24", table: "scores"}
+  depends_on: [00_load_data.qmd]
+  findings:
+    - "Difficulty is ordered by span length, backward > forward, and replicates across sites (r ≈ 0.90)."
+    - "Grid is a separately calibrated item dimension; within-child θ is continuous across Leipzig's wave-1→2 grid switch."
+    - "Raw sumscores are not comparable across grids."
+    - "Recommendation: lift the DROP flag."
+  last_run: 2026-08-24
 format:
   html:
     toc: true
