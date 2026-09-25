@@ -45,9 +45,7 @@ book:
         - tasks/shape_rotation.qmd
         - tasks/sentence_understanding.qmd
         - tasks/vocab.qmd
-        - tasks/stories_tom.qmd
-        - tasks/tom_dimensionality.qmd
-        - tasks/tom_dif_multigroup.qmd
+        - tasks/stories.qmd
         - tasks/tom_reality_check_bug.qmd
         - tasks/roar_word.qmd
         - tasks/roar_literacy.qmd

@@ -1,0 +1,2695 @@
+---
+title: "Stories (Theory of Mind) — consolidated analysis on the corrected 2026-09 data"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    fig-width: 9
+    fig-height: 5
+execute:
+  warning: false
+  message: false
+---
+
+{{< include ../_disclaimer.qmd >}}
+
+```{r setup}
+source(here::here("common.R"))
+
+dir26 <- here("data/stories_2026-09")
+res_items <- read_rds(file.path(dir26, "results_items.rds"))
+res_dim   <- read_rds(file.path(dir26, "results_dimensionality.rds"))
+res_inv   <- read_rds(file.path(dir26, "results_invariance.rds"))
+res_rel   <- read_rds(file.path(dir26, "results_reliability.rds"))
+trials    <- read_rds(file.path(dir26, "stories_trials.rds"))
+runs      <- read_rds(file.path(dir26, "stories_runs.rds"))
+recon     <- read_rds(file.path(dir26, "reconciliation.rds"))
+
+# number formatting: n2(0.456) = ".46", n2(1.234) = "1.23"
+n2  <- function(x, d = 2) sub("^(-?)0\\.", "\\1.", formatC(x, format = "f", digits = d))
+pct <- function(x, d = 0) paste0(formatC(100 * x, format = "f", digits = d), "%")
+big <- function(x) format(x, big.mark = ",", trim = TRUE)
+rng <- function(x, d = 2) {
+  lo <- min(x, na.rm = TRUE); hi <- max(x, na.rm = TRUE)
+  paste0(n2(lo, d), if (lo < 0) " to " else "–", n2(hi, d))
+}
+fp  <- function(p) format.pval(p, digits = 2, eps = 1e-4)          # tables
+pe  <- function(p) if (p < 1e-4) "< .0001" else paste("=", n2(p, 3))  # prose: "p `r pe(x)`"
+spct <- function(x, d = 0) paste0(if_else(x > 0, "+", ""), pct(x, d))
+options(knitr.kable.NA = "")
+# pull exactly one value out of a results table (fails loudly otherwise)
+pick <- function(df, col, ...) {
+  x <- dplyr::filter(df, ...) |> dplyr::pull({{ col }})
+  if (length(x) != 1) stop("pick(): expected 1 row, got ", length(x))
+  x
+}
+
+# item labels: "tom_story4_deception_reality_check_2" -> "S4 rc_2"
+short_entry <- function(e) e |>
+  str_replace("false_belief", "fb") |> str_replace("reality_check", "rc") |>
+  str_replace("emotion_reasoning", "er") |> str_replace("^reference", "ref")
+uid_label <- function(uid) {
+  m <- str_match(uid, paste0("story(\\d+)_(?:reality_known|moral_reasoning|interpretation|",
+                             "deception|reference|second_order)_(.+?)(?:-\\d+)?$"))
+  paste0("S", m[, 2], " ", short_entry(m[, 3]))
+}
+
+# palettes: languages borrow the colour of their main site in common.R's site_pal
+lang_levels <- c("de-DE", "en-US", "en-GB", "es-CO", "es-AR")
+lang_pal <- c("de-DE" = site_pal[["pilot_mpieva_de"]],
+              "en-US" = site_pal[["pilot_western_ca"]],
+              "en-GB" = site_pal[["rfp1_sheffield_gb"]],
+              "es-CO" = site_pal[["pilot_uniandes_co"]],
+              "es-AR" = site_pal[["rfp1_utdt_ar"]])
+qtype_levels <- c("false_belief", "emotion_reasoning", "reference", "reality_check")
+qtype_pal <- set_names(ptol_pal()(4), qtype_levels)
+
+# dimensionality samples
+dim_labels <- c(de_ib = "Leipzig item bank (de-DE)", de_ib_v2 = "Leipzig, V2 content only",
+                de_ib_junelike = "Leipzig, June-style rebuild",
+                wca_ib = "Western item bank (en-US)", bog_ib = "Bogotá item bank (es-CO)",
+                bog_ib_nofb = "Bogotá, without story-1 FB",
+                ar_nhb = "UTDT no-HA retest-B (es-AR)", ar_nhb_nofb = "UTDT, without story-13 FB")
+dim_primary <- c("de_ib", "wca_ib", "bog_ib", "ar_nhb")
+dim_pal <- c(de_ib = site_pal[["pilot_mpieva_de"]], wca_ib = site_pal[["pilot_western_ca"]],
+             bog_ib = site_pal[["pilot_uniandes_co"]], ar_nhb = site_pal[["rfp1_utdt_ar"]])
+
+small_groups <- res_rel$meta$small_groups   # < 25 runs: scored under the DE prior
+
+# what PR #27 adds against the releases: restored trials vs mapped trials in newly included runs
+k_add <- list(restored = sum(recon$added_by_kind$n[str_starts(recon$added_by_kind$kind, "restored")]),
+              mapped = sum(recon$added_by_kind$n[recon$added_by_kind$kind == "mapped before, run newly included"]),
+              flip_runs = sum(recon$run_flips$n[recon$run_flips$before == "few_valid_trials" &
+                                                 recon$run_flips$after == "included"]))
+stopifnot(k_add$restored + k_add$mapped == sum(recon$per_dataset$added))
+
+# story lists as runs of consecutive numbers: c(2, 7:12) -> "2, 7–12"
+story_ranges <- function(s) {
+  s <- sort(unique(s)); brk <- c(0, which(diff(s) != 1), length(s))
+  paste(map_chr(seq_len(length(brk) - 1), \(i) {
+    r <- s[(brk[i] + 1):brk[i + 1]]
+    if (length(r) > 1) paste0(r[1], "–", r[length(r)]) else as.character(r)
+  }), collapse = ", ")
+}
+
+# dataset labels (common.R has no label for rfp1_mpib_de_main)
+ds_label <- function(d) coalesce(unname(dataset_labels_named[d]), d)
+```
+
+# Purpose and what changed since June
+
+This chapter consolidates the Stories (Theory of Mind, ToM) analyses on the
+newest data, with item identities corrected. It supersedes three June
+chapters, now retired to `old/` in the
+[source repository](https://github.com/levante-framework/levante-analysis):
+structure, rescoring and item analysis (`old/stories_tom.qmd`),
+dimensionality (`old/tom_dimensionality.qmd`) and multigroup DIF
+(`old/tom_dif_multigroup.qmd`). The June
+[forensic reconstruction](tom_reality_check_bug.qmd) stays as the appendix
+on how the early deployment defects were found. The section on the exclusion
+list below revises its account of what went wrong with each item.
+
+The June chapters were frozen on 2026-07-16. They used the June v1_2
+release (pilot sites only) and the v1_14 per-language scoring models. Since
+then, five things have changed:
+
+1. **Data.** Every raw site dataset with ToM runs, pinned on 2026-09-24:
+   `r big(n_distinct(trials$run_id))` included runs from
+   `r big(n_distinct(trials$user_id))` children, `r big(nrow(trials))`
+   trials, `r n_distinct(trials$dataset)` datasets and
+   `r n_distinct(trials$language)` languages. The largest new sample is UTDT
+   Argentina (es-AR), which runs only stories 13–18.
+2. **Item identity.** levantemodels PR #27 (unmerged) fixes item identities
+   in three deployment epochs and sets chance per story question. Against the
+   latest releases (for Sheffield, its unreleased next draft of 2026-09-24,
+   which matches the pinned raw data) it adds `r big(sum(recon$per_dataset$added))`
+   trials: `r big(k_add$restored)` restored by PR #27 and `r k_add$mapped` in
+   `r k_add$flip_runs` Bogotá runs that the restores lift above the 10-trial
+   minimum. It relabels `r big(sum(recon$per_dataset$relabelled))` and changes
+   `correct` for `r sum(recon$per_dataset$correct_differs)` trials.
+3. **Item policy.** Items are excluded by story-level flags defined in the
+   data build (`tasks/_build_stories_data.R`), not by the generic Airtable
+   list. The Spanish reality_known false-belief items are a sensitivity set,
+   analysed with and without. The flags are listed below; they are analysis
+   choices, and the recommendations say where they should live.
+4. **Scoring.** Each dataset with at least 25 runs gets its own group mean
+   and variance, as proposed in levantemodels PR #26 (unmerged). Here the
+   groups are estimated in one concurrent calibration, on a wider integration
+   grid than production uses.
+5. **Methods.** The reliability and invariance models fix the guessing floor
+   at chance (the LEVANTE convention). The dimensionality models set it to 0
+   for items answered at or below chance, and the other two analyses are
+   rerun under that rule as a check. Correlations are computed within
+   dataset × form rather than pooled over sites. Reliability is reported as
+   empirical (EAP) reliability of what children actually answered.
+   Dimensionality uses a resampled parallel analysis and bifactor models.
+
+Four analysis scripts produced the results this chapter reads (see
+[Reproducing](#reproducing)). The chapter itself fits no models.
+
+```{r key-numbers}
+k <- list()
+fs <- res_items$flag_summary$by_language
+k$cells_ok      <- sum(fs$ok)
+k$cells_ceiling <- sum(fs$ceiling)
+k$cells_weak    <- sum(fs$weak)
+k$cells_poor    <- sum(fs$poor)
+k$cells_bcd     <- sum(fs$`below chance, discriminating`)
+k$cells_flag    <- k$cells_ok + k$cells_ceiling + k$cells_weak + k$cells_poor + k$cells_bcd
+k$acc_13_ar <- pick(res_items$items_lang, accuracy,
+                    story_uid == "tom_story13_reality_known_false_belief", language == "es-AR")
+
+vc <- res_items$verdict_counts
+vcn <- \(v) sum(vc$n[vc$verdict == v])
+k$v_es_disc <- vcn("un-exclude (below chance in Spanish, but discriminates)")
+k$v_un   <- vcn("un-exclude") + vcn("un-exclude (weak item)") + k$v_es_disc
+k$v_weak <- vcn("un-exclude (weak item)")
+k$v_es   <- vcn("un-exclude; flag es-* in analyses, no Airtable row until the translation check")
+k$v_scop <- vcn("scoped exclusion")
+k$v_keep <- vcn("keep excluded")
+k$v_all  <- sum(vc$n)
+stopifnot(k$v_un + k$v_es + k$v_scop + k$v_keep == k$v_all)
+
+cr <- res_items$construct_r2
+k$r2_qt  <- pick(cr, R2, outcome == "difficulty (IRT, z within language)",
+                 unit == "item x language", scheme == "question_type (4)")
+k$r2_og  <- pick(cr, R2, outcome == "difficulty (IRT, z within language)",
+                 unit == "item x language", scheme == "old_group (6)")
+k$r2_nc  <- pick(cr, R2, outcome == "difficulty (IRT, z within language)",
+                 unit == "item x language", scheme == "new_construct (6)")
+slope_unit <- "item x language (language FE; dR2 over it)"
+k$dr2_nc <- pick(cr, dR2, outcome == "age slope (logit per year)", unit == slope_unit,
+                 scheme == "new_construct (6)")
+k$p_nc   <- pick(cr, p, outcome == "age slope (logit per year)", unit == slope_unit,
+                 scheme == "new_construct (6)")
+
+eg <- res_dim$eigen
+k$ev_de <- pick(eg, ev1_ev2, sample == "de_ib")
+k$ev_other <- eg$ev1_ev2[eg$sample %in% setdiff(dim_primary, "de_ib")]
+ld <- res_dim$irt_ld |> filter(family == "guess", sample %in% dim_primary)
+k$ecv <- rng(ld$ECV); k$omh <- rng(ld$omega_h); k$cor_uni_g <- rng(ld$cor_theta_uni_general, 3)
+k$info_over <- paste0(pct(min(ld$info_overstatement)), "–", pct(max(ld$info_overstatement)))
+spec_signs <- res_dim$irt_slopes |>
+  filter(family == "guess", has_story_factor, sample %in% dim_primary) |>
+  group_by(sample, story) |>
+  summarise(mixed = any(lambda_specific < 0) & any(lambda_specific > 0),
+            sum_abs = sum(abs(lambda_specific)), abs_sum = abs(sum(lambda_specific)), .groups = "drop")
+k$mixed_stories <- sum(spec_signs$mixed); k$n_story_factors <- nrow(spec_signs)
+k$de_s2_abs <- pick(spec_signs, sum_abs, sample == "de_ib", story == 2)
+k$de_s2_sum <- pick(spec_signs, abs_sum, sample == "de_ib", story == 2)
+
+cc <- res_items$controls_cor
+k$r_ct_pooled <- pick(cc, r_control_target, method == "pooled over runs (June method)",
+                      item_set == "policy items dropped")
+k$r_ct_within <- pick(cc, r_control_target, method == "within dataset x form, Fisher-pooled",
+                      item_set == "policy items dropped")
+
+dbt <- res_inv$dif_by_type
+k$A_ctrl_x2  <- pick(dbt, share_of_s1_X2, analysis == "A", kind == "control")
+k$A_ctrl_it  <- pick(dbt, share_of_items, analysis == "A", kind == "control")
+k$B_ctrl_x2  <- pick(dbt, share_of_s1_X2, analysis == "B", kind == "control")
+tst <- res_inv$tests
+k$A_scal_x2df <- pick(tst, X2_df, analysis == "A", comparison == "scalar vs configural", items == "all")
+k$B_scal_x2df <- pick(tst, X2_df, analysis == "B", comparison == "scalar vs configural", items == "all")
+k$A_part_p <- pick(tst, p, analysis == "A", comparison == "partial scalar vs configural", items == "all")
+k$B_part_p <- pick(tst, p, analysis == "B", comparison == "partial scalar vs configural", items == "all")
+
+# reliability headline: aggregate fixed-form and fCAT rows per dataset
+agg_forms <- c("fCAT", "all fixed forms", "all forms")
+form_types <- res_rel$rel_by_form |> filter(!form %in% agg_forms) |> distinct(dataset, form_type)
+single_type <- form_types |> count(dataset) |> filter(n == 1) |> pull(dataset)
+rel_head <- bind_rows(
+  res_rel$rel_by_form |> filter(form %in% c("all fixed forms", "fCAT")),
+  res_rel$rel_by_form |> filter(form == "all forms", dataset %in% single_type) |>
+    select(-form_type) |> left_join(form_types, by = "dataset")
+) |>
+  filter(!dataset %in% small_groups) |>
+  mutate(kind = if_else(str_starts(form_type, "fCAT"), "fCAT (3 random stories)", "fixed forms"))
+k$rel_fixed <- rng(rel_head$rel_empirical[rel_head$kind == "fixed forms"])
+k$rel_fcat  <- rng(rel_head$rel_empirical[rel_head$kind != "fixed forms"])
+# single fixed forms (dataset x form, >= 25 runs)
+rel_forms <- res_rel$rel_by_form |>
+  filter(form_type == "fixed form", !form %in% agg_forms, n_runs >= 25, !dataset %in% small_groups) |>
+  arrange(rel_empirical)
+form_lab <- \(r) paste0(ds_label(r$dataset), " ", r$form, ", ", r$n_runs, " runs")
+k$low_form  <- form_lab(slice_head(rel_forms, n = 1))
+k$high_form <- form_lab(slice_tail(rel_forms, n = 1))
+k$rel_forms <- rng(rel_forms$rel_empirical)
+dc  <- \(d, col) pick(res_rel$density_check, {{ col }}, dataset == d)
+g0s <- \(d, col) pick(res_rel$g0_sensitivity, {{ col }}, dataset == d)
+blk <- \(b) res_rel$fcat_blocks$story[res_rel$fcat_blocks$block == b]
+cs  <- res_rel$cat_sim_summary
+csv <- \(d, col) pick(cs, {{ col }}, dataset == d)
+je <- res_rel$june_equivalents
+k$de_bank <- pick(je, value, str_starts(quantity, "DE full-bank marginal"))
+sb <- res_rel$stability_bins
+k$stab_60 <- pick(sb, r, dataset == "pilot_mpieva_de_main", gap_bin == "[60,180)", version == "analysis")
+k$stab_60_lo <- pick(sb, r_lo, dataset == "pilot_mpieva_de_main", gap_bin == "[60,180)", version == "analysis")
+k$stab_60_hi <- pick(sb, r_hi, dataset == "pilot_mpieva_de_main", gap_bin == "[60,180)", version == "analysis")
+jp <- res_dim$june_pool_check
+k$fixed_items <- rng(rel_head$median_items[rel_head$kind == "fixed forms"], 0)
+k$fcat_min    <- rng(rel_head$median_minutes[rel_head$kind != "fixed forms"], 1)
+rc  <- res_rel$released_comparison |> filter(!dataset %in% c(small_groups, "all (pooled)"))
+own <- res_rel$released_models |> filter(own_group_in_v2_3) |> pull(dataset)
+k$shift_total <- rng(-rc$shift_analysis_minus_released[!rc$dataset %in% own], 1)
+k$shift_prior <- rng(-rc$shift_own_minus_ref_prior[!rc$dataset %in% own], 1)
+```
+
+## Summary
+
+```{r summary-numbers}
+# numbers the summary needs from later sections (computed here, where the summary is)
+sum_q3 <- res_dim$q3_grouping_contrast |> filter(sample %in% dim_primary, grouping == "question type")
+sum_st <- res_items$slope_tests
+sum_fl <- \(col) pick(sum_st, {{ col }}, outcome == "slope_floor", scheme == "question_type")
+sum_2pl <- \(a, col) pick(res_inv$tests_2pl, {{ col }}, analysis == a, comparison == "scalar vs metric")
+sum_rasch <- \(a, col) pick(res_inv$tests, {{ col }}, analysis == a, comparison == "scalar vs configural", items == "all")
+```
+
+- **Item quality.** Of the `r k$cells_flag` item × language cells with at
+  least 30 responses, `r k$cells_ok` are fine, `r k$cells_ceiling` are at
+  ceiling, `r k$cells_weak` discriminate weakly, `r k$cells_poor` are poor
+  and `r k$cells_bcd` are below chance but still discriminate. The poor
+  cells are the policy-flagged content plus Spanish reality_known
+  false-belief items (story 13 in es-AR: `r n2(k$acc_13_ar, 3)` correct
+  with two response options).
+- **The exclusion list.** The 12 generic Airtable entries cover
+  `r k$v_all` story-level items. `r k$v_un` of them should be un-excluded
+  (`r k$v_weak` weak; `r k$v_es_disc` below chance in Spanish but still
+  discriminating). `r k$v_scop` need exclusions scoped to one content
+  version; for the two on image 4g, a key correction is the alternative, if
+  the content team confirms it. `r k$v_keep` should stay excluded
+  everywhere: reference_reference in stories 5, 11 and 17, and story 10's
+  deception false belief 1, which does not discriminate. Story 13's
+  reality_known false belief keeps an analysis flag in Spanish, and any
+  Airtable row for it should wait for the translation check. The scoped
+  rows cannot be written in today's Airtable schema.
+- **What organizes the items.** Question type organizes item difficulty
+  (R² `r n2(k$r2_qt, 3)`, against `r n2(k$r2_og, 3)` and `r n2(k$r2_nc, 3)`
+  for the two story-construct schemes). Above the guessing floor,
+  false-belief targets are more age-sensitive than controls (difference
+  `r n2(sum_fl(fb_minus_control), 2)` [`r n2(sum_fl(fb_minus_control_lo), 2)`,
+  `r n2(sum_fl(fb_minus_control_hi), 2)`] logits per year), so June's
+  "false-belief targets carry the age signal" survives on the
+  chance-corrected scale; raw logit slopes do not separate them. The
+  clustering of tetrachoric correlations by question type partly reflects
+  shared difficulty: on IRT residuals the contrast shrinks to
+  `r rng(sum_q3$within_minus_between, 3)`, weak and uneven across
+  samples.
+- **Dimensionality.** A single score is defensible, most clearly outside
+  Leipzig. The Leipzig form's eigenvalue ratio is `r n2(k$ev_de)`, as in
+  June (on a partly different item set); the Western, Bogotá and es-AR
+  forms are at `r rng(k$ev_other)`. In the bifactor models ECV is `r k$ecv` (below the
+  usual .70 in Leipzig and es-AR), and scores barely change
+  (r = `r k$cor_uni_g`). Story-level local dependence makes a
+  unidimensional model overstate information by `r k$info_over`.
+- **Controls.** Keep them. They add reliability and cost almost no age
+  validity. Their correlation with targets is `r n2(k$r_ct_within)` within
+  dataset × form, lower than the pooled `r n2(k$r_ct_pooled)` that June's
+  method gives.
+- **Cross-language invariance.** In stories 1–6 (de/en-US/es-CO) the LR
+  test rejects scalar invariance (χ²/df `r n2(k$A_scal_x2df, 1)`), but BIC
+  does not favour non-invariance under the LEVANTE convention or the 2PL
+  (Rasch dBIC `r n2(sum_rasch("A", dBIC), 0)`, 2PL `r n2(sum_2pl("A", dBIC), 0)`);
+  it does with a guessing floor of 0 for below-chance items
+  (dBIC `r n2(sum_rasch("A_g0", dBIC), 0)`).
+  Stories 13–18 (de/es-AR) are non-invariant under both models (dBIC
+  `r n2(sum_rasch("B", dBIC), 0)` and `r n2(sum_2pl("B", dBIC), 0)`).
+  Whether controls or targets carry more of the DIF depends on the model
+  and the design, so June's "controls dominate" is weakened, not simply
+  overturned. False-belief items are non-invariant in both analyses, but
+  language is confounded with prior exposure (most German children in
+  stories 13–18 were on a repeat run), age and site. Two sites that share a
+  language differ less (by BIC) and mostly on other items, and German
+  children under 9 show the same false-belief DIF, so neither site nor age
+  alone explains it.
+  Partial scalar models fit, but only as a description.
+- **Reliability.** Per administration, reliability is moderate:
+  `r k$rel_fixed` per dataset, pooling its fixed forms (single forms
+  `r k$rel_forms`), and `r k$rel_fcat` for the deployed fCAT (3 random
+  stories, median `r k$fcat_min` minutes). Both are upper bounds. June's
+  ".92" was a model-implied value for a `r jp$items_in_model`-item pool that
+  no child takes; the same model's reliability for what children answered
+  is `r n2(jp$rasch_empirical_rxx_eap, 3)`. In the same children, choosing
+  the more informative story per block instead of a random one raises the
+  reliability of a 3-story form by a median of
+  `r n2(median(cs$rel_adaptive - cs$rel_random))` (up to
+  `r n2(max(cs$rel_adaptive - cs$rel_random))`). German alternate-form stability over 2–6 months is
+  `r n2(k$stab_60)` [`r n2(k$stab_60_lo)`, `r n2(k$stab_60_hi)`].
+- **Scoring.** The means and variances of low-scoring groups are weakly
+  identified: they move with the integration grid, the latent density and
+  the guessing convention, while scores within a group barely change.
+  Datasets without their own group in v2_3 were scored under the German
+  prior; with their own prior, their level drops by `r k$shift_prior`
+  logits.
+
+# Data and provenance
+
+```{r provenance}
+prov <- attr(trials, "provenance")
+prov$raw_sources |>
+  left_join(prov$release_refs, by = "dataset") |>
+  mutate(dataset = ds_label(dataset)) |>
+  knitr::kable(caption = "Pinned raw datasets (read) and the latest processed releases (for reconciliation only)")
+```
+
+- **Build.** `tasks/_build_stories_data.R` ran `process_trials()` with
+  levantemodels from the PR #27 branch (`fix-tom-identity-corrections`,
+  commit `r substr(prov$levantemodels[["commit"]], 1, 7)`, which sits
+  directly on main `bd24157`). On 2026-09-24, `git ls-remote` gave
+  `bd24157` for origin/main (the same as the local main) and `3dc148b`
+  for `refs/pull/27/head`. Item identity metadata:
+  `r prov$metadata[["ref"]]`.
+- **Run and trial rules.** These are the production rules the latest
+  releases were built with: `r prov$rules[["run"]]`; trials: `r prov$rules[["trial"]]`;
+  then `r prov$rules[["run_after_trials"]]`.
+- **Reconciliation.** Without PR #27 the rebuild reproduces the releases
+  trial for trial (`r recon$pre_vs_release[["pre_not_in_release"]]` rebuilt
+  trials missing from the releases, and
+  `r recon$pre_vs_release[["release_not_in_pre"]]` the other way round).
+  For Sheffield the comparison is with its unreleased next draft of
+  2026-09-24 (`:next` in the table above), because its latest release
+  (v3_1) predates the pinned raw data. The table below shows what PR #27
+  adds.
+- **The fCAT is not adaptive.** The `theory-of-mind-item-bank-cat-test`
+  corpus ("fCAT") shows one random story from each of 3 story groups. It
+  has no item parameters and makes no θ updates. It is analysed here as a
+  random 3-story form (`fcat_random3`).
+
+```{r inventory}
+trials |>
+  group_by(dataset, form, language) |>
+  summarise(runs = n_distinct(run_id), children = n_distinct(user_id),
+            trials = n(), median_age = median(age[!duplicated(run_id)], na.rm = TRUE),
+            stories = story_ranges(story),
+            first = as.Date(min(time_started)), last = as.Date(max(time_started)),
+            .groups = "drop") |>
+  mutate(dataset = ds_label(dataset)) |>
+  knitr::kable(digits = 1, format.args = list(big.mark = ","),
+               caption = "Included runs by dataset × form × language")
+```
+
+```{r pr27}
+recon$per_dataset |>
+  select(dataset, release_trials, stories_trials, added, relabelled,
+         correct_differs, release_runs, stories_runs) |>
+  mutate(dataset = ds_label(dataset)) |>
+  knitr::kable(format.args = list(big.mark = ","),
+               caption = "What PR #27 changes against the latest releases (trials and runs)")
+```
+
+## Item-policy flags
+
+The analyses drop the `policy_exclude` trials by default and analyse the
+`spanish_fb_flag` trials both with and without. Neither flag removes rows
+from the data file.
+
+```{r policy}
+trials |>
+  filter(policy_exclude | spanish_fb_flag) |>
+  mutate(flag = if_else(policy_exclude, policy_reason,
+                        "Spanish reality_known false belief: analyse with and without")) |>
+  group_by(flag, item = uid_label(story_uid), item_original) |>
+  summarise(trials = n(), datasets = n_distinct(dataset),
+            accuracy = mean(correct), chance = first(chance), .groups = "drop") |>
+  arrange(flag, item) |>
+  knitr::kable(digits = 3, format.args = list(big.mark = ","),
+               caption = "Item-policy flags: trials, content code and accuracy")
+```
+
+## Western's empty item-bank runs
+
+```{r western}
+wca_empty <- runs |>
+  filter(dataset == "pilot_western_ca_main", variant_id == "Qx8XB8ZAFwP0RhhiEKw5",
+         time_started >= as.POSIXct("2026-04-25", tz = "UTC"), n_trials_raw == 0)
+wca_other <- runs |>
+  filter(dataset == "pilot_western_ca_main", included,
+         user_id %in% wca_empty$user_id)
+```
+
+`r nrow(wca_empty)` Western runs on the item-bank variant
+(`Qx8XB8ZAFwP0RhhiEKw5`) between `r as.Date(min(wca_empty$time_started))`
+and `r as.Date(max(wca_empty$time_started))` logged no trials
+(`r sum(wca_empty$stop_reason %in% "taskAbort")` with `stop_reason =
+taskAbort`). They are excluded as `no_data`. `r n_distinct(wca_other$user_id)`
+of the `r n_distinct(wca_empty$user_id)` children involved have an included
+ToM run (at any time) in these data. According to the engineering team's
+follow-up, no collected data were lost. The variant still
+loaded the item-bank corpus, whose hostile-attribution prompts are missing
+from the English item-bank translation, so the task failed its startup
+corpus check and aborted before the first trial. The children completed the
+other tasks. The failure was written up in an internal incident report on 12 July,
+logged by error monitoring on 19 and 28 August, and is related to
+core-tasks#437 (open since 8 April). The engineering team believes the
+variant has since been updated; the last run on it in these data started on
+`r as.Date(max(runs$time_started[runs$variant_id %in% "Qx8XB8ZAFwP0RhhiEKw5"]))`,
+which fits an update but does not prove one.
+Engineering plans a nightly check of open assignments that
+reference stale (unregistered) variants and, in the longer term, moving
+existing assignments to new variants when an old one is deprecated. For this
+chapter, these are missing administrations, not dropped data.
+
+# Item quality and the exclusion list
+
+## Item screen
+
+Each story item was screened in each language with at least 30 responses:
+accuracy against chance (exact binomial tests) and item-rest correlation.
+The item-rest r is computed within dataset × form and then Fisher-pooled.
+The flag levels are *poor* (below chance without credible discrimination,
+or item-rest r reliably negative), *below chance but discriminating*,
+*ceiling* (≥ .95), *weak* (not above chance, or item-rest r with a 95% CI
+upper bound below .20) and *ok*.[^flagrules]
+
+[^flagrules]: The flag rules were revised once after the first run. The
+original weak-item rule (item-rest r point estimate < .10) mostly flagged
+small fCAT cells, whose item-rest CIs are wide. The revised rule uses the
+CI upper bound, checks ceiling before weak, and gives below-chance items
+with a credibly positive r their own level. The original criterion is kept
+in `r_ir_below_10`; it would flag
+`r sum(res_items$items_lang$r_ir_below_10[res_items$items_lang$flag != "n < 30"], na.rm = TRUE)`
+of the `r k$cells_flag` cells.
+
+```{r flag-table}
+res_items$flag_summary$by_language |>
+  select(language, ok, ceiling, weak, `below chance, discriminating`, poor, `n < 30`) |>
+  knitr::kable(caption = "Item × language cells by flag (n ≥ 30 to be flagged)")
+```
+
+```{r fig-items, fig.height=13}
+il <- res_items$items_lang |>
+  filter(flag != "n < 30") |>
+  mutate(label = uid_label(story_uid),
+         label = paste0(label, case_when(content == "other content" ~ " [other content]",
+                                         str_detect(content, "4g") ~ " [4g]",
+                                         str_detect(content, "2e") ~ " [2e]",
+                                         TRUE ~ "")),
+         label = fct_reorder(label, -story),
+         question_type = factor(question_type, qtype_levels),
+         language = factor(language, lang_levels),
+         flag = fct_drop(flag))
+ggplot(il, aes(x = accuracy - chance, y = label, colour = language, shape = flag)) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_point(size = 2, alpha = .8) +
+  facet_wrap(vars(question_type), scales = "free_y", ncol = 2) +
+  scale_colour_manual(values = lang_pal, name = NULL) +
+  scale_shape_manual(values = c(ok = 16, ceiling = 17, weak = 1,
+                                `below chance, discriminating` = 4, poor = 8), name = NULL) +
+  labs(x = "Accuracy minus chance", y = NULL,
+       title = "Item accuracy above chance, by language",
+       subtitle = "Cells with n ≥ 30; [4g], [2e] and [other content] split the policy-flagged content from the rest") +
+  theme(legend.position = "bottom", legend.box = "vertical",
+        axis.text.y = element_text(size = 7))
+```
+
+```{r poor-not-policy}
+res_items$flag_summary$poor_not_policy |>
+  transmute(item = uid_label(story_uid), language, n, accuracy, chance,
+            p_below = fp(p_below), r_ir, r_ir_lo, flag, datasets) |>
+  knitr::kable(digits = 3, caption = "Below-chance cells outside the policy flags")
+```
+
+```{r items-numbers}
+ia <- function(uid, cont = "all", col = accuracy)
+  pick(res_items$items_all, {{ col }}, story_uid == uid, content == cont)
+il_acc <- function(uid, lang, col = accuracy)
+  pick(res_items$items_lang, {{ col }}, story_uid == uid, language == lang, content == "all")
+k$s14_ar    <- il_acc("tom_story14_moral_reasoning_false_belief_1", "es-AR")
+k$s14_ar_n  <- il_acc("tom_story14_moral_reasoning_false_belief_1", "es-AR", n)
+k$s14_ar_r  <- il_acc("tom_story14_moral_reasoning_false_belief_1", "es-AR", r_ir)
+k$s14_ar_lo <- il_acc("tom_story14_moral_reasoning_false_belief_1", "es-AR", r_ir_lo)
+k$s14_ar_hi <- il_acc("tom_story14_moral_reasoning_false_belief_1", "es-AR", r_ir_hi)
+k$s14_ar_age <- il_acc("tom_story14_moral_reasoning_false_belief_1", "es-AR", median_age)
+k$s14_de    <- il_acc("tom_story14_moral_reasoning_false_belief_1", "de-DE")
+rk_band <- \(uid, lang, band) pick(res_items$rk_fb_age, accuracy, story_uid == uid, language == lang,
+                                   age_band == band)
+rk_am <- res_items$rk_fb_age_matched
+```
+
+What the screen shows:
+
+- Outside the policy flags, the below-chance cells are Spanish false-belief
+  items, above all the reality_known question ("where will X look first?")
+  of stories 1, 7 and 13. They are not alike. Story 1 in es-CO is below
+  chance but discriminates (item-rest r
+  `r n2(il_acc("tom_story1_reality_known_false_belief", "es-CO", r_ir))`
+  [`r n2(il_acc("tom_story1_reality_known_false_belief", "es-CO", r_ir_lo))`,
+  `r n2(il_acc("tom_story1_reality_known_false_belief", "es-CO", r_ir_hi))`]),
+  the pattern of children who answer with the object's real location. Story
+  7 in es-CO has a similar r
+  (`r n2(il_acc("tom_story7_reality_known_false_belief", "es-CO", r_ir))`
+  [`r n2(il_acc("tom_story7_reality_known_false_belief", "es-CO", r_ir_lo))`,
+  `r n2(il_acc("tom_story7_reality_known_false_belief", "es-CO", r_ir_hi))`],
+  n = `r il_acc("tom_story7_reality_known_false_belief", "es-CO", n)`) and is
+  flagged poor only because its interval reaches 0. Story 13 in es-AR carries
+  no information: `r n2(k$acc_13_ar, 3)` correct, item-rest r
+  `r n2(il_acc("tom_story13_reality_known_false_belief", "es-AR", r_ir), 3)`.
+- The failure is not specific to Spanish. Young en-US children are also
+  below chance on story 1 (`r n2(rk_band("tom_story1_reality_known_false_belief", "en-US", "<6"))`
+  under 6 and `r n2(rk_band("tom_story1_reality_known_false_belief", "en-US", "6-7"))`
+  at 6–7 years), and story 13 is at chance in en-GB
+  (`r n2(il_acc("tom_story13_reality_known_false_belief", "en-GB"))`,
+  n = `r il_acc("tom_story13_reality_known_false_belief", "en-GB", n)`). The
+  items "work" only in the older German samples. Compared at the same age,
+  though, Spanish-speaking children still answer them less often correctly
+  (table below): the Spanish gap is `r rng(-rk_am$es_logit, 1)` logits.
+  Age, language, site and sample are confounded, and nobody has checked the
+  translation files yet.
+
+```{r fig-rkfb, fig.height=3.8}
+res_items$rk_fb_age |>
+  filter(n >= 10) |>
+  mutate(item = paste0("Story ", story, " reality_known false belief"),
+         language = factor(language, lang_levels)) |>
+  ggplot(aes(age_band, accuracy, colour = language, group = language)) +
+  geom_hline(aes(yintercept = chance), linetype = "dashed") +
+  geom_line() + geom_point(aes(size = n)) +
+  facet_wrap(vars(item), nrow = 1) +
+  scale_colour_manual(values = lang_pal, name = NULL) +
+  scale_size_area(max_size = 3, guide = "none") +
+  labs(x = "Age band (years)", y = "Accuracy",
+       title = "The reality_known false-belief items by age band and language (cells with n ≥ 10; dashed = chance)") +
+  theme(legend.position = "bottom")
+rk_am |>
+  transmute(item = uid_label(story_uid), ages = paste0(n2(age_lo, 1), "–", n2(age_hi, 1)),
+            n_es, n_other, other_languages, spanish_logit = es_logit, lo = es_lo, hi = es_hi,
+            acc_at_7_other, acc_at_7_es) |>
+  knitr::kable(digits = 2, caption = "Age-matched comparison: glm(correct ~ age + Spanish) on the ages both groups cover (the intersection of each group's 5th–95th age percentiles)")
+```
+
+- The problem reaches beyond stories 1/7/13. Story 14's
+  moral-reasoning false belief ("where will he look first for his soccer
+  ball?") is below chance in es-AR (`r n2(k$s14_ar, 3)`,
+  n = `r big(k$s14_ar_n)`; de-DE `r n2(k$s14_de, 3)`), yet its item-rest r
+  is positive (`r n2(k$s14_ar_r, 3)` [`r n2(k$s14_ar_lo, 3)`,
+  `r n2(k$s14_ar_hi, 3)`]). That pattern fits young children (median age
+  `r n2(k$s14_ar_age, 1)`) who answer with the real location, not a broken
+  key. Age and language are confounded here: the es-AR samples are the
+  youngest.
+- The weakest items outside the policy flags are yes/no "Is [sibling] mad at
+  [sibling]?" questions in the parallel deception stories 4 and 16. They sit at or
+  near chance everywhere. Two other targets barely discriminate, and story
+  10's deception false belief 1 does not discriminate at all (it is now
+  policy-excluded; see the verdicts):
+
+```{r weak-targets}
+weak_uids <- c("tom_story4_deception_false_belief_3", "tom_story16_deception_reference_2",
+               "tom_story16_deception_reference_5", "tom_story10_deception_false_belief_1",
+               "tom_story17_reference_emotion_reasoning_1")
+res_items$items_all |>
+  filter(story_uid %in% weak_uids, content == "all") |>
+  transmute(item = uid_label(story_uid), prompt, n, accuracy, chance,
+            r_ir, r_ir_lo, r_ir_hi, lang_weak) |>
+  knitr::kable(digits = 3, caption = "Candidates for item revision (not proposed exclusions)")
+```
+
+::: {.callout-note collapse="true"}
+## All items, pooled over languages (92 rows)
+
+`content` splits the policy-flagged 4g and 2e content from the rest.
+Flagged languages are listed by flag level.
+
+```{r items-all}
+res_items$items_all |>
+  arrange(story, question_type) |>
+  transmute(item = uid_label(story_uid), content, question_type, prompt, n,
+            accuracy, chance, r_ir, r_ir_lo, r_ir_hi,
+            lang_poor, lang_below_disc, lang_weak, lang_ceiling) |>
+  knitr::kable(digits = 3)
+```
+:::
+
+::: {.callout-note collapse="true"}
+## Flagged cells by dataset × form
+
+```{r items-cell}
+res_items$items_cell |>
+  filter(flag %in% c("poor", "below chance, discriminating")) |>
+  arrange(story, dataset) |>
+  transmute(item = uid_label(story_uid), content, dataset, form, language, n,
+            accuracy, chance, median_age, r_ir, flag) |>
+  knitr::kable(digits = 3)
+```
+:::
+
+## The exclusion list, story by story
+
+The Airtable exclusion table holds 12 generic ToM uids, such as
+`tom_deception_reality_check_2`. Each names a question type in a story type,
+so it applies to all parallel stories. The 2026-09 audit found that none of
+them takes effect in the current pipeline: the scoring prep runs its
+`anti_join` after `recode_tom()` has rewritten every uid to story level, so
+the generic uids match nothing. The table below judges each of the
+`r k$v_all` story-level items they cover on the corrected data. `accuracy_kept`
+and `r_ir_kept` are the values once the proposed scoped exclusion is
+applied.
+
+The verdicts are a check of the data build's policy flags, which were set
+from the 2026-09 audit, against the item-screen rules above. For the
+"keep excluded" and plain "un-exclude" rows the agreement column is true by
+construction. The informative checks are the scoped rows (is the flagged
+content below chance while the rest is fine?) and the Spanish rows.
+
+```{r verdicts}
+res_items$item_verdicts |>
+  transmute(item = uid_label(story_uid), n_all, accuracy_all, chance_all, r_ir_all,
+            accuracy_kept, r_ir_kept, verdict, scope) |>
+  knitr::kable(digits = 3, caption = "Verdicts for the 28 story-level items behind the 12 generic exclusion uids")
+```
+
+```{r verdict-counts}
+res_items$verdict_counts |>
+  knitr::kable(caption = "Verdict counts (and agreement with the build's policy flags; true by construction except for the scoped and Spanish rows)")
+```
+
+```{r b-numbers}
+k$rr5  <- ia("tom_story5_reference_reference")
+k$rr11 <- ia("tom_story11_reference_reference")
+k$rr17 <- ia("tom_story17_reference_reference")
+k$rr5_de <- il_acc("tom_story5_reference_reference", "de-DE")
+k$rr5_de_n <- il_acc("tom_story5_reference_reference", "de-DE", n)
+k$s4rc2_4g <- ia("tom_story4_deception_reality_check_2", "policy-flagged (4g)")
+k$s4rc3_4g <- ia("tom_story4_deception_reality_check_3", "policy-flagged (4g)")
+k$s4rc2_4d <- ia("tom_story4_deception_reality_check_2", "other content")
+k$s4rc3_4d <- ia("tom_story4_deception_reality_check_3", "other content")
+k$s2rc1_2e <- ia("tom_story2_moral_reasoning_reality_check_1", "policy-flagged (2e)")
+k$s2rc1_2e_n <- ia("tom_story2_moral_reasoning_reality_check_1", "policy-flagged (2e)", n)
+k$s2rc1_oth <- ia("tom_story2_moral_reasoning_reality_check_1", "other content")
+# story-4 rc_2 on 4g by language, and the 4d level by language
+s4 <- \(uid, cont, lang, col = accuracy)
+  pick(res_items$items_lang, {{ col }}, story_uid == uid, content == cont, language == lang)
+rc2 <- "tom_story4_deception_reality_check_2"
+k$rc2_4d_rng <- rng(res_items$items_lang$accuracy[res_items$items_lang$story_uid == rc2 &
+                                                   res_items$items_lang$content == "other content"])
+# flipped keys (pooled over languages)
+fc <- \(uid, part, col) pick(res_items$flip_check, {{ col }}, story_uid == uid, content_part == part,
+                             language == "all")
+flip_ci <- \(uid, part) paste0(n2(fc(uid, part, r_ir_flipped)), " [", n2(fc(uid, part, r_ir_flipped_lo)),
+                               ", ", n2(fc(uid, part, r_ir_flipped_hi)), "]")
+s2r <- \(e, cont, resp) pick(res_items$story2_rc_responses, share, entry == e, content == cont,
+                             response == resp)
+rl <- res_items$reliability
+k$ar13_with <- pick(rl, empirical_rxx, sample == "UTDT-AR main, no-HA retest-B form (stories 13-18)",
+                    items == "all items", model == "2PL")
+k$ar13_without <- pick(rl, empirical_rxx,
+                       sample == "UTDT-AR main, no-HA retest-B form, without the flagged es false-belief item",
+                       items == "all items", model == "2PL")
+```
+
+What the verdicts say:
+
+- **Keep excluded:** reference_reference in stories 5, 11 and 17
+  (`r n2(k$rr5, 3)`, `r n2(k$rr11, 3)` and `r n2(k$rr17, 3)` correct;
+  chance .33). It is below chance in every language (cells with at least
+  30 responses) except German story 5, which is at chance (`r n2(k$rr5_de, 3)`, n = `r k$rr5_de_n`), and its
+  item-rest r is negative in every story. The audit found that children pick
+  the literal referent, so a key flip would only duplicate the reality check.
+  This is a design problem, and the items are still deployed. Story 10's
+  deception false belief 1 also stays excluded: its item-rest r is
+  `r n2(pick(res_items$item_verdicts, r_ir_all, story_uid == "tom_story10_deception_false_belief_1"))`
+  [`r n2(pick(res_items$item_verdicts, r_ir_lo_all, story_uid == "tom_story10_deception_false_belief_1"))`,
+  `r n2(pick(res_items$item_verdicts, r_ir_hi_all, story_uid == "tom_story10_deception_false_belief_1"))`]
+  (n = `r pick(res_items$item_verdicts, n_all, story_uid == "tom_story10_deception_false_belief_1")`),
+  and its interval spans 0 in every language. The same generic uid covers
+  stories 4 and 16, which discriminate and are un-excluded.
+- **Scoped: story 4 on image 4g.** Reality check 3 on image 4g
+  (`r n2(k$s4rc3_4g, 3)`) is below chance in every language. Reality check 2
+  (`r n2(k$s4rc2_4g, 3)`) is below chance in de-DE and en-US, weak in en-GB
+  (`r n2(s4(rc2, "policy-flagged (4g)", "en-GB"), 3)`, n =
+  `r s4(rc2, "policy-flagged (4g)", "en-GB", n)`, one-sided p =
+  `r n2(s4(rc2, "policy-flagged (4g)", "en-GB", p_below), 3)`) and at chance in
+  es-CO (`r n2(s4(rc2, "policy-flagged (4g)", "es-CO"), 3)`), still well below
+  its level on the earlier image 4d (`r k$rc2_4d_rng`). On 4d both questions
+  work, although reality check 3 is weak there too (`r n2(k$s4rc3_4d, 3)` on
+  two options). Both are keyed "yes" ("Is Mother/Joshua mad at Isabel
+  now?"), but the audit found that image 4g shows Mother, Isabel and Joshua
+  smiling, and the story never says that Mother learns what Isabel did. With
+  the key flipped to "no", the 4g items score
+  `r n2(fc(rc2, "flagged: 4g", accuracy_flipped), 2)` and
+  `r n2(fc("tom_story4_deception_reality_check_3", "flagged: 4g", accuracy_flipped), 2)`,
+  with item-rest r `r flip_ci(rc2, "flagged: 4g")` and
+  `r flip_ci("tom_story4_deception_reality_check_3", "flagged: 4g")`:
+  positive but weak (reality check 2's interval only just clears 0), a
+  third to a half of the 4d values
+  (`r n2(fc(rc2, "other content: 4d", r_ir))` and
+  `r n2(fc("tom_story4_deception_reality_check_3", "other content: 4d", r_ir))`).
+  The data are consistent with a key that conflicts with the scene. A
+  scoped correction (re-key 4g to "no") is therefore the preferred option,
+  because it keeps the
+  `r big(sum(res_items$flip_check$n[res_items$flip_check$content_part == "flagged: 4g" & res_items$flip_check$language == "all"]))`
+  trials, but only once the content team confirms that "no" is right for
+  the 4g scene; exclusion is the fallback. This chapter keeps the exclusion
+  until then.
+- **Scoped: story 2 on the V0 Bogotá content.** Reality check 1 on the
+  first Bogotá content (2e, May–June 2024) is `r n2(k$s2rc1_2e, 3)`
+  (n = `r k$s2rc1_2e_n`) but `r n2(k$s2rc1_oth, 3)` on later content. The
+  V0 pattern is the mirror image of the later one:
+  `r pct(s2r("reality_check_1", "V0 Bogota (2e)", "coats"))` of V0 children
+  chose "coats" (key "shelf"), and
+  `r pct(s2r("reality_check_1", "later content", "shelf"))` later chose
+  "shelf". A flipped key would give `r n2(fc("tom_story2_moral_reasoning_reality_check_1", "flagged: 2e", accuracy_flipped), 3)`,
+  with item-rest r `r flip_ci("tom_story2_moral_reasoning_reality_check_1", "flagged: 2e")`.
+  The mechanism is undetermined: an inverted key, a question identity
+  swapped in the retroactive V0 map, or the V0 content itself. A clean swap
+  of the two reality checks is not supported: the paired reality check 2
+  (key "coats") drew "coats" from
+  `r pct(s2r("reality_check_2", "V0 Bogota (2e)", "coats"))` of V0 children
+  and `r pct(s2r("reality_check_2", "later content", "coats"))` later. No V0
+  corpus survives to settle it. The scoped exclusion is the conservative
+  choice; a key or identity correction is the alternative if the V0 content
+  can be recovered.
+- **Spanish reality_known false belief.** Stories 1 and 7 still
+  discriminate in es-CO (above), so they are un-excluded without a language
+  flag. Story 13 does not discriminate in es-AR or es-CO and stays below the
+  other languages at matched age; it keeps the analysis flag, but no Airtable
+  row is proposed until the translation check. In es-AR it adds nothing to
+  the UTDT form: reliability is `r n2(k$ar13_with, 3)` with it and
+  `r n2(k$ar13_without, 3)` without it (2PL + guessing, empirical). The
+  build's `spanish_fb_flag`, which the analyses run with and without,
+  still covers all three stories.
+- **Un-exclude:** the other `r k$v_un - k$v_es_disc` items behave normally;
+  of these, story 14's moral reality check 1 is weak.
+
+::: {.callout-note collapse="true"}
+## The scoped rows under a flipped key, and story 2's reality checks in V0
+
+```{r flip-check}
+res_items$flip_check |>
+  transmute(item = uid_label(story_uid), content_part, language, n, accuracy, accuracy_flipped,
+            r_ir, r_ir_lo, r_ir_hi, r_ir_flipped, r_ir_flipped_lo, r_ir_flipped_hi) |>
+  knitr::kable(digits = 3, caption = "Accuracy and item-rest r (within dataset × form, Fisher-pooled) with the deployed and the flipped key")
+res_items$story2_rc_responses |>
+  knitr::kable(digits = 3, caption = "Story 2's two reality checks: which option children chose, V0 Bogotá vs later content (DE trials with hostile-attribution answer strings omitted)")
+```
+:::
+
+::: {.callout-important}
+## What this means for the Airtable exclusion table
+
+The DCC's plan is to keep exclusions in the Airtable
+table, so they are documented outside code rather than written into
+levantemodels. The verdicts above fit that plan, with three changes:
+
+1. Rows need to be **story-level** (for example
+   `tom_story17_reference_reference`), not generic. The four keep-excluded
+   rows fit today's columns (`item_uid`, `exclude`, `dataset`).
+2. Three rows need a **content scope** that those columns cannot express:
+   story-4 reality checks 2 and 3 on image 4g, and story-2 reality check 1
+   on the V0 content (2e before 2024-07-01), that is, two content scopes
+   covering three items. The table would need a content-version (or
+   date-window) column. The 4g rows could instead become a key correction,
+   which would need a place of its own (see recommendation 2).
+3. **No language-scoped rows yet.** Stories 1 and 7 discriminate in Spanish.
+   Story 13 should wait for the translation check; if it then needs a
+   Spanish row, the table would also need a language column.
+
+The `policy_exclude` and `spanish_fb_flag` flags this chapter uses are
+defined in `tasks/_build_stories_data.R`. They stand in for those rows until
+the table can hold them.
+:::
+
+```{r airtable-rows}
+res_items$item_verdicts |>
+  filter(!verdict %in% c("un-exclude", "un-exclude (weak item)")) |>
+  transmute(item = uid_label(story_uid), verdict, proposed_airtable_row) |>
+  knitr::kable(caption = glue("Proposed story-level rows other than plain un-exclusions (the other {k$v_un - k$v_es_disc} items only need their generic rows removed)"))
+```
+
+::: {.callout-note collapse="true"}
+## Evidence for the scoped rows, by content and language
+
+```{r scoped-split}
+res_items$scoped_split |>
+  transmute(item = uid_label(story_uid), scope_part, language, n, accuracy, chance,
+            p_below = fp(p_below)) |>
+  knitr::kable(digits = 3)
+```
+:::
+
+# What organizes the items
+
+## Difficulty and age sensitivity
+
+Item difficulty comes from a per-language Rasch model with guessing fixed at
+chance, z-scored within language. Age slopes come from item × language
+logistic regressions of correctness on age with dataset fixed effects. A
+slope needs n ≥ 50 and at least 10 correct and 10 incorrect answers.[^minority]
+The R² F-tests on item × language cells treat the cells as independent,
+although the same item appears in several languages. The item-level rows
+(one value per item, averaged over languages) and the random-effects tests
+in the next section do not, and the text leads with them.
+
+[^minority]: The minority rule (≥ 10 correct and ≥ 10 incorrect) was added
+after the first run, where one near-ceiling item gave a separated slope of
+−170. That slope dominated the R² values. Because of the rule, control
+slopes come only from samples where controls are not at ceiling. Unfiltered
+slopes are kept in `age_slope_raw`.
+
+```{r construct-r2}
+res_items$construct_r2 |>
+  filter(outcome %in% c("difficulty (IRT, z within language)", "age slope (logit per year)")) |>
+  transmute(outcome, unit, scheme, n_items, R2, dR2, p = fp(p)) |>
+  knitr::kable(digits = 3, caption = "Variance in item difficulty and item age slope explained by each scheme (for age slopes on cells, dR2 is over language; cell-level p-values treat cells as independent)")
+```
+
+```{r fig-schemes, fig.height=6.5}
+sm <- res_items$scheme_means |>
+  mutate(scheme = recode(scheme, question_type = "Question type", old_group = "Story type (old)",
+                         new_construct = "Construct (new)"),
+         scheme = factor(scheme, c("Question type", "Story type (old)", "Construct (new)")))
+p_slope <- ggplot(sm, aes(x = mean_age_slope, y = fct_reorder(level, mean_age_slope))) +
+  geom_linerange(aes(xmin = mean_age_slope - se_age_slope, xmax = mean_age_slope + se_age_slope)) +
+  geom_point(size = 2.5) +
+  facet_grid(rows = vars(scheme), scales = "free_y", space = "free_y") +
+  labs(x = "Raw age slope (logit/yr, ± SE)", y = NULL) +
+  theme(strip.text.y = element_blank())
+p_diff <- ggplot(sm, aes(x = mean_difficulty_z, y = fct_reorder(level, mean_age_slope))) +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  geom_point(size = 2.5) +
+  facet_grid(rows = vars(scheme), scales = "free_y", space = "free_y") +
+  labs(x = "Difficulty (z within language)", y = NULL) +
+  theme(axis.text.y = element_blank())
+patchwork::wrap_plots(p_slope, p_diff, nrow = 1) +
+  patchwork::plot_annotation(title = "Question type orders difficulty; raw age slopes (no guessing floor) barely differ")
+```
+
+```{r qtype-summary}
+res_items$qtype_summary |>
+  knitr::kable(digits = 3, caption = "By question type (item × language cells; raw logit age slopes)")
+```
+
+```{r slope-numbers}
+st <- res_items$slope_tests
+spq <- res_items$slope_by_qtype |> filter(filter == "symmetric (floor model)")
+k$fl_fb   <- pick(spq, mean_slope_floor, question_type == "false_belief")
+k$fl_rc   <- pick(spq, mean_slope_floor, question_type == "reality_check")
+k$ame_fb  <- pick(spq, mean_ame_floor, question_type == "false_belief")
+k$ame_rc  <- pick(spq, mean_ame_floor, question_type == "reality_check")
+k$fl_diff <- pick(st, fb_minus_control, outcome == "slope_floor", scheme == "question_type")
+k$fl_lo   <- pick(st, fb_minus_control_lo, outcome == "slope_floor", scheme == "question_type")
+k$fl_hi   <- pick(st, fb_minus_control_hi, outcome == "slope_floor", scheme == "question_type")
+k$fl_p    <- pick(st, p, outcome == "slope_floor", scheme == "question_type")
+k$raw_diff <- pick(st, fb_minus_control, outcome == "age_slope", scheme == "question_type")
+k$raw_lo   <- pick(st, fb_minus_control_lo, outcome == "age_slope", scheme == "question_type")
+k$raw_hi   <- pick(st, fb_minus_control_hi, outcome == "age_slope", scheme == "question_type")
+k$raw_p    <- pick(st, p, outcome == "age_slope", scheme == "question_type")
+k$nc_raw_p <- pick(st, p, outcome == "age_slope", scheme == "new_construct")
+k$nc_fl_p  <- pick(st, p, outcome == "slope_floor", scheme == "new_construct")
+ib <- \(sch, col) pick(cr, {{ col }}, outcome == "age slope (logit per year)", unit == "item (mean over languages)",
+                       scheme == sch)
+isl <- res_rel$item_slopes_by_type
+k$a_fb <- pick(isl, median_a, question_type == "false_belief")
+k$a_rc <- pick(isl, median_a, question_type == "reality_check")
+asf <- res_items$age_slopes_floor
+k$n_floor_fail <- sum(is.na(asf$slope_floor) & asf$cc_accuracy >= .1 & asf$cc_accuracy <= .9)
+```
+
+- **Difficulty is question type.** Question type explains
+  `r n2(pick(cr, R2, outcome == "difficulty (IRT, z within language)", unit == "item (mean over languages)", scheme == "question_type (4)"))`
+  of the variance across items (`r n2(k$r2_qt)` across item × language
+  cells); control vs target alone explains
+  `r n2(pick(cr, R2, outcome == "difficulty (IRT, z within language)", unit == "item x language", scheme == "control vs target (2)"))`
+  across cells. Either construct scheme explains about `r n2(k$r2_og, 2)`.
+  Reference and false-belief questions are hard and reality checks easy.
+  June found the same.
+- **Raw age slopes barely differ by question type.** Across items, question
+  type explains R² = `r n2(ib("question_type (4)", R2), 3)` of the raw
+  slopes (p = `r n2(ib("question_type (4)", p), 2)`), and a random-effects
+  comparison puts false belief minus controls at `r n2(k$raw_diff, 3)`
+  [`r n2(k$raw_lo, 3)`, `r n2(k$raw_hi, 3)`] logits per year. But raw
+  slopes ignore the guessing floor, and their filter drops ceiling cells
+  while keeping cells near the floor, which flattens false-belief slopes.
+  The next section corrects both.
+- The new construct scheme's cell-level test (ΔR² = `r n2(k$dr2_nc, 3)`,
+  p = `r n2(k$p_nc, 3)`) does not hold up with item random effects
+  (p = `r n2(k$nc_raw_p, 2)` for raw slopes, `r n2(k$nc_fl_p, 2)` above the
+  floor).
+- Dropping the Spanish reality_known false-belief items changes none of
+  this (see the sensitivity table below).
+
+### Age sensitivity above the guessing floor
+
+Each item × language cell is refitted with the floor fixed at chance,
+P = c + (1 − c) · logistic(a + b · age), by maximum likelihood. Cells are
+kept symmetrically: chance-corrected accuracy between .10 and .90, n ≥ 50,
+SE(b) ≤ 1 (`r k$n_floor_fail` cells in that range did not converge). The
+probability-scale slope is the average marginal effect over the cell's
+children. Question types are compared with a random-effects
+meta-regression with crossed item and language intercepts
+(`metafor::rma.mv`).
+
+```{r floor-slopes}
+res_items$slope_by_qtype |>
+  select(filter, question_type, n_cells, n_items, mean_accuracy, mean_slope_logit, mean_slope_floor,
+         mean_ame_logit, mean_ame_floor) |>
+  knitr::kable(digits = 3, caption = "Age slopes by question type: raw logit, above the floor, and on the probability scale (per year), under the original and the symmetric filter")
+res_items$slope_tests |>
+  mutate(p = fp(p)) |>
+  knitr::kable(digits = 3, caption = "Random-effects tests (items and languages as crossed random intercepts; fb_minus_control from REML, 95% CI)")
+```
+
+- **Above the floor, false-belief targets are the most age-sensitive
+  items.** Their slope is `r n2(k$fl_fb, 3)` logits per year against
+  `r n2(k$fl_rc, 3)` for controls; the difference is `r n2(k$fl_diff, 3)`
+  [`r n2(k$fl_lo, 3)`, `r n2(k$fl_hi, 3)`], and question type matters
+  (p = `r n2(k$fl_p, 3)`). On the probability scale, false-belief accuracy
+  rises by `r n2(k$ame_fb, 3)` per year against `r n2(k$ame_rc, 3)` for
+  controls. The 2PL of the reliability model agrees: the median
+  false-belief slope is `r n2(k$a_fb)`, against `r n2(k$a_rc)` for controls.
+- So June's "false-belief targets carry the age signal" survives, on the
+  chance-corrected scale. On raw logits the two cannot be told apart, and
+  controls also look flat because many are at ceiling.
+
+::: {.callout-note collapse="true"}
+## Sensitivity (Spanish false belief dropped), by-language R², and calibration notes
+
+```{r construct-sens}
+res_items$construct_r2_sens |>
+  transmute(outcome, unit, scheme, n_items, R2, dR2, p = fp(p)) |>
+  knitr::kable(digits = 3)
+res_items$construct_r2_by_lang |>
+  transmute(language, outcome, scheme, n_items, R2, p = fp(p)) |>
+  knitr::kable(digits = 3)
+res_items$calib_summary |>
+  knitr::kable(caption = "Per-language calibrations used for item difficulty. en-US covers stories 1–6 only; en-GB rests on sparse fCAT data.")
+```
+:::
+
+## Dimensionality
+
+The factor-analytic samples are complete fixed forms, one run per child,
+with policy items dropped. Following June, items need coverage > .4 and
+.08 < p < .97. Leipzig is the June sample. Western and Bogotá give the same
+stories in other languages, and the UTDT no-HA retest-B form gives
+`r big(pick(res_dim$samples, children, sample == "ar_nhb"))` es-AR children
+on stories 13–18.
+
+```{r dim-samples}
+res_dim$samples |>
+  transmute(sample = dim_labels[sample], role, language, stories, datasets, runs, children,
+            items, age = paste0(age_min, "–", age_max, " (median ", age_median, ")"),
+            n_age, first_run, last_run) |>
+  knitr::kable(caption = "Dimensionality samples")
+```
+
+::: {.callout-note collapse="true"}
+## Items removed from each sample
+
+```{r dim-removed}
+res_dim$removed_items |>
+  mutate(sample = dim_labels[sample], item = if_else(is.na(item), item, uid_label(item))) |>
+  knitr::kable(digits = 3)
+```
+:::
+
+```{r dim-eigen}
+res_dim$eigen |>
+  transmute(sample = dim_labels[sample], n_items, n_persons, ev1, ev2, ev1_ev2, ev1_ev2_se,
+            ev1_prop, n_ev_gt1, pa_june_nfact, pa_resample_nfact, pa_resample_ncomp, mean_offdiag_r) |>
+  knitr::kable(digits = 2, caption = "Eigenvalues of the tetrachoric matrix. ev1_ev2_se is a bootstrap SE (200 person resamples). pa_june_nfact uses June's parallel analysis; pa_resample_nfact (factors) and pa_resample_ncomp (components) compare against column-resampled binary data (20 draws).")
+```
+
+```{r fig-scree, fig.height=5}
+res_dim$scree |>
+  filter(sample %in% dim_primary, component <= 10) |>
+  mutate(sample = factor(dim_labels[sample], dim_labels[dim_primary])) |>
+  pivot_longer(c(eigenvalue, pa_resampled_pc), names_to = "series", values_to = "value") |>
+  mutate(series = recode(series, eigenvalue = "observed",
+                         pa_resampled_pc = "resampled-data reference")) |>
+  ggplot(aes(component, value, linetype = series)) +
+  geom_line() + geom_point(size = 1.5) +
+  facet_wrap(vars(sample), nrow = 1) +
+  scale_x_continuous(breaks = c(1, 5, 10)) +
+  labs(x = "Component", y = "Eigenvalue", linetype = NULL,
+       title = "Scree with a resampled parallel-analysis reference") +
+  theme(legend.position = "bottom")
+```
+
+- The Leipzig item-bank form's ev1/ev2 (`r n2(k$ev_de)`, on
+  `r pick(res_dim$eigen, n_items, sample == "de_ib")` items) is close to
+  June's 1.90 on 26 items; the June-style rebuild gives
+  `r n2(pick(res_dim$eigen, ev1_ev2, sample == "de_ib_junelike"))`. The
+  Western, Bogotá and es-AR forms are at
+  `r rng(k$ev_other)`. Leipzig is near ceiling: its items average
+  p = `r n2(mean(res_dim$item_info$p[res_dim$item_info$sample == "de_ib" & res_dim$item_info$kept]))`,
+  and `r sum(res_dim$item_info$p[res_dim$item_info$sample == "de_ib" & res_dim$item_info$kept] > .9)`
+  of its `r pick(res_dim$eigen, n_items, sample == "de_ib")` kept items
+  exceed .90. Ceiling is a likely cause of the low ratio but not a tested
+  one: the samples also differ in stories, language and age.
+- June's parallel-analysis method gives
+  `r rng(res_dim$eigen$pa_june_nfact, 0)` factors in every sample, as it
+  gave June 11. Against resampled binary data, the primary samples need
+  `r rng(res_dim$eigen$pa_resample_ncomp[res_dim$eigen$sample %in% dim_primary], 0)`
+  components but `r rng(res_dim$eigen$pa_resample_nfact[res_dim$eigen$sample %in% dim_primary], 0)`
+  factors (es-AR:
+  `r pick(res_dim$eigen, pa_resample_nfact, sample == "ar_nhb")`). Parallel
+  analysis on tetrachoric correlations of items with a guessing floor is
+  uninformative here: it neither supports June's 11 nor settles on a
+  number. The bifactor models below are the better test.
+
+## What the covariance follows: question type, story or construct
+
+For each item pair, the tetrachoric correlation is compared within vs
+between groupings (June's method). Intervals are ± 1.96 bootstrap SD over
+200 person resamples. In a fixed form, story type ("old group") gives
+exactly the same numbers as story, because each form has one story per
+story type, so it is omitted. "Question type (different stories)" compares
+only pairs from different stories, so it is not confounded with story.
+
+Tetrachoric correlations are not a clean test of grouping here. Question
+type explains about a third of item difficulty, and items of similar
+difficulty with the same guessing floor correlate more on the tetrachoric
+scale even under one factor. The same contrasts are therefore also computed
+on Q3, the residual correlations after the unidimensional 2PL + guessing
+model of the local-dependence section, which models difficulty and
+guessing. Their intervals come from a person bootstrap of the residual
+matrix (item parameters and θ held fixed).
+
+```{r grouping}
+res_dim$grouping_contrast |>
+  filter(sample %in% c(dim_primary, "ar_nhb_nofb", "de_ib_junelike"), grouping != "old group") |>
+  transmute(sample = dim_labels[sample], grouping, n_within, n_between, mean_within, mean_between,
+            within_minus_between, diff_lo, diff_hi) |>
+  knitr::kable(digits = 3, caption = "Within- minus between-group mean tetrachoric r")
+res_dim$q3_grouping_contrast |>
+  filter(sample %in% dim_primary, grouping != "old group") |>
+  transmute(sample = dim_labels[sample], grouping, n_within, n_between, mean_within, mean_between,
+            within_minus_between, diff_lo, diff_hi) |>
+  knitr::kable(digits = 3, caption = "The same contrasts on Q3 residual correlations (2PL + guessing, unidimensional)")
+```
+
+```{r fig-cells, fig.height=5.5}
+res_dim$grouping_cells |>
+  filter(sample %in% dim_primary) |>
+  mutate(sample = factor(dim_labels[sample], dim_labels[dim_primary]),
+         panel = if_else(str_detect(cell, "construct"), "Construct", "Story × type"),
+         cell = fct_inorder(cell)) |>
+  ggplot(aes(x = mean_r, y = fct_rev(cell), colour = sample)) +
+  geom_pointrange(aes(xmin = r_lo, xmax = r_hi), position = position_dodge(width = .6)) +
+  facet_grid(rows = vars(panel), scales = "free_y", space = "free_y") +
+  scale_colour_manual(values = set_names(dim_pal, dim_labels[names(dim_pal)]), name = NULL) +
+  labs(x = "Mean tetrachoric r (± 1.96 bootstrap SD)", y = NULL,
+       title = "The 'story effect' lives in same-story, same-type pairs") +
+  guides(colour = guide_legend(nrow = 2)) +
+  theme(legend.position = "bottom")
+```
+
+```{r dim-numbers}
+gc <- res_dim$grouping_contrast
+qt_contrast <- gc$within_minus_between[gc$grouping == "question type" & gc$sample %in% dim_primary]
+st_contrast <- gc$within_minus_between[gc$grouping == "story" & gc$sample %in% dim_primary]
+nc_contrast <- gc$within_minus_between[gc$grouping == "new construct" & gc$sample %in% dim_primary]
+gcell <- res_dim$grouping_cells
+q3c <- res_dim$q3_grouping_contrast |> filter(sample %in% dim_primary)
+q3_qt <- q3c |> filter(grouping == "question type")
+q3_st <- q3c |> filter(grouping == "story")
+q3_qt_ds <- q3c |> filter(grouping == "question type (different stories)")
+k$q3_qt_le_story <- sum(q3_qt$within_minus_between <= q3_st$within_minus_between[match(q3_qt$sample, q3_st$sample)])
+qt_ds <- gc$within_minus_between[gc$grouping == "question type (different stories)" & gc$sample %in% dim_primary]
+```
+
+- **Question type** has a reliably positive tetrachoric contrast in every
+  sample (`r rng(qt_contrast, 3)`, all pairs; `r rng(qt_ds, 3)` among
+  different-story pairs), smaller than June's .101. The June-style rebuild of the Leipzig
+  data gives
+  `r n2(pick(gc, within_minus_between, sample == "de_ib_junelike", grouping == "question type"), 3)`.
+  That rebuild differs from the primary sample in item identities,
+  exclusions, runs (all vs first per child) and items all at once, so the
+  change cannot be assigned to any one of them. On Q3 residuals the
+  question-type contrast shrinks to `r rng(q3_qt$within_minus_between, 3)`
+  (`r rng(q3_qt_ds$within_minus_between, 3)` among different-story pairs)
+  and is no larger than the story contrast in `r k$q3_qt_le_story` of the
+  `r nrow(q3_qt)` samples. It vanishes in Leipzig
+  (`r n2(pick(q3_qt, within_minus_between, sample == "de_ib"), 3)`) and
+  stays clearly positive in Western
+  (`r n2(pick(q3_qt, within_minus_between, sample == "wca_ib"), 3)`). Part of
+  the tetrachoric clustering by question type therefore reflects shared
+  difficulty and guessing; what remains once they are modelled is weak and
+  differs between samples.
+- **Story** contrasts are `r rng(st_contrast, 3)` (Q3:
+  `r rng(q3_st$within_minus_between, 3)`), and they come entirely
+  from pairs of the same story *and* the same question type. In Leipzig,
+  same-story pairs of the same type correlate
+  `r n2(pick(gcell, mean_r, sample == "de_ib", cell == "same story, same question type"), 3)`;
+  same-story pairs of different types correlate
+  `r n2(pick(gcell, mean_r, sample == "de_ib", cell == "same story, different question type"), 3)`,
+  no more than pairs from different stories.
+- **Constructs** organize little (`r rng(nc_contrast, 3)`). The only test
+  not confounded with story compares different-story pairs in the same
+  construct with pairs across constructs. In the three stories 1–6 forms,
+  same-construct pairs correlate less (Leipzig
+  `r n2(pick(gcell, mean_r, sample == "de_ib", cell == "different story, same new construct"), 3)`
+  vs `r n2(pick(gcell, mean_r, sample == "de_ib", cell == "different story, different new construct"), 3)`).
+  es-AR is the exception: its construct contrast is reliably positive
+  (`r n2(pick(gc, within_minus_between, sample == "ar_nhb", grouping == "new construct"), 3)`
+  [`r n2(pick(gc, diff_lo, sample == "ar_nhb", grouping == "new construct"), 3)`,
+  `r n2(pick(gc, diff_hi, sample == "ar_nhb", grouping == "new construct"), 3)`]),
+  and it roughly halves without the flagged story-13 item
+  (`r n2(pick(gc, within_minus_between, sample == "ar_nhb_nofb", grouping == "new construct"), 3)`).
+  June's table showed .045 for constructs, above story's .039, although its
+  prose called the construct contrast "near zero". On Leipzig data, that
+  contrast reproduces only on the uncorrected, June-style rebuild
+  (`r n2(pick(gc, within_minus_between, sample == "de_ib_junelike", grouping == "new construct"), 3)`).
+- Cleaning raised the mean inter-item correlation from
+  `r n2(pick(res_dim$eigen, mean_offdiag_r, sample == "de_ib_junelike"), 3)`
+  (June-style rebuild) to
+  `r rng(res_dim$eigen$mean_offdiag_r[res_dim$eigen$sample %in% dim_primary], 3)`.
+  The defective items had depressed the between-group baseline.
+
+```{r efa}
+res_dim$efa2_summary |>
+  filter(sample %in% c(dim_primary, "ar_nhb_nofb", "de_ib_junelike")) |>
+  mutate(sample = dim_labels[sample]) |>
+  knitr::kable(digits = 3, caption = "Two-factor oblimin EFA of the tetrachoric matrix")
+res_dim$efa2_by_qtype |>
+  filter(sample %in% dim_primary) |>
+  mutate(sample = dim_labels[sample]) |>
+  pivot_wider(names_from = sample, values_from = c(n, F1, F2), names_vary = "slowest") |>
+  knitr::kable(digits = 2, caption = "Mean loadings on F1/F2 by question type")
+```
+
+A two-factor EFA still gives no sub-construct that replicates. What defines
+the second factor changes from sample to sample: nothing in Leipzig, an
+emotion factor in Western, and a split between controls and targets in
+es-AR.
+
+## Local dependence
+
+A 2PL with guessing fixed at chance was fitted as a unidimensional model
+and as bifactor models with story testlets or question-type factors. Items
+answered at or below chance in the sample get a floor of 0, because a fixed
+floor above the observed rate cannot fit; the reliability and invariance
+models keep the floor at chance and are rerun under this rule as a check. Every slope has an N(0, 2²) prior (MAP-EM); without
+it, fixed-floor fits diverge. AIC and BIC are evaluated at the MAP
+estimates. dAIC and dBIC are bifactor minus unidimensional, so negative
+values favour the bifactor.
+
+```{r ld}
+res_dim$irt_ld |>
+  filter(family == "guess", sample %in% c(dim_primary, "ar_nhb_nofb")) |>
+  transmute(sample = dim_labels[sample], n_items, n_persons, dAIC_story, dBIC_story,
+            dAIC_qtype, dBIC_qtype, ECV, omega_h, omega_total, omega_h_over_t = omega_h / omega_total,
+            PUC, rxx_uni,
+            cor_theta_uni_general, info_overstatement, q3_within_story, q3_between_story,
+            `within-story pairs with Q3 > .2` = paste0(`n_within_q3_gt_.2`, "/", n_within_pairs)) |>
+  knitr::kable(digits = 3, caption = "Unidimensional vs bifactor 2PL + guessing")
+```
+
+- There is some story-level dependence, but little of consequence. The
+  story bifactor improves AIC in every sample. BIC prefers the
+  unidimensional model in the three smaller samples and is indifferent in
+  es-AR. θ from the two models correlates `r k$cor_uni_g`.
+- **How dominant is the general factor?** ECV is `r k$ecv`, below the
+  usual .70 guideline in Leipzig
+  (`r n2(pick(ld, ECV, sample == "de_ib"))`) and es-AR
+  (`r n2(pick(ld, ECV, sample == "ar_nhb"))`). Omega-h (`r k$omh`) comes
+  from standardized normal-ogive loadings that ignore the guessing floor, so
+  it is not comparable with the observed-score reliabilities elsewhere in
+  this chapter. It is also inflated by story factors whose specific
+  loadings mix signs (`r k$mixed_stories` of `r k$n_story_factors` story
+  factors in the four samples; in Leipzig story 2, Σ|λs| =
+  `r n2(k$de_s2_abs)` but |Σλs| = `r n2(k$de_s2_sum)`), and 2-item testlets
+  are identified only through the slope prior. The ratio omega-h / omega-t
+  (`r rng(ld$omega_h / ld$omega_total)`) is the safer summary. By that
+  ratio the general factor dominates in every sample; by ECV it dominates
+  clearly only in Western and Bogotá, and in Leipzig and es-AR the case for
+  it is weaker.
+- The unidimensional model overstates test information by `r k$info_over`,
+  in line with the September audit's roughly
+  `r pct(pick(res_dim$june_reference, june_value, metric == "information overstatement (uni vs bifactor)"))`
+  on the v2_3 calibration data.
+- A question-type bifactor fits as well as the story bifactor, and in es-AR
+  clearly better. Most of the es-AR advantage comes from the below-chance
+  Spanish false-belief item: without story 13's item, dBIC for the
+  question-type model goes from
+  `r n2(pick(res_dim$irt_ld, dBIC_qtype, family == "guess", sample == "ar_nhb"), 0)` to
+  `r n2(pick(res_dim$irt_ld, dBIC_qtype, family == "guess", sample == "ar_nhb_nofb"), 0)`.
+
+The residual dependence sits in a handful of "doublets". Most are yes/no
+questions about the same scene with the same key. One pair of location
+false-belief questions from different stories behaves the same way:
+
+```{r doublets}
+res_dim$ld_pairs_top |>
+  filter(sample %in% dim_primary) |>
+  transmute(sample = dim_labels[sample], item_i = uid_label(i), item_j = uid_label(j),
+            same_story, r, q3, code_i, answer_i, p_i, code_j, answer_j, p_j) |>
+  knitr::kable(digits = 2, caption = "Item pairs with Q3 > .2 (2PL + guessing, unidimensional)")
+```
+
+::: {.callout-note collapse="true"}
+## Robustness: the same models without a guessing floor
+
+```{r ld-noguess}
+res_dim$irt_ld |>
+  filter(family == "noguess") |>
+  transmute(sample = dim_labels[sample], dAIC_story, dBIC_story, dAIC_qtype, dBIC_qtype,
+            ECV, omega_h, cor_theta_uni_general, info_overstatement) |>
+  knitr::kable(digits = 3)
+```
+:::
+
+## Sub-scales
+
+```{r subscales}
+res_dim$subscales |>
+  filter(sample %in% dim_primary) |>
+  transmute(sample = dim_labels[sample], scale, n_items, alpha, alpha_sb_to_all,
+            twopl_marginal_rxx, rasch_marginal_rxx, age_r, age_r_lo, age_r_hi,
+            pct_rand_alpha_below, pct_rand_age_r_below) |>
+  knitr::kable(digits = 3, caption = "Sub-scales. alpha_sb_to_all projects alpha to the full scale's length (Spearman–Brown). pct_rand_* is the percentile among 500 random item subsets of the same size.")
+```
+
+```{r fig-subscales, fig.height=4.5}
+ss <- res_dim$subscales |> filter(sample %in% dim_primary) |>
+  mutate(sample = factor(dim_labels[sample], dim_labels[dim_primary]),
+         scale = factor(scale, c("all items", "targets only", "false-belief only", "controls only")))
+ggplot(ss, aes(x = scale, y = age_r)) +
+  geom_linerange(aes(ymin = rand_age_r_q025, ymax = rand_age_r_q975), linewidth = 4,
+                 colour = "grey80", data = filter(ss, scale != "all items")) +
+  geom_pointrange(aes(ymin = age_r_lo, ymax = age_r_hi)) +
+  facet_wrap(vars(sample), nrow = 1) +
+  scale_x_discrete(limits = levels(ss$scale)) +
+  labs(x = NULL, y = "r(proportion correct, age)",
+       title = "Age validity of sub-scales against random item subsets of the same size (grey)") +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+June's answer stands: no sub-scale improves on the full set. False-belief
+items are the most internally consistent per item (Spearman–Brown-projected
+alpha `r rng(res_dim$subscales$alpha_sb_to_all[res_dim$subscales$scale == "false-belief only" & res_dim$subscales$sample %in% dim_primary])`),
+but a false-belief-only scale is no more age-valid than random subsets. In
+es-AR it is less age-valid than the full scale. The controls are the least
+age-valid items (discussed next).
+
+# Controls
+
+This section re-tests June's claims about the reality-check (control)
+questions: that they correlate with targets, that they do not gate the
+targets' age sensitivity, and that keeping them helps reliability.
+
+```{r controls-cor}
+res_items$controls_cor |>
+  knitr::kable(digits = 3, caption = "Person-level correlations of control and target accuracy (runs with age)")
+```
+
+::: {.callout-note collapse="true"}
+## Within each dataset × form
+
+```{r controls-cells}
+res_items$controls_cells |>
+  mutate(dataset = ds_label(dataset)) |>
+  select(-cell) |>
+  knitr::kable(digits = 3)
+```
+:::
+
+Pooled over runs, as June did it, control and target accuracy correlate
+`r n2(k$r_ct_pooled)`. Much of that is between-site differences: within
+dataset × form the correlation is `r n2(k$r_ct_within)`, and controls
+correlate
+`r n2(pick(cc, r_control_age, method == "within dataset x form, Fisher-pooled", item_set == "policy items dropped"))`
+with age. These are accuracy scores, and fCAT runs have a median of
+`r median(res_items$controls_cells$median_ctrl[res_items$controls_cells$form == "fcat_random3"])`
+controls each, which attenuates the correlations.
+
+## Gating
+
+```{r gating}
+res_items$gating_june |> select(-method) |>
+  knitr::kable(digits = 3, caption = "June method: lm(story target accuracy ~ scale(age)) by whether the story's control was passed")
+res_items$gating_glmm |>
+  mutate(interaction_p = fp(interaction_p)) |>
+  knitr::kable(digits = 3, caption = "GLMM on target trials: correct ~ age × ctrl_pass + dataset + (1 | run) + (1 | story_uid). Slopes in logits per year.")
+```
+
+```{r fig-gating, fig.height=4.5}
+res_items$gating_plot |>
+  mutate(language = factor(language, lang_levels),
+         ctrl_pass = if_else(ctrl_pass, "control passed", "control failed")) |>
+  ggplot(aes(age_bin, target_acc, colour = ctrl_pass)) +
+  geom_line() + geom_point(aes(size = n), alpha = .7) +
+  facet_wrap(vars(language), nrow = 1) +
+  scale_size_area(max_size = 4, guide = "none") +
+  scale_colour_manual(values = c("control passed" = "grey30", "control failed" = "#CC6677"),
+                      name = NULL) +
+  labs(x = "Age (years)", y = "Target accuracy in the story",
+       title = "Target accuracy by age, split by whether the story's control was passed") +
+  theme(legend.position = "bottom")
+```
+
+```{r gating-numbers}
+gg <- res_items$gating_glmm
+g_all <- filter(gg, sample == "all languages"); g_de <- filter(gg, sample == "de-DE")
+g_co  <- filter(gg, sample == "es-CO")
+gj <- res_items$gating_june
+```
+
+June's method again finds no gating: the target age slope is
+`r n2(pick(gj, target_age_beta_perSD, !ctrl_pass), 3)` per SD of age after
+a failed control and `r n2(pick(gj, target_age_beta_perSD, ctrl_pass), 3)`
+after a passed one. The trial-level GLMM finds a small pooled interaction
+(`r n2(g_all$interaction, 3)` logits/yr, p = `r n2(g_all$interaction_p, 3)`).
+It comes from de-DE, where targets after a failed control show no age slope
+(`r n2(g_de$age_slope_fail, 3)` vs `r n2(g_de$age_slope_pass, 3)`;
+`r n2(g_de$pct_instances_fail, 1)`% of story instances failed), and to a
+lesser degree from en-US (`r n2(pick(gg, interaction, sample == "en-US"), 3)`,
+p = `r n2(pick(gg, interaction_p, sample == "en-US"), 3)`); en-GB and es-AR
+are borderline (p = `r n2(pick(gg, interaction_p, sample == "en-GB"), 3)` and
+`r n2(pick(gg, interaction_p, sample == "es-AR"), 3)`). es-CO shows none
+(`r n2(g_co$pct_instances_fail, 1)`% failed). Passing a control is itself related to ability, so this is a
+description, not a causal gate. In a high-scoring sample like Leipzig, a
+failed control probably marks a lapse.
+
+## Do controls help the score?
+
+On fixed forms, with guessing fixed at chance and production priors:
+
+```{r controls-rel}
+res_items$reliability |>
+  mutate(row = row_number()) |>
+  filter(row %in% c(1:8, 13:14)) |>
+  select(sample, items, model, guessing, n_runs, n_items, n_controls, mean_items_answered,
+         marginal_rxx_mirt, marginal_rxx, empirical_rxx, alpha_complete_cases,
+         r_theta_age, r_theta_all_vs_targets) |>
+  knitr::kable(digits = 3, caption = "Reliability and age validity with and without controls. The last two rows replicate June's method: pure Rasch without priors on June's 58-item Leipzig pool (item bank and retest forms, released identities, policy items kept).")
+```
+
+```{r controls-numbers}
+rrow <- \(s, it, m, col) pick(res_items$reliability, {{ col }}, sample == s, items == it, model == m)
+de_s <- "DE Leipzig, item-bank form (stories 1-6)"
+ar_s <- "UTDT-AR main, no-HA retest-B form (stories 13-18)"
+jn_s <- "DE Leipzig, June item pool (June method)"
+# the items script and the dimensionality script replicate June's .92 on the same pool
+stopifnot(abs(rrow(jn_s, "all items", "Rasch", marginal_rxx_mirt) - jp$rasch_marginal_rxx_june_method) < .001,
+          abs(rrow(jn_s, "all items", "Rasch", empirical_rxx) - jp$rasch_empirical_rxx_eap) < .001)
+k$dage_max <- res_items$reliability |> slice(1:8) |>
+  select(sample, model, items, r_theta_age) |>
+  pivot_wider(names_from = items, values_from = r_theta_age) |>
+  summarise(d = max(abs(`all items` - `targets only`))) |> pull(d)
+```
+
+- **Keep the controls.** They raise reliability a little: Leipzig
+  `r n2(rrow(de_s, "all items", "Rasch", empirical_rxx), 3)` with them vs
+  `r n2(rrow(de_s, "targets only", "Rasch", empirical_rxx), 3)` without; UTDT
+  `r n2(rrow(ar_s, "all items", "Rasch", empirical_rxx), 3)` vs
+  `r n2(rrow(ar_s, "targets only", "Rasch", empirical_rxx), 3)` (Rasch +
+  guessing, empirical). They change r(θ, age) by at most
+  `r n2(k$dage_max)`. June reached
+  the same conclusion.
+- **Per item, controls are the weakest.** The dimensionality analysis finds
+  them the least age-valid items. In Leipzig a controls-only score
+  correlates
+  `r n2(pick(res_dim$subscales, age_r, sample == "de_ib", scale == "controls only"), 3)`
+  with age, below
+  `r pct(1 - pick(res_dim$subscales, pct_rand_age_r_below, sample == "de_ib", scale == "controls only"))`
+  of random `r pick(res_dim$subscales, n_items, sample == "de_ib", scale == "controls only")`-item
+  subsets. Once alpha is projected to equal length, targets
+  alone match all items in every sample. Controls help the score as extra
+  items, not as especially good ones.
+- **June's .92 → .89.** That comparison reproduces as mirt's
+  `marginal_rxx` on June's sparse
+  `r rrow(jn_s, "all items", "Rasch", n_items)`-item Leipzig pool
+  (`r n2(rrow(jn_s, "all items", "Rasch", marginal_rxx_mirt), 3)` with
+  controls vs `r n2(rrow(jn_s, "targets only", "Rasch", marginal_rxx_mirt), 3)`
+  without; June: .915 vs .885). Children answered
+  `r n2(rrow(jn_s, "all items", "Rasch", mean_items_answered), 1)` of those
+  items on average. The same fit's empirical reliability is
+  `r n2(rrow(jn_s, "all items", "Rasch", empirical_rxx), 3)` with controls
+  and `r n2(rrow(jn_s, "targets only", "Rasch", empirical_rxx), 3)` without.
+  `mirt::marginal_rxx()` integrates TI/(TI + var) over N(0, 1) and assumes
+  every item is answered. With a Rasch latent variance of
+  `r n2(rrow(jn_s, "all items", "Rasch", latent_var), 2)`, that inflates the
+  value. The reliability section returns to this.
+
+# Cross-language invariance
+
+**Methods.** Multigroup Rasch with the guessing floor fixed at chance (the
+LEVANTE convention), fitted with mirt. Each child contributes one run: the
+earliest that contains the analysed stories. An item needs ≥ 100 responses
+per group. The sequence is configural vs scalar, then a DIF screen with all
+other items as anchors, then purified and iterated anchors, then partial
+scalar. fCAT runs are included; their missing items are missing by design.
+Effect sizes `db` are item difficulty for a group minus de-DE, in logits;
+positive means harder at matched ability. dBIC = BIC(constrained) −
+BIC(less constrained), so positive values favour the less constrained
+model.
+
+The ETS classes are adapted, not the ETS rule itself: A (negligible), B
+(moderate) and C (large) use the 1- and 1.5-delta cut-offs (0.43 and 0.64
+logits) on latent-logit db under the guessing floor, which runs larger than
+the observed-score Mantel–Haenszel D-DIF they were defined for.
+Significance is the item's BH-adjusted LR test, and class C does not
+require |db| to be significantly above 0.43.
+
+A maximum-likelihood 2PL was not usable: its configural models do not
+converge, and slopes reach `r n2(max(res_inv$model_choice$max_slope), 0)`.
+A 2PL with the production priors (d ~ N(0, 3), a ~ N(1, 0.3), MAP) is
+usable and serves as the second model throughout: for the metric and
+scalar tests, and for DIF effect sizes.
+
+```{r model-choice}
+res_inv$model_choice |>
+  select(analysis, model, logLik, npar, BIC, converged, iterations, max_slope,
+         prop_slopes_over_4, prop_slopes_negative) |>
+  knitr::kable(digits = 2, caption = "Maximum-likelihood 2PL + guessing fits are degenerate")
+```
+
+```{r inv-samples}
+res_inv$samples |>
+  filter(analysis %in% c("A", "B")) |>
+  select(analysis, group, n_children, age_median, age_q1, age_q3, age_missing, datasets, forms) |>
+  knitr::kable(digits = 1, caption = "Analysis A: stories 1–6, de-DE vs en-US vs es-CO. Analysis B: stories 13–18, de-DE vs es-AR.")
+```
+
+```{r inv-exposure}
+sB <- res_inv$samples |> filter(analysis == "B")
+# how many earlier included ToM runs each analysed child had (the analysed run is the child's
+# earliest run containing the analysed stories)
+inc_runs <- runs |> filter(included) |> arrange(user_id, time_started) |>
+  group_by(user_id) |> mutate(k_run = row_number()) |> ungroup()
+first_with <- \(st, langs) trials |>
+  filter(story %in% st, language %in% langs, !policy_exclude) |>
+  distinct(user_id, run_id, time_started, language) |>
+  arrange(time_started, run_id) |> group_by(user_id) |> slice(1) |> ungroup() |>
+  left_join(inc_runs |> select(run_id, k_run), by = "run_id")
+expB <- first_with(13:18, c("de-DE", "es-AR")) |>
+  left_join(runs |> select(run_id, age), by = "run_id")
+k$B_de_n <- sum(expB$language == "de-DE")
+k$B_de_repeat <- sum(expB$language == "de-DE" & expB$k_run > 1)
+k$B_ar_repeat <- sum(expB$language == "es-AR" & expB$k_run > 1)
+k$Byoung_n <- sum(expB$language == "de-DE" & !is.na(expB$age) & expB$age < 9)
+k$Byoung_repeat <- sum(expB$language == "de-DE" & !is.na(expB$age) & expB$age < 9 & expB$k_run > 1)
+stopifnot(k$B_de_n == pick(sB, n_children, group == "de_DE"),
+          k$Byoung_n == pick(res_inv$samples, n_children, analysis == "B_young", group == "de_DE"))
+```
+
+The groups are not language groups only. In stories 13–18 (analysis B),
+`r k$B_de_repeat` of the `r k$B_de_n` German children
+(`r pct(k$B_de_repeat / k$B_de_n)`) were on their second or third ToM run,
+having taken stories 1–6 or 7–12 earlier;
+`r if (k$B_ar_repeat == 0) "none of the es-AR children" else paste(k$B_ar_repeat, "es-AR children")`
+were. The German children are older (median
+`r n2(pick(sB, age_median, group == "de_DE"), 1)` vs
+`r n2(pick(sB, age_median, group == "es_AR"), 1)` years), and es-AR comes
+from one site (UTDT). In A, the German children are older too, and es-CO
+pools four datasets from 2024–2026, including the V0 content. Group
+differences in item difficulty are therefore differences between samples
+that differ in language, age, prior exposure and site, and the estimated
+group means (numerics note) are not language differences in theory of mind.
+
+```{r inv-tests}
+res_inv$tests |>
+  filter(analysis %in% c("A", "B")) |>
+  transmute(analysis, comparison, items, n_items, X2, df, X2_df, p = fp(p), dBIC) |>
+  knitr::kable(digits = 2, caption = "Invariance tests, Rasch + guessing")
+res_inv$tests_2pl |>
+  transmute(analysis, comparison, df, X2_logLik, X2_logpost, p_logpost = fp(p_logpost), dBIC,
+            nested_optimum_better) |>
+  knitr::kable(digits = 2, caption = "Invariance tests, 2PL + guessing with production priors (MAP). X2 on the log-likelihood and on the log posterior; dBIC from mirt's BIC. A more constrained model reaching a better optimum (nested_optimum_better) means the less constrained fit found a local optimum, so only metric vs scalar is interpreted.")
+```
+
+```{r inv-test-numbers}
+t2 <- \(a, cmp, col) pick(res_inv$tests_2pl, {{ col }}, analysis == a, comparison == cmp)
+tr_ <- \(a, cmp, col, it = "all") pick(tst, {{ col }}, analysis == a, comparison == cmp, items == it)
+isl <- res_rel$item_slopes_by_type
+dlab <- res_inv$dif_long |> filter(analysis %in% c("A", "B"))
+k$mdd_med <- median(dlab$mdd, na.rm = TRUE)
+k$se_med  <- median(dlab$se, na.rm = TRUE)
+k$mdd_B   <- median(dlab$mdd[dlab$analysis == "B"], na.rm = TRUE)
+```
+
+- **Stories 1–6 (A).** The LR test rejects scalar invariance under Rasch +
+  guessing (χ²/df `r n2(k$A_scal_x2df, 1)`), but BIC is indifferent (dBIC
+  `r n2(tr_("A", "scalar vs configural", dBIC), 1)`). Under the 2PL, BIC
+  prefers the scalar model to the metric one (dBIC
+  `r n2(t2("A", "scalar vs metric", dBIC), 0)`; LR on the log posterior
+  p = `r n2(t2("A", "scalar vs metric", p_logpost), 2)`). Intercept
+  differences are detectable, but neither model's BIC favours
+  non-invariance. Without the V0 Bogotá runs, Rasch BIC prefers scalar too
+  (dBIC `r n2(tr_("A_noV0", "scalar vs configural", dBIC), 0)`). The
+  verdict depends on the guessing convention, though: with the floor set to
+  0 for the two items answered at or below chance in a group, Rasch BIC
+  rejects scalar invariance (dBIC `r n2(tr_("A_g0", "scalar vs configural", dBIC), 0)`).
+  The evidence for non-invariance in stories 1–6 is model-dependent.
+- **Stories 13–18 (B)** are non-invariant under both models (Rasch χ²/df
+  `r n2(k$B_scal_x2df, 1)`, dBIC `r n2(tr_("B", "scalar vs configural", dBIC), 0)`;
+  2PL dBIC `r n2(t2("B", "scalar vs metric", dBIC), 0)`, log-posterior LR
+  p `r pe(t2("B", "scalar vs metric", p_logpost))`).
+- Rasch DIF can partly be unequal slopes. The Rasch model forces equal
+  discrimination, but false-belief items discriminate most (2PL median slope
+  `r n2(pick(isl, median_a, question_type == "false_belief"))` vs
+  `r n2(pick(isl, median_a, question_type == "reality_check"))` for
+  controls), and the groups differ in mean ability.
+- **Partial scalar invariance is a description, not a test.** The partial
+  scalar models fit (p = `r n2(k$A_part_p)` in A, `r n2(k$B_part_p)` in B),
+  but their anchors were chosen by the DIF screen on the same data, so the
+  fit is expected. Without V0 Bogotá the partial scalar model is rejected
+  (p = `r n2(tr_("A_noV0", "partial scalar vs configural", p), 4)`). Anchor status
+  also reflects power: the median SE of db is `r n2(k$se_med)` logits, so
+  an item's DIF would have to be about `r n2(k$mdd_med, 1)` logits to be
+  detected with 80% power even before the BH adjustment
+  (`r n2(k$mdd_B, 1)` in B, where the German group has
+  `r k$B_de_n` children). "Class A" means "not detected".
+
+```{r inv-dif}
+rasch_db <- res_inv$dif |>
+  filter(analysis %in% c("A_rasch", "B_rasch")) |>
+  transmute(analysis = str_remove(analysis, "_rasch"), short,
+            rasch_db_en_US = db_en_US, rasch_db_es_CO = db_es_CO, rasch_db_es_AR = db_es_AR)
+res_inv$dif |>
+  filter(analysis %in% c("A", "B"), class != "A") |>
+  left_join(rasch_db, by = c("analysis", "short")) |>
+  mutate(across(c(db_en_US, db_es_CO, db_es_AR),
+                \(x) if_else(boundary & abs(x) > 10, NA_real_, x))) |>
+  transmute(analysis, item = uid_label(short), question_type,
+            db_en_US, db_es_CO, db_es_AR, rasch_db_en_US, rasch_db_es_CO, rasch_db_es_AR,
+            acc_de_DE, acc_en_US, acc_es_CO, acc_es_AR, class,
+            note = case_when(boundary ~ "unbounded (below floor); read the Rasch db",
+                             near_floor ~ "near floor; Rasch db smaller",
+                             TRUE ~ "")) |>
+  arrange(analysis, question_type) |>
+  knitr::kable(digits = 2, caption = "Non-invariant items (class B or C). db = difficulty vs de-DE (logits, Rasch + guessing); rasch_db = the same from pure Rasch.")
+```
+
+```{r fig-dif, fig.height=9}
+dl <- res_inv$dif_long |>
+  filter(analysis %in% c("A", "B")) |>
+  mutate(capped = abs(db) > 5,
+         db_plot = pmax(pmin(db, 5), -5),
+         item = fct_reorder(uid_label(short), -story),
+         question_type = factor(question_type, qtype_levels),
+         class = factor(class, c("A", "B", "C")),
+         contrast = str_replace_all(contrast, "_", "-"))
+ggplot(dl, aes(x = db_plot, y = item, colour = question_type)) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_linerange(aes(xmin = pmax(db - 1.96 * se, -5), xmax = pmin(db + 1.96 * se, 5)),
+                 data = filter(dl, !is.na(se), !capped)) +
+  geom_point(aes(shape = class), size = 2.3) +
+  geom_point(data = filter(dl, capped), shape = 62, size = 5, show.legend = FALSE) +
+  facet_wrap(vars(contrast), nrow = 1) +
+  scale_y_discrete(limits = levels(dl$item)) +
+  scale_colour_manual(values = qtype_pal, name = NULL) +
+  scale_shape_manual(values = c(A = 1, B = 17, C = 16), name = "ETS class") +
+  labs(x = "db: difficulty vs de-DE (logits; capped at ±5, > = unbounded)", y = NULL,
+       title = "Item DIF against de-DE",
+       subtitle = "± 1.96 SE; anchors' db and SE come from freeing each anchor in turn") +
+  theme(legend.position = "bottom", axis.text.y = element_text(size = 8))
+```
+
+```{r inv-numbers}
+dq <- res_inv$dif_by_qtype
+fb_A <- filter(dq, analysis == "A", question_type == "false_belief")
+fb_B <- filter(dq, analysis == "B", question_type == "false_belief")
+anc <- res_inv$dif |> filter(analysis %in% c("A", "B")) |>
+  group_by(analysis) |> summarise(ctrl_anchor = sum(anchor & is_control),
+                                  ctrl = sum(is_control), anchors = sum(anchor))
+aba <- res_inv$age_band_acc
+s3rc1 <- aba |> filter(short == "story3_interpretation_reality_check_1", n >= 20)
+ctrl_flag <- \(a) pick(dbt, n_flagged, analysis == a, kind == "control")
+ctrl_large_A <- res_inv$dif |> filter(analysis == "A", is_control, class == "C") |> pull(short)
+noV0_class <- \(it) pick(res_inv$dif, class, analysis == "A_noV0", short == it)
+dm <- res_inv$dif_by_type_models
+dmv <- \(a, kd, col) pick(dm, {{ col }}, analysis == a, kind == kd)
+ra <- res_inv$rasch_2pl_agreement
+```
+
+## Controls vs targets
+
+June found controls to be the dominant source of cross-language
+non-invariance (mean |DIF| ≈ 1.9 for controls vs ≈ 0.5 for targets). The
+table below gives that metric (mean over items of the largest pairwise
+difficulty gap, boundary items excluded) under both models, next to the
+share of the DIF χ².
+
+```{r inv-bytype-models}
+dm |>
+  transmute(analysis, kind, n_items, rasch_stage1 = rasch_s1, rasch_purified = rasch_s2,
+            twopl_stage1 = twopl_s1, twopl_purified, n_large_2pl_purified) |>
+  left_join(dbt |> filter(analysis %in% c("A", "B")) |>
+              select(analysis, kind, n_flagged, share_of_items, share_of_s1_X2),
+            by = c("analysis", "kind")) |>
+  knitr::kable(digits = 2, caption = "Mean |db| (logits) for controls and targets: Rasch + guessing (stage 1: all other items as anchors; purified: final anchors) and 2PL with priors (stage 1: all other non-boundary items as anchors; purified: the Rasch anchors minus boundary items). Boundary items excluded.")
+ra |>
+  knitr::kable(digits = 2, caption = "Agreement of 2PL (stage 1) and Rasch (stage 1) db, by item type, with and without the boundary items")
+```
+
+- **Whether controls or targets carry more of the non-invariance depends
+  on the model and the design.** In stories 1–6, controls are
+  `r pct(k$A_ctrl_it)` of the items but carry `r pct(k$A_ctrl_x2)` of the
+  stage-1 DIF χ², and their mean |db| is larger than the targets' under
+  both models (Rasch `r n2(dmv("A", "control", rasch_s2))` vs
+  `r n2(dmv("A", "target", rasch_s2))`; 2PL
+  `r n2(dmv("A", "control", twopl_purified))` vs
+  `r n2(dmv("A", "target", twopl_purified))`). Without V0 Bogotá it
+  reverses (controls
+  `r n2(pick(dbt, mean_abs_db, analysis == "A_noV0", kind == "control"))` vs
+  targets `r n2(pick(dbt, mean_abs_db, analysis == "A_noV0", kind == "target"))`,
+  Rasch). In stories 13–18 controls carry `r pct(k$B_ctrl_x2)` of the χ²
+  and have the smaller Rasch |db|
+  (`r n2(dmv("B", "control", rasch_s2))` vs `r n2(dmv("B", "target", rasch_s2))`),
+  but the larger 2PL |db| (`r n2(dmv("B", "control", twopl_purified))` vs
+  `r n2(dmv("B", "target", twopl_purified))`); for controls in B, the two
+  models' db correlate only
+  `r n2(pick(ra, r_controls_no_boundary, analysis == "B"))`. In June's own
+  design on corrected data (J_policy, below), controls still exceed targets.
+  The corrections shrank the controls' DIF, but "controls no longer drive
+  the non-invariance" does not hold in general.
+- **False-belief targets are non-invariant too.** `r fb_A$n_flagged` of
+  `r fb_A$n_items` false-belief items are flagged in A and
+  `r fb_B$n_flagged` of `r fb_B$n_items` in B. Most are harder in Spanish
+  (story 4 fb_2 goes the other way), and the gaps persist at matched age
+  (figure below). The flagged set is wider than the reality_known item:
+  moral-reasoning, interpretation and second-order false-belief items are
+  also non-invariant. (Story 14 fb_2 and fb_3 are yes/no moral judgments,
+  such as "Is Bobby being mean and naughty…?", that the corpus classifies as
+  false-belief questions.) Dropping the reality_known item alone changes
+  almost nothing (flag agreement
+  `r pct(min(res_inv$flag_agreement$agreement[res_inv$flag_agreement$analysis %in% c("A_nofb", "B_nofb")]))`).
+- `r length(ctrl_large_A)` controls are large in A:
+  `r paste(uid_label(ctrl_large_A), collapse = ", ")`. Story-2 reality
+  check 2 and story 5's reference reality check are V0 Bogotá effects: both
+  fall to class `r noV0_class("story2_moral_reasoning_reality_check_2")`
+  without V0 (next paragraph). **Story-3 reality check 1** ("fountain")
+  stays class `r noV0_class("story3_interpretation_reality_check_1")`: it is
+  harder for es-CO children at every age (accuracy by age band
+  `r rng(s3rc1$acc[s3rc1$language == "es-CO"])` vs
+  `r rng(s3rc1$acc[s3rc1$language == "de-DE"])` in de-DE), a candidate for a
+  translation or stimulus check.
+
+```{r fig-ageband, fig.height=6.5}
+age_items <- c("story1_reality_known_false_belief", "story13_reality_known_false_belief",
+               "story2_moral_reasoning_false_belief_1", "story14_moral_reasoning_false_belief_1",
+               "story3_interpretation_false_belief", "story15_interpretation_false_belief",
+               "story18_second_order_false_belief_1", "story3_interpretation_reality_check_1",
+               "story2_moral_reasoning_reality_check_2")
+aba |>
+  filter(short %in% age_items, n >= 20) |>
+  mutate(item = factor(uid_label(short), uid_label(age_items)),
+         language = factor(language, lang_levels)) |>
+  ggplot(aes(age_band, acc, colour = language, group = language)) +
+  geom_hline(aes(yintercept = chance), linetype = "dashed") +
+  geom_line() + geom_point(aes(size = n)) +
+  facet_wrap(vars(item), ncol = 3) +
+  scale_colour_manual(values = lang_pal, name = NULL) +
+  scale_size_area(max_size = 3, guide = "none") +
+  labs(x = "Age band (years)", y = "Accuracy", title = "Non-invariant items by age band (cells with n ≥ 20; dashed = chance)") +
+  theme(legend.position = "bottom")
+```
+
+**The V0 Bogotá paragraph.** Story-2 reality check 2 is non-invariant in A
+(db for es-CO =
+`r n2(pick(res_inv$dif, db_es_CO, analysis == "A", short == "story2_moral_reasoning_reality_check_2"))`).
+The effect sits in the first Bogotá content (May–June 2024). Dropping those
+runs (A_noV0, n ≥ 90) moves it and story 5's reference reality check to
+class `r noV0_class("story5_reference_reality_check")` and cuts the flagged
+controls from `r ctrl_flag("A")` to `r ctrl_flag("A_noV0")`. The scalar
+χ²/df falls from `r n2(k$A_scal_x2df, 1)` to
+`r n2(tr_("A_noV0", "scalar vs configural", X2_df), 1)`, and BIC then
+prefers scalar (dBIC `r n2(tr_("A_noV0", "scalar vs configural", dBIC), 0)`),
+although the LR test still rejects it
+(p `r pe(tr_("A_noV0", "scalar vs configural", p))`). This makes V0
+story-2 reality check 2 a candidate for a story- and epoch-scoped row in the
+Airtable table, next to V0 reality check 1. It is not applied here.
+
+## Within-language comparisons: is it language?
+
+If the DIF above were about language (for example, translation), two sites
+that share a language should show little of it. Two such comparisons are
+possible with ≥ 60–100 responses per item: UTDT-AR main vs UTDT-intl
+(es-AR, stories 13–18, the same no-HA retest-B form; UTDT-intl children are
+younger) and Bogotá vs rural Colombia (es-CO, stories 1–6). A German
+subsample matched more closely on age (under 9 years) repeats B.
+First-exposure German children in B number only
+`r k$B_de_n - k$B_de_repeat`, too few for DIF.
+
+```{r inv-within}
+wl <- c("X_esAR", "X_esCO", "B_young")
+res_inv$samples |>
+  filter(analysis %in% wl) |>
+  select(analysis, group, n_children, age_median, age_q1, age_q3, datasets, forms) |>
+  knitr::kable(digits = 1, caption = "Within-language and age-restricted samples")
+res_inv$tests |>
+  filter(analysis %in% c("A", "B", wl), items == "all", comparison == "scalar vs configural") |>
+  transmute(analysis, n_items, X2, df, X2_df, p = fp(p), dBIC) |>
+  left_join(res_inv$dif_by_type |> filter(analysis %in% c("A", "B", wl)) |>
+              group_by(analysis) |>
+              summarise(n_flagged = sum(n_flagged), n_large = sum(n_large),
+                        mean_abs_db_controls = mean_abs_db[kind == "control"],
+                        mean_abs_db_targets = mean_abs_db[kind == "target"], .groups = "drop"),
+            by = "analysis") |>
+  knitr::kable(digits = 2, caption = "Scalar vs configural and flagged items: between languages (A, B), within a language across sites (X_esAR, X_esCO), and B with German children under 9 (B_young)")
+res_inv$dif |>
+  filter(analysis %in% c("X_esAR", "X_esCO"), class != "A") |>
+  transmute(analysis, item = uid_label(short), question_type, db_utdt_intl, db_rural, class,
+            boundary) |>
+  knitr::kable(digits = 2, caption = "Flagged items within a language (db = second site minus first)")
+```
+
+```{r within-numbers}
+wl_t <- \(a, col) pick(tst, {{ col }}, analysis == a, comparison == "scalar vs configural", items == "all")
+wl_f <- \(a) sum(res_inv$dif$class[res_inv$dif$analysis == a] != "A")
+wl_n <- \(a) sum(res_inv$dif$analysis == a)
+wl_qt <- \(a) res_inv$dif |> filter(analysis == a, class != "A") |> count(question_type) |>
+  arrange(desc(n)) |> mutate(x = paste(n, str_replace_all(question_type, "_", " "))) |>
+  pull(x) |> paste(collapse = ", ")
+fa <- res_inv$flag_agreement
+```
+
+- **Sites that share a language also differ, but less, and on other
+  items.** Within es-AR, the two UTDT samples (same form; UTDT-intl
+  children are younger) differ in `r wl_f("X_esAR")` of `r wl_n("X_esAR")`
+  items, mostly emotion questions (`r wl_qt("X_esAR")`), and BIC prefers
+  scalar invariance (dBIC `r n2(wl_t("X_esAR", dBIC), 0)`). Between de-DE
+  and es-AR it is `r wl_f("B")` of `r wl_n("B")` items, mostly false belief
+  (`r wl_qt("B")`), and BIC rejects scalar invariance (dBIC
+  `r n2(wl_t("B", dBIC), 0)`). Within es-CO, Bogotá and rural Colombia
+  differ in `r wl_f("X_esCO")` of `r wl_n("X_esCO")` items, including the two
+  V0-driven controls (dBIC `r n2(wl_t("X_esCO", dBIC), 0)`).
+- **Age does not explain the false-belief DIF in B.** With German children
+  under 9 (median age
+  `r n2(pick(res_inv$samples, age_median, analysis == "B_young", group == "de_DE"), 1)`
+  vs `r n2(pick(res_inv$samples, age_median, analysis == "B_young", group == "es_AR"), 1)`
+  in es-AR), B flags `r wl_f("B_young")` of `r wl_n("B_young")` items,
+  largely the same false-belief items (flag agreement with B
+  `r pct(pick(fa, agreement, analysis == "B_young"))`). Most of these
+  younger German children were on a repeat run too
+  (`r k$Byoung_repeat` of `r k$Byoung_n`), so prior exposure is not
+  separated.
+- The false-belief DIF between German and Argentine children is therefore
+  not the generic difference between two sites, and it is not an age
+  effect alone. Translation, prior exposure to the task and the samples
+  themselves remain possible causes, and these data cannot separate them.
+
+## The June bridge
+
+```{r inv-bytype}
+res_inv$dif_by_type |>
+  filter(analysis %in% c("J_release", "J_policy", "A", "A_noV0", "A_policy", "B")) |>
+  mutate(analysis = factor(analysis, c("J_release", "J_policy", "A", "A_noV0", "A_policy", "B"))) |>
+  arrange(analysis, kind) |>
+  select(analysis, kind, n_items, n_flagged, n_boundary, share_of_items, share_of_flagged,
+         share_of_s1_X2, mean_abs_db) |>
+  knitr::kable(digits = 2, caption = "Controls vs targets. J_*: June's design (DE-Leipzig vs Bogotá, pure Rasch, all runs, raw p < .05). J_release = release-equivalent data; J_policy = corrected + policy exclusions. A_policy puts the policy-excluded trials back.")
+```
+
+```{r june-bridge}
+res_inv$june_bridge |>
+  transmute(analysis, items, n_items, X2, df, X2_df, dBIC,
+            X2_change_vs_release = pct(X2_change_vs_release),
+            dBIC_change_vs_release = pct(dBIC_change_vs_release)) |>
+  knitr::kable(digits = 1, caption = "Scalar vs configural in June's design, on today's data")
+res_inv$june_reported |>
+  # the June chapters moved to old/ after this results file was built
+  mutate(source = str_replace(source, "^tasks/tom_dif_multigroup", "old/tom_dif_multigroup")) |>
+  knitr::kable(caption = "June's reported values (quoted from the June chapters, not recomputed)")
+```
+
+```{r bridge-numbers}
+jb <- res_inv$june_bridge
+jbv <- \(a, it, col) pick(jb, {{ col }}, analysis == a, items == it)
+```
+
+- **June's baseline reproduces on today's release-equivalent data:** χ²/df
+  `r n2(jbv("J_release", "all", X2_df), 1)` (June ≈ 29), and mean |DIF|
+  `r n2(pick(dbt, mean_abs_db, analysis == "J_release", kind == "control"))`
+  for controls vs
+  `r n2(pick(dbt, mean_abs_db, analysis == "J_release", kind == "target"))`
+  for targets (June ≈ 1.9 vs 0.5). The released trials therefore still carry
+  the June defects.
+- **Corrections plus policy exclusions remove about half of the misfit in
+  June's design:** χ² `r big(round(jbv("J_release", "all", X2)))` →
+  `r big(round(jbv("J_policy", "all", X2)))`
+  (`r spct(jbv("J_policy", "all", X2_change_vs_release))`), and
+  `r pct(-jbv("J_policy", "controls", X2_change_vs_release))` of the
+  controls' misfit. June reported about 70% overall. PR #27 alone does not
+  reduce misfit (J_corrected
+  `r spct(jbv("J_corrected", "all", X2_change_vs_release))`), because it
+  restores data to the defective items. The reduction comes from the
+  exclusions. June's repair also differed: it flipped keys and dropped the
+  hostile-attribution epoch, whose `correct` values the audit found valid.
+- In June's DE-vs-Bogotá design on corrected data (J_policy), controls
+  still exceed targets (mean |DIF|
+  `r n2(pick(dbt, mean_abs_db, analysis == "J_policy", kind == "control"))`
+  vs `r n2(pick(dbt, mean_abs_db, analysis == "J_policy", kind == "target"))`),
+  consistent with V0 Bogotá content driving part of it.
+
+## Robustness
+
+```{r fig-flags, fig.height=8}
+fm <- res_inv$flag_matrix |>
+  filter(family %in% c("A", "B")) |>
+  pivot_longer(c(A, A_policy, A_nofb, A_fixed, A_noV0, A_rasch, A_g0,
+                 B, B_policy, B_nofb, B_rasch, B_g0, B_esco, B_young),
+               names_to = "variant", values_to = "class") |>
+  filter(str_starts(variant, family)) |>
+  mutate(variant = factor(variant, c("A", "A_policy", "A_nofb", "A_fixed", "A_noV0", "A_rasch", "A_g0",
+                                     "B", "B_policy", "B_nofb", "B_rasch", "B_g0", "B_esco", "B_young")),
+         item = fct_reorder(uid_label(short), -readr::parse_number(str_extract(short, "\\d+"))),
+         class = replace_na(class, "not tested"))
+ggplot(fm, aes(variant, item, fill = class)) +
+  geom_tile(colour = "white") +
+  facet_wrap(vars(family), scales = "free", labeller = as_labeller(c(A = "Stories 1–6", B = "Stories 13–18"))) +
+  scale_fill_manual(values = c(A = "grey90", B = "#DDCC77", C = "#CC6677", `not tested` = "white"),
+                    name = "ETS class") +
+  labs(x = NULL, y = NULL, title = "DIF class across analysis variants") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), axis.text.y = element_text(size = 7))
+```
+
+```{r flag-agreement}
+res_inv$flag_agreement |>
+  knitr::kable(digits = 2, caption = "Agreement of flagged / not-flagged status with the primary analysis")
+```
+
+The flags hold across the fCAT, guessing-floor (pure Rasch; floor 0 for
+items at or below chance, the dimensionality analysis's rule), Spanish
+false-belief and policy choices (agreement
+`r rng(fa$agreement[fa$analysis %in% c("A_policy", "A_nofb", "A_fixed", "A_rasch", "A_g0", "B_policy", "B_nofb", "B_rasch", "B_g0")])`).
+The exceptions are A_noV0
+(`r n2(pick(fa, agreement, analysis == "A_noV0"))`), because several
+control effects are V0 Bogotá effects, and the underpowered B_esco and
+B_young variants.
+
+::: {.callout-note collapse="true"}
+## Numerics, anchors, group parameters, and the 2PL cross-check
+
+All `r big(sum(res_inv$convergence$n_fits))` Rasch-family fits converged.
+`r sum(res_inv$convergence$n_fits_warned)` fits (in
+`r paste(unique(res_inv$convergence$analysis[res_inv$convergence$n_fits_warned > 0]), collapse = ", ")`)
+emitted mirt's "log-likelihood decreasing near the ML solution" warning.
+Refitting with 121 instead of 61 quadrature points changes identified
+difficulties by at most
+`r n2(max(res_inv$numerics$max_abs_b_diff_identified), 3)` logits. The two
+es-AR items below the guessing floor (story 13 FB, story 14 fb_1) are
+unidentified in the Rasch + guessing model; their magnitudes come from
+pure Rasch, and they are never 2PL anchors. With the floor set to 0 for
+items at or below chance (A_g0, B_g0:
+`r paste(uid_label(unique(unlist(res_inv$g0_items[c("A_g0", "B_g0")]))), collapse = ", ")`)
+they are identified, and the flags barely change (agreement above). mirt's default θ range ([−6, 6]) was used throughout. The
+reliability analysis shows that this range biases the means and variances
+of low-scoring groups. The quadrature check varied the number of points,
+not the range, so the effect on these fits is untested. It is likely small
+for DIF, which the anchors identify, but the group means below should not be
+used.
+
+```{r inv-appendix}
+res_inv$anchors |>
+  filter(analysis %in% c("A", "B")) |>
+  transmute(analysis, n_items, n_anchors, anchor_rule, anchors_stable,
+            anchors = str_replace_all(anchors, "story", "S")) |>
+  knitr::kable()
+res_inv$group_pars |> filter(analysis %in% c("A", "B")) |>
+  knitr::kable(digits = 2)
+res_inv$numerics |> knitr::kable(digits = 4)
+res_inv$robust_2pl |>
+  transmute(analysis, item = uid_label(str_remove(item, "^tom_")), group, boundary, anchor_2pl, a,
+            db_2pl, db_2pl_purified, db_rasch_stage1, db_rasch_stage2) |>
+  knitr::kable(digits = 2, caption = "Item DIF under the 2PL with production priors and under Rasch + guessing")
+```
+:::
+
+# Reliability, stability and age validity
+
+## Scoring model
+
+The analysis model is one 2PL, multigroup by dataset (each dataset with at
+least `r res_rel$meta$min_group_runs` runs has its own mean and variance;
+DE = N(0, 1)), scalar, with
+guessing fixed at chance and production priors (d ~ N(0, 3),
+a ~ N(1, 0.3)). It has `r res_rel$meta$n_items_analysis` items after the
+policy exclusions and is calibrated concurrently. The θ range is [−12, 8]
+with 201 quadrature points.
+
+```{r itemtype}
+res_rel$itemtype_bic |>
+  select(model, itemtype, grid, runs, items, groups, n_par, logLik, AIC, BIC, converged) |>
+  knitr::kable(digits = 1, caption = "Model comparison and variants (all converged)")
+res_rel$item_slopes_by_type |>
+  knitr::kable(digits = 2, caption = "Item slopes by question type")
+```
+
+```{r fig-ab, fig.height=4.5}
+res_rel$item_pars |>
+  mutate(question_type = factor(question_type, qtype_levels),
+         b_plot = pmax(pmin(b, 4), -8)) |>
+  ggplot(aes(b_plot, a, colour = question_type)) +
+  geom_point(size = 2, alpha = .8) +
+  scale_colour_manual(values = qtype_pal, name = NULL) +
+  labs(x = "Difficulty b (DE scale; clipped to [−8, 4])", y = "Slope a",
+       title = "2PL item parameters: false-belief items discriminate most, emotion items least") +
+  theme(legend.position = "bottom")
+```
+
+BIC prefers the 2PL over the Rasch version
+(dBIC `r n2(pick(res_rel$itemtype_bic, dBIC, model == "analysis", itemtype == "Rasch"), 0)`),
+but scores barely depend on the choice (within-dataset r between the two
+EAPs `r rng(res_rel$released_comparison$r_analysis_alt_itemtype[!res_rel$released_comparison$dataset %in% c(small_groups, "all (pooled)")], 3)`).
+Story 17's emotion question has a slope of
+`r n2(pick(res_rel$item_pars, a, str_starts(item, "tom_story17_reference_emotion_reasoning_1")), 3)`.
+`r pct(pick(res_rel$item_pars, p_correct, str_starts(item, "tom_story17_reference_emotion_reasoning_1")))`
+of children answer it correctly (chance .25), and it carries no
+information about ability.
+
+::: {.callout-warning}
+## The low tail: group means and variances of low-scoring groups are weakly identified
+
+mirt's default θ range is [−6, 6] with 61 points, and production uses it.
+It cuts off the low tail of the lower-scoring groups and pulls their means
+and variances toward the German reference. The analysis grid [−12, 8] is
+numerically converged: a fit on [−16, 8] changes parameters and EAPs by at
+most `r n2(max(res_rel$grid_convergence$max_abs_diff), 4)`. That shows the
+integral is accurate, not that the tail is identified. Below θ ≈ −4 a child
+who answers at or below guessing has an almost flat likelihood, so there the
+normal prior, not the data, sets the lower tail. Two checks show how much
+this matters:
+
+- **Latent density.** With the items fixed at the analysis calibration,
+  a nonparametric (empirical-histogram) density per group gives variances
+  of `r n2(dc("rfp1_utdt_intl_ys", var_eh), 1)` instead of
+  `r n2(dc("rfp1_utdt_intl_ys", var_normal), 1)` in UTDT-intl and
+  `r n2(dc("pilot_uniandes_co_rural", var_eh), 1)` instead of
+  `r n2(dc("pilot_uniandes_co_rural", var_normal), 1)` in rural Colombia,
+  while EAPs under the two densities correlate
+  `r rng(res_rel$density_check$r_eap_normal_eh)`.
+- **Guessing rule.** With the floor set to 0 for the
+  `r length(res_rel$meta$g0_items)` items answered at or below chance in some
+  group (the dimensionality analysis's rule), the low-scoring groups'
+  variances roughly halve (UTDT-intl
+  `r n2(g0s("rfp1_utdt_intl_ys", var_analysis), 1)` →
+  `r n2(g0s("rfp1_utdt_intl_ys", var_g0), 1)`, Bogotá
+  `r n2(g0s("pilot_uniandes_co_bogota", var_analysis), 1)` →
+  `r n2(g0s("pilot_uniandes_co_bogota", var_g0), 1)`), and their means rise
+  by up to `r n2(max(res_rel$g0_sensitivity$mean_g0 - res_rel$g0_sensitivity$mean_analysis), 1)`.
+  BIC prefers this version of the model by
+  `r n2(pick(res_rel$itemtype_bic, BIC, model == "analysis", itemtype == "2PL") - pick(res_rel$itemtype_bic, BIC, str_starts(model, "analysis, floor 0")), 0)`,
+  so the LEVANTE convention fits these items worse.
+
+Rank order within a dataset barely moves in any of these checks (EAP
+correlations `r rng(res_rel$g0_sensitivity$r_analysis_g0)` for the guessing
+rule), and empirical reliability changes little. Group levels and
+variances of low-scoring groups, however, depend on the grid, the density
+and the guessing convention. This applies to the released v2_3 scores and
+probably to other multigroup tasks with low-scoring groups; that is
+untested. It is a DCC item to investigate before any production change.
+
+```{r grid}
+res_rel$grid_sensitivity |>
+  transmute(dataset = ds_label(dataset), n_runs,
+            mean_default = mean_defaultgrid, var_default = var_defaultgrid,
+            mean_wide = mean_analysis, var_wide = var_analysis,
+            r_wide_default, max_abs_shift, n_shift_gt_0.25, min_eap_default, min_eap_wide,
+            rel_empirical_default, rel_empirical_wide) |>
+  knitr::kable(digits = 2, caption = "Default vs wide integration grid")
+res_rel$density_check |>
+  transmute(dataset = ds_label(dataset), n_runs, mean_normal, var_normal, mean_eh, var_eh,
+            post_mass_below_m4, r_eap_normal_eh, rel_empirical_normal, rel_empirical_eh,
+            r_age_normal, r_age_eh, em_iterations, em_last_change) |>
+  knitr::kable(digits = 3, caption = "Normal vs empirical-histogram group density (items fixed at the analysis calibration). post_mass_below_m4 = mean posterior mass below θ = −4 under the normal prior.")
+res_rel$g0_sensitivity |>
+  transmute(dataset = ds_label(dataset), n_runs, mean_analysis, mean_g0, var_analysis, var_g0,
+            r_analysis_g0, rel_empirical_analysis, rel_empirical_g0, r_age_analysis, r_age_g0) |>
+  knitr::kable(digits = 2, caption = "Guessing floor at chance (analysis) vs 0 for items at or below chance in a group (g0)")
+```
+:::
+
+## Reliability per administration
+
+Empirical reliability is var(EAP) / (var(EAP) + mean SE²) within a
+dataset × form. `rel_group` instead uses the model's group variance in the
+denominator (1 − mean SE² / σ²_g). All of these come from a
+unidimensional model that assumes scalar invariance across datasets.[^upper]
+
+[^upper]: Both assumptions make them upper bounds. The dimensionality
+analysis finds that the unidimensional model overstates test information by
+`r k$info_over`, which lowers reliability by
+`r rng(ld$rxx_uni - ld$rxx_general, 3)` in its samples; and scalar
+invariance does not fully hold (see the invariance section).
+
+```{r rel-head}
+rel_head |>
+  transmute(dataset = ds_label(dataset), kind, n_runs, median_items, median_minutes,
+            mean_prop_correct, prop_near_ceiling, prop_at_or_below_guessing,
+            rms_se, rel_empirical, rel_group) |>
+  arrange(kind, dataset) |>
+  knitr::kable(digits = 2, caption = "Reliability per dataset, pooling each dataset's fixed forms, and of the fCAT (datasets with < 25 runs omitted)")
+rel_forms |>
+  transmute(dataset = ds_label(dataset), form, n_runs, median_items, mean_prop_correct,
+            prop_near_ceiling, rel_empirical, rel_group) |>
+  knitr::kable(digits = 2, caption = "Reliability of single fixed forms (dataset × form with ≥ 25 runs)")
+res_rel$fcat_vs_fixed |>
+  filter(form_type == "fixed form") |>
+  transmute(dataset = ds_label(dataset), se_ratio_fcat_to_fixed, info_per_minute_ratio) |>
+  knitr::kable(digits = 2, caption = "fCAT vs fixed forms within a dataset: RMS SE ratio and information per minute ratio (different children)")
+```
+
+```{r fig-se, fig.height=6}
+res_rel$scores_plot |>
+  filter(!dataset %in% small_groups) |>
+  mutate(dataset = ds_label(dataset),
+         form_type = if_else(str_starts(form_type, "fCAT"), "fCAT (3 random stories)", "fixed form")) |>
+  ggplot(aes(eap, se, colour = form_type)) +
+  geom_point(size = .6, alpha = .4) +
+  facet_wrap(vars(dataset), nrow = 2, labeller = label_wrap_gen(22)) +
+  scale_x_continuous(breaks = c(-6, -3, 0)) +
+  scale_colour_manual(values = c("fixed form" = "grey30", "fCAT (3 random stories)" = "#CC6677"),
+                      name = NULL) +
+  labs(x = "EAP θ (DE scale)", y = "Posterior SD",
+       title = "Measurement precision by ability: the story bank is thin above θ = 0") +
+  theme(legend.position = "bottom")
+```
+
+```{r rel-numbers}
+de_fc <- filter(rel_head, dataset == "pilot_mpieva_de_main", kind != "fixed forms")
+ffx <- res_rel$fcat_vs_fixed |> filter(form_type == "fixed form")
+ffx_de <- pick(ffx, info_per_minute_ratio, dataset == "pilot_mpieva_de_main")
+ffx_other <- ffx$info_per_minute_ratio[ffx$dataset != "pilot_mpieva_de_main"]
+```
+
+- Pooling each dataset's fixed forms, a fixed form (median
+  `r k$fixed_items` items) gives `r k$rel_fixed` per administration. Single
+  forms range more widely, from `r n2(min(rel_forms$rel_empirical))`
+  (`r k$low_form`) to `r n2(max(rel_forms$rel_empirical))`
+  (`r k$high_form`). The deployed fCAT gives `r k$rel_fcat` in a median of
+  `r k$fcat_min` minutes.
+- Leipzig is the least reliably measured sample because it is near ceiling.
+  `r pct(de_fc$prop_near_ceiling)` of its fCAT runs are ≥ 90% correct, and
+  its fCAT reliability is `r n2(de_fc$rel_empirical)`.
+- Per minute, the fCAT is at least as efficient as the fixed forms outside
+  Leipzig (ratio `r rng(ffx_other)`); in Leipzig, where it is at ceiling,
+  the ratio is `r n2(ffx_de)`. fCAT and fixed-form runs come from different
+  children, who differ in age and ceiling rates, so these ratios are only
+  indicative. The within-child simulation below is the cleaner comparison.
+
+### Block CAT: a within-child simulation
+
+The deployed fCAT shows one random story from each of three blocks, always
+in the same order (block 1: stories `r paste(blk(1), collapse = ", ")`;
+block 2: `r paste(blk(2), collapse = ", ")`; block 3:
+`r paste(blk(3), collapse = ", ")`), so block and position are
+confounded. To compare story selections in the same children,
+every fixed-form run was rescored with the analysis model on (i) its whole
+form, (ii) an fCAT-style random draw of one of its stories per block
+(averaged over all draws), and (iii) an adaptive draw that takes, block by
+block, the story whose items carry the most information at the child's
+current EAP. Minutes are the child's own time on the chosen stories.
+Reliability here is model-based (1 − mean posterior variance / σ²_g).
+
+```{r cat-sim}
+res_rel$cat_sim_summary |>
+  transmute(dataset = ds_label(dataset), form, n_runs,
+            min_full = median_minutes_full, min_random = median_minutes_random,
+            min_adaptive = median_minutes_adaptive,
+            rel_full, rel_random, rel_adaptive,
+            info_per_min_full, info_per_min_random, info_per_min_adaptive,
+            prop_adaptive_better) |>
+  knitr::kable(digits = 3, caption = "Fixed-form runs rescored on three stories: random (fCAT-style) vs adaptive selection within blocks, and the whole form")
+```
+
+- Three random stories take half the time of the whole form and cost
+  `r rng(cs$rel_full - cs$rel_random)` in reliability.
+- Choosing the more informative story in each block, in the same time,
+  raises reliability by a median of
+  `r n2(median(cs$rel_adaptive - cs$rel_random))` (range
+  `r rng(cs$rel_adaptive - cs$rel_random)` across forms; UTDT-AR, the
+  largest sample: `r n2(csv("rfp1_utdt_ar_main", rel_random))` →
+  `r n2(csv("rfp1_utdt_ar_main", rel_adaptive))`, against
+  `r n2(csv("rfp1_utdt_ar_main", rel_full))` for the whole form). It gives
+  the lower posterior variance for
+  `r pct(min(cs$prop_adaptive_better))`–`r pct(max(cs$prop_adaptive_better))`
+  of children. The gain is smallest in the Leipzig retest-A form.
+- The simulation can only choose between the stories a fixed form contains
+  (two per block). The bank has six per block, so real adaptive selection
+  could do more, provided the stories are calibrated in each language.
+
+### Reconciling the reliability estimates
+
+Three analyses estimate reliability for the same fixed forms, using
+different person sets, item filters and priors:
+
+```{r rel-reconcile}
+irel <- \(s, m, col = empirical_rxx)
+  pick(res_items$reliability, {{ col }}, sample == s, items == "all items", model == m)
+iper <- \(s) paste(irel(s, "Rasch", n_runs), "runs")
+iit  <- \(s) as.character(irel(s, "Rasch", n_items))
+n_model <- paste(res_rel$meta$n_items_analysis, "in model")
+drel <- \(s) pick(res_dim$irt_ld, rxx_uni, family == "guess", sample == s)
+dn   <- \(s, col) pick(res_dim$samples, {{ col }}, sample == s)
+rrel <- \(d, f) pick(res_rel$rel_by_form, rel_empirical, dataset == d, form == f)
+rn   <- \(d, f) pick(res_rel$rel_by_form, n_runs, dataset == d, form == f)
+rel_rec <- tribble(
+  ~form, ~analysis, ~model, ~persons, ~items, ~reliability,
+  "Leipzig item bank", "items & controls", "Rasch + g, single group, production priors", iper(de_s), iit(de_s), irel(de_s, "Rasch"),
+  "Leipzig item bank", "items & controls", "2PL + g, single group, production priors", iper(de_s), iit(de_s), irel(de_s, "2PL"),
+  "Leipzig item bank", "dimensionality", "2PL + g, single group, slope prior N(0, 2²)", paste(dn("de_ib", children), "children (first run)"), as.character(dn("de_ib", items)), drel("de_ib"),
+  "Leipzig item bank", "reliability", "2PL + g, 8-group concurrent calibration", paste(rn("pilot_mpieva_de_main", "item_bank"), "runs"), n_model, rrel("pilot_mpieva_de_main", "item_bank"),
+  "Western item bank", "dimensionality", "2PL + g, single group, slope prior N(0, 2²)", paste(dn("wca_ib", children), "children"), as.character(dn("wca_ib", items)), drel("wca_ib"),
+  "Western item bank", "reliability", "2PL + g, 8-group concurrent calibration", paste(rn("pilot_western_ca_main", "item_bank"), "runs"), n_model, rrel("pilot_western_ca_main", "item_bank"),
+  "Bogotá item bank", "dimensionality", "2PL + g, single group, slope prior N(0, 2²)", paste(dn("bog_ib", children), "children"), as.character(dn("bog_ib", items)), drel("bog_ib"),
+  "Bogotá item bank", "reliability", "2PL + g, 8-group concurrent calibration", paste(rn("pilot_uniandes_co_bogota", "item_bank"), "runs"), n_model, rrel("pilot_uniandes_co_bogota", "item_bank"),
+  "UTDT no-HA retest-B", "items & controls", "Rasch + g, UTDT-AR main only", iper(ar_s), iit(ar_s), irel(ar_s, "Rasch"),
+  "UTDT no-HA retest-B", "items & controls", "2PL + g, UTDT-AR main only", iper(ar_s), iit(ar_s), irel(ar_s, "2PL"),
+  "UTDT no-HA retest-B", "dimensionality", "2PL + g, UTDT-AR main + UTDT-intl pooled", paste(dn("ar_nhb", children), "children"), as.character(dn("ar_nhb", items)), drel("ar_nhb"),
+  "UTDT no-HA retest-B", "reliability", "2PL + g, 8-group; UTDT-AR main", paste(rn("rfp1_utdt_ar_main", "no_ha_retest_B"), "runs"), n_model, rrel("rfp1_utdt_ar_main", "no_ha_retest_B"),
+  "UTDT no-HA retest-B", "reliability", "2PL + g, 8-group; UTDT-intl", paste(rn("rfp1_utdt_intl_ys", "no_ha_retest_B"), "runs"), n_model, rrel("rfp1_utdt_intl_ys", "no_ha_retest_B")
+)
+rel_rec |>
+  knitr::kable(digits = 3, caption = "Empirical (EAP) reliability of the same fixed forms in the three analyses")
+```
+
+For these four forms the estimates differ by up to
+`r n2(max(tapply(rel_rec$reliability, rel_rec$form, \(x) diff(range(x)))))`
+between analyses and range over `r rng(rel_rec$reliability)`. Across all
+single fixed forms with at least 25 runs the range is wider
+(`r k$rel_forms`, table above); the lowest are Leipzig's retest forms,
+taken by a near-ceiling sample. Pooling a dataset's fixed forms gives
+`r k$rel_fixed`. On every version of the number, a fixed Stories form
+is far from a .9 instrument. The differences between analyses have ordinary
+causes, though none was tested separately:
+
+- The dimensionality fits use a weak slope prior within one sample and drop
+  near-ceiling items. The reliability model shares item parameters across 8
+  groups and shrinks slopes toward 1.
+- The dimensionality es-AR sample pools two UTDT datasets whose means
+  differ by about
+  `r n2(pick(res_rel$group_pars, mean_analysis, dataset == "rfp1_utdt_ar_main") - pick(res_rel$group_pars, mean_analysis, dataset == "rfp1_utdt_intl_ys"), 1)`
+  logits in the reliability model
+  (`r n2(pick(res_rel$group_pars, mean_analysis, dataset == "rfp1_utdt_ar_main"))`
+  vs `r n2(pick(res_rel$group_pars, mean_analysis, dataset == "rfp1_utdt_intl_ys"))`;
+  the UTDT-intl mean pools its fCAT and fixed-form runs). The pooling widens
+  the ability distribution, which raises reliability.
+
+```{r june-equiv}
+res_rel$june_equivalents |>
+  knitr::kable(digits = 3, caption = "June-comparable quantities on the corrected model")
+res_dim$june_pool_check |>
+  knitr::kable(digits = 3, caption = "June's '.92 reliable composite', recomputed with June's method on the Leipzig pool")
+```
+
+June's ".92" is the Rasch marginal reliability of the whole pooled Leipzig
+item set: `r jp$items_in_model` items across forms, of which children
+answered a median of `r jp$items_per_run_median`. It reproduces
+(`r n2(jp$rasch_marginal_rxx_june_method, 3)`), but the same model's
+reliability for the items children actually answered is
+`r n2(jp$rasch_empirical_rxx_eap, 3)`. On the corrected 2PL model, the
+full-bank marginal reliability for DE is `r n2(k$de_bank, 3)`. No child
+takes the full bank.
+
+## Stability (Leipzig)
+
+Only Leipzig has repeated ToM runs in any number. They are different forms,
+months apart, so the numbers below are alternate-form stability, not
+test–retest reliability. Only
+`r pick(res_rel$stability_forms, n_pairs, dataset == "pilot_mpieva_de_main", gap_bin == "[0,60)")`
+pairs are less than 60 days apart.
+
+```{r stability}
+res_rel$stability_bins |>
+  filter(dataset == "pilot_mpieva_de_main") |>
+  transmute(gap_bin, version, n_pairs, median_gap_days, r, r_lo, r_hi, r_partial_age,
+            r_disattenuated, diff_vs_released, diff_lo, diff_hi) |>
+  knitr::kable(digits = 3, caption = "Leipzig alternate-form stability by gap (bootstrap 95% CIs, 2,000 resamples of pairs)")
+res_rel$stability_first2 |>
+  filter(dataset == "pilot_mpieva_de_main") |>
+  select(-dataset) |>
+  knitr::kable(digits = 3, caption = "First two runs per child (Leipzig)")
+res_rel$stability_forms |>
+  filter(dataset == "pilot_mpieva_de_main", !is.na(r)) |>
+  select(-dataset) |>
+  knitr::kable(digits = 3, caption = "By form pair")
+```
+
+```{r stab-numbers}
+sf2 <- res_rel$stability_first2 |> filter(dataset == "pilot_mpieva_de_main")
+```
+
+Stability is
+`r n2(pick(sb, r, dataset == "pilot_mpieva_de_main", gap_bin == "[60,180)", version == "analysis"))`
+at 60–180 days,
+`r n2(pick(sb, r, dataset == "pilot_mpieva_de_main", gap_bin == "[180,300)", version == "analysis"))`
+at 180–300 days and
+`r n2(pick(sb, r, dataset == "pilot_mpieva_de_main", gap_bin == "[300,Inf)", version == "analysis"))`
+beyond 300 days. Disattenuated for measurement error it is
+`r n2(pick(sb, r_disattenuated, dataset == "pilot_mpieva_de_main", gap_bin == "[60,180)", version == "analysis"))`
+at 60–180 days, so most of the instability is measurement error. The
+corrections do not raise it: over the first two runs it is
+`r n2(pick(sf2, r, version == "analysis"), 3)`, against
+`r n2(pick(sf2, r, version == "released v2_3"), 3)` for the released scores
+and `r n2(pick(sf2, r, version == "release-equivalent refit"), 3)` for
+the same model refitted on release-equivalent data. June reported that its
+fix raised stability from about .45 to .53; on these data the corrections
+lower it slightly, within noise. The small 60–180-day difference from the
+released scores appears already in the "identity fixes only" rows (PR #27's
+identity fixes and restored trials), not with the item exclusions; which of
+those fixes produces it was not examined.
+
+## Age validity
+
+```{r age-validity}
+res_rel$age_validity |>
+  filter(form == "all forms", !dataset %in% small_groups) |>
+  transmute(dataset = ds_label(dataset), n_with_age, age_sd, age_min, age_max,
+            r_age, r_age_lo, r_age_hi, r_age_released, slope_per_year) |>
+  arrange(desc(r_age)) |>
+  knitr::kable(digits = 2, caption = "r(age, EAP) within dataset, all forms (Fisher 95% CIs)")
+```
+
+```{r fig-age, fig.height=6}
+res_rel$scores_plot |>
+  filter(!dataset %in% small_groups, !is.na(age)) |>
+  mutate(dataset = ds_label(dataset),
+         form_type = if_else(str_starts(form_type, "fCAT"), "fCAT (3 random stories)", "fixed form")) |>
+  ggplot(aes(age, eap, colour = form_type)) +
+  geom_point(size = .6, alpha = .3) +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(vars(dataset), nrow = 2, labeller = label_wrap_gen(22)) +
+  scale_colour_manual(values = c("fixed form" = "grey30", "fCAT (3 random stories)" = "#CC6677"),
+                      name = NULL) +
+  labs(x = "Age (years)", y = "EAP θ (DE scale)", title = "Stories score by age") +
+  theme(legend.position = "bottom")
+```
+
+```{r age-numbers}
+av <- res_rel$age_validity |> filter(form == "all forms", !dataset %in% small_groups, !is.na(r_age))
+de_av_fcat <- pick(res_rel$age_validity, r_age, dataset == "pilot_mpieva_de_main", form == "fCAT")
+```
+
+Age validity within a dataset ranges from weak to moderate (r =
+`r rng(av$r_age)`; the weakest is `r ds_label(av$dataset[which.min(av$r_age)])`). How
+large it is mostly tracks each sample's age range: the SD of age is
+`r rng(av$age_sd[str_starts(av$dataset, "pilot")], 1)` years in the pilot
+sites and `r rng(av$age_sd[av$dataset %in% c("rfp1_utdt_ar_main", "rfp1_utdt_intl_ys", "rfp1_mpib_intl_ys")], 1)`
+in the UTDT and MPIB samples.
+Growth per year is
+`r rng(av$slope_per_year[av$dataset != "pilot_mpieva_de_main"])` logits
+outside Leipzig, and
+`r n2(pick(av, slope_per_year, dataset == "pilot_mpieva_de_main"))` in
+Leipzig, where the Leipzig fCAT's age correlation is weak
+(`r n2(de_av_fcat)`). The corrections barely change age validity (compare
+`r_age_released`).
+
+::: {.callout-note collapse="true"}
+## Spanish false-belief items: scores with and without
+
+```{r sens-fb}
+res_rel$sens_spanish_fb |>
+  mutate(dataset = ds_label(dataset)) |>
+  knitr::kable(digits = 3, caption = "es-* runs rescored without the flagged reality_known false-belief items (same item parameters)")
+```
+
+Removing the flagged items leaves scores, reliability and age validity
+essentially unchanged (r with vs without ≥
+`r n2(min(res_rel$sens_spanish_fb$r_with_without), 3)`). This rescoring
+used the same item parameters, so it says nothing about whether the items
+are valid in Spanish.
+:::
+
+## What changes from the released scores
+
+```{r released}
+res_rel$released_comparison |>
+  left_join(res_rel$released_models |> select(dataset, own_group_in_v2_3), by = "dataset") |>
+  filter(!dataset %in% small_groups) |>
+  transmute(dataset = ds_label(dataset), own_group_in_v2_3, n_runs,
+            r_analysis_released, shift_analysis_minus_released,
+            shift_refit_minus_released, shift_own_minus_ref_prior, shift_wide_minus_default_grid,
+            shift_idfix_minus_refit, shift_analysis_minus_idfix) |>
+  knitr::kable(digits = 2, caption = "Analysis EAP vs released v2_3 scores. The shift_* columns split the change: recalibration + own prior + grid (refit), the prior alone and the grid alone (items fixed), PR #27 (idfix), and policy exclusions (analysis minus idfix).")
+res_rel$group_pars |>
+  filter(!dataset %in% small_groups) |>
+  mutate(dataset = ds_label(dataset)) |>
+  knitr::kable(digits = 2, caption = "Group means and variances (DE = N(0, 1)) under each model variant, and in v2_3")
+```
+
+```{r fig-released, fig.height=6}
+res_rel$scores_plot |>
+  filter(!dataset %in% small_groups, !is.na(score_released)) |>
+  mutate(dataset = ds_label(dataset)) |>
+  ggplot(aes(score_released, eap)) +
+  geom_abline(linetype = "dashed") +
+  geom_point(size = .6, alpha = .3) +
+  facet_wrap(vars(dataset), nrow = 2, labeller = label_wrap_gen(22)) +
+  labs(x = "Released v2_3 score", y = "Analysis EAP", title = "Analysis scores vs released scores (dashed: y = x)") +
+  theme(strip.text = element_text(size = 10))
+```
+
+- Rank order within a dataset is largely preserved (r =
+  `r rng(rc$r_analysis_released, 3)`), but not unchanged.
+- The four datasets that had their own group in v2_3 keep their level
+  (shifts `r rng(rc$shift_analysis_minus_released[rc$dataset %in% own])`).
+  The datasets v2_3 scored under the German prior drop by
+  `r k$shift_total` logits in total (recalibration, own prior, wider grid
+  and data corrections together). Scored under their own prior instead of
+  the German one, with the items held fixed, they drop by `r k$shift_prior`
+  logits, so the prior accounts for most of the change. As the reliability
+  section shows, these low-scoring groups' levels are themselves weakly
+  identified.
+- The data corrections move dataset means little, except in Bogotá. There,
+  dropping the policy-flagged items (mainly the V0 2e reality check, but
+  also reference_reference) raises the mean by
+  `r n2(pick(rc, shift_analysis_minus_idfix, dataset == "pilot_uniandes_co_bogota"))`.
+- Group means assume scalar invariance, which does not hold, and they are
+  confounded with age. They are not cross-cultural comparisons. In
+  Bogotá, UTDT-intl and MPIB-intl,
+  `r pct(min(res_rel$rel_by_form$prop_at_or_below_guessing[res_rel$rel_by_form$form == "all forms" & res_rel$rel_by_form$dataset %in% c("rfp1_mpib_intl_ys", "rfp1_utdt_intl_ys", "pilot_uniandes_co_bogota")]))`–`r pct(max(res_rel$rel_by_form$prop_at_or_below_guessing[res_rel$rel_by_form$form == "all forms" & res_rel$rel_by_form$dataset %in% c("rfp1_mpib_intl_ys", "rfp1_utdt_intl_ys", "pilot_uniandes_co_bogota")]))`
+  of runs score at or below what guessing would give, so for those children
+  the EAP rests largely on the prior.
+
+# June conclusions → now
+
+Each June conclusion is re-tested on the corrected data and labelled by
+these criteria:
+
+- **survives**: same direction and same practical conclusion, with an
+  estimate close to June's;
+- **survives with changes**: same conclusion, but a materially different
+  magnitude or a narrower scope;
+- **partly overturned**: the conclusion holds in some samples, models or
+  designs and fails in others;
+- **different mechanism**: June's number is reproduced, but by a different
+  route than June described;
+- **not replicated**: June's estimate is not reproduced on these data;
+- **overturned**: the conclusion is contradicted;
+- **not re-tested**.
+
+```{r june-table}
+sm_a <- \(qt) pick(res_items$qtype_summary, mean_age_slope, question_type == qt)
+g_en <- filter(gg, sample == "en-US")
+q3_rng <- rng(q3_qt$within_minus_between, 3)
+jt <- tribble(
+  ~source, ~claim, ~june, ~now, ~status,
+  "stories_tom §2", "Story-construct schemes explain little item difficulty; question type dominates",
+  "R² ≈ .07–.11 (schemes)",
+  glue("question type R² {n2(k$r2_qt)}; old group {n2(k$r2_og)}; new construct {n2(k$r2_nc)}"),
+  "survives",
+
+  "stories_tom §2", "False-belief targets carry the age signal; controls are flat",
+  "boxplot; schemes R² ≈ .06 (n.s.) for age",
+  glue("above the guessing floor, FB {n2(k$fl_fb, 3)} vs controls {n2(k$fl_rc, 3)} logit/yr (difference {n2(k$fl_diff, 2)} [{n2(k$fl_lo, 2)}, {n2(k$fl_hi, 2)}]); raw logit slopes {n2(sm_a('false_belief'), 3)} vs {n2(sm_a('reality_check'), 3)} (difference {n2(k$raw_diff, 2)} [{n2(k$raw_lo, 2)}, {n2(k$raw_hi, 2)}]); 2PL slopes {n2(k$a_fb)} vs {n2(k$a_rc)}"),
+  "survives on the chance-corrected scale (raw logit slopes do not separate them; controls also flat because at ceiling)",
+
+  "stories_tom §3", "Controls correlate moderately with targets, weakly with age",
+  "r = .46 and .27 (pooled)",
+  glue("pooled {n2(k$r_ct_pooled)} / {n2(pick(cc, r_control_age, method == 'pooled over runs (June method)', item_set == 'policy items dropped'))}; within dataset × form {n2(k$r_ct_within)} / {n2(pick(cc, r_control_age, method == 'within dataset x form, Fisher-pooled', item_set == 'policy items dropped'))}"),
+  "survives with changes (pooled r reproduces; within a site it is lower)",
+
+  "stories_tom §3", "Controls do not gate target age sensitivity",
+  "similar target~age slopes after pass and fail",
+  glue("June method {n2(pick(gj, target_age_beta_perSD, !ctrl_pass), 3)} vs {n2(pick(gj, target_age_beta_perSD, ctrl_pass), 3)}/SD; GLMM interaction de-DE {n2(g_de$interaction, 2)} (p {pe(g_de$interaction_p)}), en-US {n2(g_en$interaction, 2)} (p = {n2(g_en$interaction_p, 3)}), es-CO {n2(g_co$interaction, 2)} (p = {n2(g_co$interaction_p, 2)})"),
+  "partly overturned (gating in de-DE and en-US, not in es-CO; descriptive)",
+
+  "stories_tom §3", "Dropping controls lowers reliability; keep them",
+  "marginal .92 → .89",
+  glue("June method {n2(rrow(jn_s, 'all items', 'Rasch', marginal_rxx_mirt), 3)} → {n2(rrow(jn_s, 'targets only', 'Rasch', marginal_rxx_mirt), 3)}; empirical Leipzig {n2(rrow(de_s, 'all items', 'Rasch', empirical_rxx), 3)} → {n2(rrow(de_s, 'targets only', 'Rasch', empirical_rxx), 3)}; UTDT {n2(rrow(ar_s, 'all items', 'Rasch', empirical_rxx), 3)} → {n2(rrow(ar_s, 'targets only', 'Rasch', empirical_rxx), 3)}"),
+  "survives with changes (direction holds; the magnitudes were model-implied)",
+
+  "stories_tom §5; tom_dimensionality §1", "Not cleanly unidimensional",
+  "ev1/ev2 ≈ 1.9 (Leipzig)",
+  glue("Leipzig {n2(k$ev_de)}; Western/Bogotá/es-AR {rng(k$ev_other)}; ECV {k$ecv}, omega-h/omega-t {rng(ld$omega_h / ld$omega_total)}"),
+  "survives with changes (Leipzig and es-AR; one score defensible elsewhere)",
+
+  "tom_dimensionality §1", "Parallel analysis's 11 factors are over-extraction",
+  "11 factors",
+  glue("June method {rng(res_dim$eigen$pa_june_nfact, 0)} factors; resampled {rng(res_dim$eigen$pa_resample_ncomp[res_dim$eigen$sample %in% dim_primary], 0)} components, {rng(res_dim$eigen$pa_resample_nfact[res_dim$eigen$sample %in% dim_primary], 0)} factors"),
+  "survives (parallel analysis is uninformative here either way)",
+
+  "tom_dimensionality §2", "Question type organizes covariance; story weakly; constructs not at all",
+  "within − between: .101 / .039 / .045 (table)",
+  glue("tetrachoric: question type {rng(qt_contrast, 3)}; story {rng(st_contrast, 3)}; construct {rng(nc_contrast, 3)}. Q3 residuals: question type {q3_rng}, story {rng(q3_st$within_minus_between, 3)}"),
+  "partly overturned (the tetrachoric pattern reproduces but partly reflects shared difficulty; on Q3 residuals question type groups items only in some samples)",
+
+  "tom_dimensionality §2", "Two-factor EFA gives no clean sub-construct",
+  "factor r .19, 28% variance",
+  glue("factor r {rng(res_dim$efa2_summary$factor_r[res_dim$efa2_summary$sample %in% dim_primary])}; second factor differs by sample"),
+  "survives",
+
+  "tom_dimensionality §3", "A false-belief-only scale is less reliable and no more age-valid",
+  "Rasch rxx .605 vs .842; age r .401 vs .402",
+  glue("Leipzig alpha {n2(pick(res_dim$subscales, alpha, sample == 'de_ib', scale == 'false-belief only'), 3)} vs {n2(pick(res_dim$subscales, alpha, sample == 'de_ib', scale == 'all items'), 3)}; es-AR age r {n2(pick(res_dim$subscales, age_r, sample == 'ar_nhb', scale == 'false-belief only'), 3)} vs {n2(pick(res_dim$subscales, age_r, sample == 'ar_nhb', scale == 'all items'), 3)}"),
+  "survives",
+
+  "tom_dimensionality synthesis", "ToM is a reliable composite",
+  "reliability .92",
+  glue("the .92 is model-implied for a {jp$items_in_model}-item pool ({n2(jp$rasch_marginal_rxx_june_method, 3)}); empirical {n2(jp$rasch_empirical_rxx_eap, 3)}; single fixed forms {k$rel_forms}; fCAT {k$rel_fcat}"),
+  "overturned",
+
+  "tom_dimensionality synthesis", "Inter-item correlations are uniformly low",
+  "≈ .13",
+  glue("June-style rebuild {n2(pick(res_dim$eigen, mean_offdiag_r, sample == 'de_ib_junelike'), 3)}; cleaned {rng(res_dim$eigen$mean_offdiag_r[res_dim$eigen$sample %in% dim_primary], 3)}"),
+  "survives with changes",
+
+  "tom_dimensionality caveat", "Story testlet effect is real but weak; a bifactor model is risky",
+  "not fitted",
+  glue("story bifactor better by AIC in all samples; information overstated {k$info_over}; θ r {k$cor_uni_g}"),
+  "new (confirms 'weak')",
+
+  "tom_dif_multigroup", "Scalar invariance is rejected with controls in",
+  "χ²/df ≈ 29; BIC prefers configural by ≈ 580",
+  glue("release-equivalent June design {n2(jbv('J_release', 'all', X2_df), 1)}, dBIC {round(jbv('J_release', 'all', dBIC))}; corrected June design dBIC {round(jbv('J_policy', 'all', dBIC))}; A χ²/df {n2(k$A_scal_x2df, 1)}, Rasch dBIC {n2(tr_('A', 'scalar vs configural', dBIC), 0)}, 2PL dBIC {n2(t2('A', 'scalar vs metric', dBIC), 0)}, floor-0 rule dBIC {n2(tr_('A_g0', 'scalar vs configural', dBIC), 0)}; B χ²/df {n2(k$B_scal_x2df, 1)}, dBIC {n2(tr_('B', 'scalar vs configural', dBIC), 0)} / {n2(t2('B', 'scalar vs metric', dBIC), 0)}"),
+  "partly overturned (holds in June's design and in stories 13–18; in stories 1–6 BIC rejects only under the floor-0 guessing rule)",
+
+  "tom_dif_multigroup; stories_tom §4", "Controls are the dominant source of cross-language non-invariance",
+  "mean |DIF| ≈ 1.9 (controls) vs ≈ 0.5 (targets)",
+  glue("release-equivalent {n2(pick(dbt, mean_abs_db, analysis == 'J_release', kind == 'control'))} vs {n2(pick(dbt, mean_abs_db, analysis == 'J_release', kind == 'target'))}; corrected June design {n2(pick(dbt, mean_abs_db, analysis == 'J_policy', kind == 'control'))} vs {n2(pick(dbt, mean_abs_db, analysis == 'J_policy', kind == 'target'))}; A Rasch {n2(dmv('A', 'control', rasch_s2))} vs {n2(dmv('A', 'target', rasch_s2))}, 2PL {n2(dmv('A', 'control', twopl_purified))} vs {n2(dmv('A', 'target', twopl_purified))}; B Rasch {n2(dmv('B', 'control', rasch_s2))} vs {n2(dmv('B', 'target', rasch_s2))}, 2PL {n2(dmv('B', 'control', twopl_purified))} vs {n2(dmv('B', 'target', twopl_purified))}"),
+  "partly overturned (model- and design-dependent; the gap shrank)",
+
+  "tom_dif_multigroup", "Targets are comparable; false-belief and emotion DIF is small",
+  "mean |DIF| ≈ 0.5",
+  glue("false belief flagged {fb_A$n_flagged}/{fb_A$n_items} (A), {fb_B$n_flagged}/{fb_B$n_items} (B); story 13 FB es-AR {n2(k$acc_13_ar, 3)}; within es-AR across sites {wl_f('X_esAR')}/{wl_n('X_esAR')} items flagged"),
+  "overturned (but language is confounded with age, exposure and site)",
+
+  "tom_dif_multigroup", "Partial scalar invariance is achievable",
+  "p ≈ .8 (targets)",
+  glue("A p = {n2(k$A_part_p)} ({pick(res_inv$anchors, n_anchors, analysis == 'A')} anchors); B p = {n2(k$B_part_p)} ({pick(res_inv$anchors, n_anchors, analysis == 'B')} anchors); without V0 p = {n2(tr_('A_noV0', 'partial scalar vs configural', p), 4)}"),
+  "survives descriptively (anchors chosen on the same data; rejected without V0)",
+
+  "tom_dif_multigroup", "The invariant anchors are mostly false-belief and emotion targets",
+  "anchor set of targets",
+  glue("anchors include {anc$ctrl_anchor[anc$analysis == 'A']}/{anc$ctrl[anc$analysis == 'A']} controls (A) and {anc$ctrl_anchor[anc$analysis == 'B']}/{anc$ctrl[anc$analysis == 'B']} (B); DIF below ≈ {n2(k$mdd_med, 1)} logits is not detectable"),
+  "survives with changes",
+
+  "tom_reality_check_bug", "The 4 provable defects are inverted keys (CO moral rc_1, CO reference, late-DE deception rc_2/3)",
+  "below chance, site-specific",
+  glue("story 2 rc_1 {n2(k$s2rc1_2e, 3)} on V0 2e only (cause undetermined); story 4 rc_2/3 {n2(k$s4rc2_4g, 3)}/{n2(k$s4rc3_4g, 3)} on image 4g (rc_3 below chance in every language, rc_2 in de-DE and en-US; the key conflicts with the image; flipped r {n2(fc(rc2, 'flagged: 4g', r_ir_flipped))}/{n2(fc('tom_story4_deception_reality_check_3', 'flagged: 4g', r_ir_flipped))}); reference {n2(k$rr5, 3)}/{n2(k$rr11, 3)}/{n2(k$rr17, 3)}, below chance except German story 5 (design)"),
+  "partly overturned (the cells are broken, but not site-specific and not all key inversions)",
+
+  "tom_reality_check_bug", "Repairing the defects removes ≈ 70% of scalar non-invariance",
+  "χ² 702 → 212",
+  glue("{big(round(jbv('J_release', 'all', X2)))} → {big(round(jbv('J_policy', 'all', X2)))} ({spct(jbv('J_policy', 'all', X2_change_vs_release))}); controls {spct(jbv('J_policy', 'controls', X2_change_vs_release))}; PR #27 alone {spct(jbv('J_corrected', 'all', X2_change_vs_release))}"),
+  "different mechanism (about half, from exclusions, not key flips)",
+
+  "tom_reality_check_bug; README", "The 12 hand-flagged items are essentially a complete catalog of defects",
+  "all 12 map onto defects",
+  glue("{k$v_un} of {k$v_all} story-level items un-excluded; {k$v_keep} keep; {k$v_scop} scoped; {k$v_es} held for the translation check"),
+  "overturned",
+
+  "stories_tom §1", "Fixing the scoring bug raised Leipzig test–retest",
+  "≈ .45 → ≈ .53",
+  glue("first two runs {n2(pick(sf2, r, version == 'analysis'), 3)} (released {n2(pick(sf2, r, version == 'released v2_3'), 3)}; release-equivalent refit {n2(pick(sf2, r, version == 'release-equivalent refit'), 3)}); 60–180 d {n2(k$stab_60)}; > 300 d {n2(pick(sb, r, dataset == 'pilot_mpieva_de_main', gap_bin == '[300,Inf)', version == 'analysis'))}"),
+  "not replicated (the corrections do not raise it; alternate forms, months apart)",
+
+  "stories_tom §6", "Parallel retest items are broadly similar in difficulty",
+  "within-family SD ≈ 0.9 vs 2.3",
+  "not re-tested",
+  "not re-tested"
+)
+knitr::kable(jt, col.names = c("June source", "Claim", "June (quoted)", "Now (2026-09 data)", "Status"))
+```
+
+# Synthesis and recommendations
+
+```{r rec-numbers}
+fb_flag <- res_inv$dif |>
+  filter(analysis %in% c("A", "B"), question_type == "false_belief", class != "A") |>
+  mutate(story = as.integer(str_extract(short, "(?<=story)\\d+"))) |>
+  arrange(story) |> pull(short) |> unique()
+k$fb_flag_list <- paste(uid_label(fb_flag), collapse = ", ")
+```
+
+**Exclusions and corrections (DCC).**
+
+1. Keep item exclusions in the Airtable table, as the DCC prefers, but
+   fix what is there. The 12 generic rows do nothing today (the `anti_join`
+   runs after `recode_tom()`), and they would over-exclude if they worked.
+   Replace them with story-level rows: un-exclude the `r k$v_un` story-level
+   items that behave normally (`r k$v_weak` of them weak); exclude
+   reference_reference in stories 5/11/17 and story 10's deception false
+   belief 1 everywhere; and add the three content-scoped rows above, which
+   need a content-version (or date-window) column. Hold any Spanish row for
+   story 13 until the translation check.
+2. The same reasoning applies to corrections. PR #27 writes its identity
+   remaps (`fix_tom_item_uids()`: a 25-row table keyed on date window, item
+   code, answer and occurrence) and three per-story chance values into
+   levantemodels code. Those are data properties too. A metadata table, such
+   as the item-mapping tables in `levante_metadata_items`, would document
+   them next to the exclusions, and could also hold a scoped key correction
+   for the story-4 reality checks on image 4g if the content team confirms
+   that "no" is right for that scene (that would keep
+   `r big(sum(res_items$flip_check$n[res_items$flip_check$content_part == "flagged: 4g" & res_items$flip_check$language == "all"]))`
+   trials). This is a design choice for the DCC; the analysis only needs the
+   corrections applied somewhere.
+3. Consider V0 Bogotá story-2 reality check 2 and story 5's reference
+   reality check (non-invariant only because of V0) as further V0-scoped
+   rows, next to V0 reality check 1, whose cause stays undetermined.
+
+**Deployed items (core-tasks; item bank).**
+
+4. Re-author story-4 reality checks 2/3 for image 4g (or change their key,
+   as above), and redesign reference_reference (stories 5/11/17). Both are
+   still in the deployed corpora.
+5. Review the near-chance yes/no "Is [sibling] mad at [sibling]?" questions
+   (story 4 fb_3, story 16 ref_2), the non-discriminating story-17 emotion
+   question and story 10's deception false belief 1, and the same-scene
+   doublets (story 6 fb_2/fb_5, both keyed "shoes"; story 4 fb_2/fb_3, both
+   "no").
+6. Check the Spanish translations (es-CO, es-AR) of the false-belief
+   prompts: every false-belief item flagged (class B or C) in the invariance
+   analyses (`r k$fb_flag_list`), plus story 7's reality_known item, which
+   the item screen flags (stories 7–12 are in no invariance analysis).
+   Translation is one hypothesis; prior exposure to the task and the samples
+   themselves are others. (Sites that share a language differ less and on
+   other items, and the false-belief DIF persists with younger German
+   children, so site and age alone do not explain it.) Until the check is done,
+   keep the Spanish sensitivity flag and report results with and without
+   it; it changes scores very little.
+
+**Scoring.**
+
+7. Score group by group (the PR #26 rule, not yet merged). Before changing
+   production's integration grid, investigate how the low-scoring groups'
+   means and variances depend on the grid, the latent density and the
+   guessing convention: all three move them, while scores within a group
+   barely change. For the RfP1 datasets that v2_3 scored under the German
+   prior, their own prior alone lowers the level by `r k$shift_prior`
+   logits (`r k$shift_total` in total).
+8. Recalibrate ToM on the current data once PR #27 is merged. The analysis
+   model here uses `r big(pick(res_rel$itemtype_bic, runs, model == "analysis", itemtype == "2PL"))`
+   runs in 8 groups. The 2PL is preferred, and local dependence is modest,
+   so a testlet model is optional. If it is skipped, discount story
+   information by about `r k$info_over` in reliability claims and in CAT
+   selection.
+9. Treat cross-language comparisons of Stories scores as partial-scalar at
+   best, and remember that the language groups also differ in age, prior
+   exposure and site. Report group differences only with that caveat and
+   adjusted for age.
+
+**Block CAT and the item bank.**
+
+10. The deployed fCAT is a random 3-story form with reliability
+    `r k$rel_fcat` in a median of `r k$fcat_min` minutes. In the same
+    children, three random stories instead of a six-story form cost
+    `r rng(cs$rel_full - cs$rel_random)` in reliability for half the time.
+    The 3-vs-4 decision is mostly a trade of minutes for precision.
+11. Adaptive selection within blocks helps: choosing the more informative of
+    the form's two stories per block raises the reliability of a 3-story
+    form by a median of `r n2(median(cs$rel_adaptive - cs$rel_random))`
+    (up to `r n2(max(cs$rel_adaptive - cs$rel_random))`) in the same time. With six stories per block it could do more, but the bank is thin
+    above θ = 0 on the DE scale, so real gains also need harder stories and
+    items, calibrated in several languages. The fCAT's fixed block order
+    confounds block with position; randomize it if blocks are to be
+    compared.
+12. The block structure need not follow the story constructs, which do not
+    organize the item covariance. Question type's tetrachoric clustering
+    partly reflects shared difficulty; once difficulty and guessing are
+    modelled, what remains is weak and uneven across samples. Blocks can be
+    chosen for content coverage and time.
+13. Keep scoring the controls. If time binds, they are the least informative
+    questions per item. Whether to keep administering them as comprehension
+    checks is a design decision; the data show that a failed control makes
+    the story's targets less age-informative mainly in Leipzig (and to a
+    lesser degree in en-US), not in es-CO.
+14. Only Leipzig has repeat data, as alternate forms months apart. A
+    short-interval retest (same or parallel forms, about 2 weeks) at a
+    high-volume site would give the first real test–retest estimate.
+
+# Methods notes and caveats
+
+- **Post-hoc rules.** Two rules in the items analysis were revised after
+  its first run and are disclosed in `res_items$meta$notes`: the weak-item
+  flag and the age-slope minority rule. The originals are kept in
+  `r_ir_below_10` and `age_slope_raw`. The 2026-09 revision added, after
+  review: the floor-corrected age slopes with a symmetric filter, the
+  flipped-key check, the per-language discrimination rule for the Spanish
+  items, story 10's deception false belief 1 as a policy exclusion, the
+  within-language and age-restricted invariance variants, the 2PL tests,
+  the latent-density check and the block-CAT simulation.
+- **Guessing floor.** The reliability and invariance models fix it at
+  chance; the dimensionality models set it to 0 for items answered at or
+  below chance in the sample. The invariance and reliability conclusions
+  were rechecked under the dimensionality rule (A_g0/B_g0 and the g0
+  sensitivity of the reliability model). Neither rule
+  can represent a group that answers systematically below chance, as young
+  children do on reality_known false-belief questions.
+- **`mirt::marginal_rxx()`** integrates TI/(TI + var) over N(0, 1) and
+  assumes every item in the matrix is answered. The June chapters' ".92",
+  ".89" and ".84" come from it on sparse, multi-form matrices. This chapter
+  reports empirical reliability instead.
+- **MAP, not ML.** The fixed-floor 2PL and bifactor fits in the
+  dimensionality analysis use an N(0, 2²) slope prior, and the invariance
+  2PL uses the production priors; their AIC and BIC are evaluated at MAP
+  estimates. The bootstrap intervals for ev1/ev2 are biased downward, so the
+  chapter reports a bootstrap SE instead of percentile intervals.
+- **Upper bounds.** The reliabilities come from unidimensional models that
+  assume scalar invariance, so they overstate precision somewhat (footnote
+  in the reliability section).
+- **Confounds.** Language, site, age, prior exposure, form and deployment
+  epoch overlap. The es-AR samples are young
+  (`r pick(res_dim$samples, age_min, sample == "ar_nhb")`–`r pick(res_dim$samples, age_max, sample == "ar_nhb")`
+  years), the Leipzig samples are older, near ceiling and mostly on repeat
+  runs in stories 13–18, and es-CO in the invariance analysis pools
+  `r length(str_split_1(pick(res_inv$samples, datasets, analysis == "A", group == "es_CO"), ", "))`
+  datasets from 2024–2026. The age-band plots describe; they are not a
+  model-based age adjustment.
+- **Coverage.** en-GB (Sheffield, fCAT only) has too few responses per item
+  for the invariance analyses. en-US items from stories 7–18 have fewer
+  than 30 responses. Stories 7–12 are sparse everywhere.
+- **Gating** conditions on passing a control, which depends on ability, so
+  it is descriptive.
+- **Invariance fits** use mirt's default θ range (see the numerics note).
+- **Not re-tested:** June's parallel-retest-family analysis (stories_tom §6).
+
+# Reproducing {#reproducing}
+
+The chapter reads only cached files in `data/stories_2026-09/` (gitignored)
+and fits no models. To rebuild, run the scripts in the order below with
+`Rscript` from a working directory **outside** the repo (the book's renv has
+an `mgcv` binary that breaks mirt). Each script takes the book root as its
+argument (else `STORIES_BOOK_ROOT`, else the directory above the script's
+`tasks/` folder). The build must
+come first; the four analysis scripts only read its output and can run in
+any order after it.
+
+```{r repro}
+tribble(
+  ~step, ~script, ~writes, ~built,
+  1, "tasks/_build_stories_data.R", "stories_trials.rds, stories_runs.rds, reconciliation.rds, README.md (and, if missing, the pinned raw pulls, release snapshots and the v2_3 model record)", format(prov$built_at),
+  2, "tasks/_stories_fits_items.R", "results_items.rds", format(res_items$meta$built_at),
+  3, "tasks/_stories_fits_dimensionality.R", "results_dimensionality.rds",
+  paste0(res_dim$meta$run_at, " (", round(as.numeric(difftime(as.POSIXct(res_dim$meta$finished_at), as.POSIXct(res_dim$meta$run_at), units = "mins")), 1), " min)"),
+  4, "tasks/_stories_fits_invariance.R", "results_invariance.rds",
+  paste0(res_inv$meta$created, " (", round(res_inv$meta$runtime_min, 1), " min)"),
+  5, "tasks/_stories_fits_reliability.R", "results_reliability.rds, stories_scores_analysis.rds", format(res_rel$meta$built_at)
+) |>
+  knitr::kable(caption = "Scripts in run order, outputs and build times")
+```
+
+```bash
+cd /some/dir/outside/the/repo
+export LEVANTEMODELS_PATH=/path/to/levantemodels   # checkout of PR #27's branch
+Rscript /path/to/levante-longitudinal/tasks/_build_stories_data.R /path/to/levante-longitudinal
+Rscript /path/to/levante-longitudinal/tasks/_stories_fits_items.R /path/to/levante-longitudinal
+Rscript /path/to/levante-longitudinal/tasks/_stories_fits_dimensionality.R /path/to/levante-longitudinal
+STORIES_CORES=6 Rscript /path/to/levante-longitudinal/tasks/_stories_fits_invariance.R /path/to/levante-longitudinal
+Rscript /path/to/levante-longitudinal/tasks/_stories_fits_reliability.R /path/to/levante-longitudinal
+```
+
+The data build and the reliability script load levantemodels from the PR #27
+source tree with `pkgload::load_all()`. `LEVANTEMODELS_PATH` must point to a
+checkout of branch `fix-tom-identity-corrections` (they stop if it is
+unset). They record its commit
+(`r substr(res_rel$meta$levantemodels[["commit"]], 1, 7)` for the reliability
+run). Every results file's `meta` element records the inputs, thresholds,
+package versions and `sessionInfo()`. The data build pins every raw dataset
+version (table above); the release snapshots are pinned by processed version,
+except Sheffield's unreleased next draft, which cannot be pinned.

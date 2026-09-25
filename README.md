@@ -86,9 +86,16 @@ retired exploratory notebooks. Data and rendered HTML are git-ignored.
   (loadings ~shared; scalar fails → absolute levels not comparable; ToM not
   separable at the task level even error-corrected). The age-differentiation
   (`04`) is therefore **structural**, not loading drift.
-- **Stories/ToM** is a reliable but heterogeneous composite (not unidimensional);
-  question type organizes it more than story construct; controls drive most
-  cross-language non-invariance; partial scalar invariance achievable on targets.
+- **Stories/ToM** (`tasks/stories.qmd`, corrected 2026-09 data): a single score
+  is defensible, most clearly outside Leipzig; question type, not story
+  construct, organizes item difficulty; keep the controls. Per-administration
+  reliability is only moderate (.56–.82 per dataset on fixed forms, .30–.65 on
+  the deployed fCAT; June's .92 was model-implied for a pool no child takes).
+  Cross-language comparisons are partial-scalar at best (false-belief items are
+  non-invariant; language is confounded with age, prior exposure and site), and
+  June's "controls drive the non-invariance" is partly overturned (model- and
+  design-dependent). 20 of the 28 story-level items behind the 12 generic
+  exclusions should be un-excluded.
 - **The g-loading is substantive, not artifactual** (`04_differentiation.qmd`,
   now with ROAR + MEFS as first-class measures): it's within-site (not a site-mean
   effect) and ~orthogonal to response speed (not a method artifact). Empirically
@@ -155,13 +162,14 @@ retired exploratory notebooks. Data and rendered HTML are git-ignored.
   H&F lower but item-specific). One broken item found (TROG German
   `embedding_cat_cow_chase_black`, ~6.5 logits); top Math flags are
   multiplication/subtraction — likely curriculum-timing, not translation.
-- **ToM reality-check DIF was (mostly) data defects**
-  (`tasks/tom_reality_check_bug.qmd`): a shadow re-processing of raw CO+DE data
-  proved answer-key inversions (4 below-chance cells, both sites),
-  hostile-attribution content mislabeled as ToM (110 DE runs, Sept–Oct 2024),
-  and trial-map shifts. Repairing only the provable defects removes ~70% of
-  scalar non-invariance with controls included (χ² 702 → 212). The paper's 12
-  hand-flagged items all map onto identified defects.
+- **ToM reality-check DIF** (June forensics, `tasks/tom_reality_check_bug.qmd`):
+  a shadow re-processing of raw CO+DE data found item-mapping defects, and
+  June's repair cut scalar misfit by ~70% (χ² 702 → 212). The 2026-09 re-analysis
+  (`tasks/stories.qmd`) revises this: on corrected data the defective cells are
+  not site-specific and not all key inversions; corrections plus exclusions
+  remove about half of the misfit in June's design (χ² 797 → 407), mostly
+  through the exclusions; and the paper's 12 hand-flagged uids are not a
+  catalog of defects (20 of their 28 story-level items should be un-excluded).
 
 ## Remaining known data issues (v1.2)
 
@@ -193,7 +201,7 @@ children with ≥ 2 administrations (longitudinal signal).
 | Task | task_id | runs | kids 2-wave | status |
 |---|---|---:|---:|---|
 | Math | egma-math | 2967 | 470 | **deep-dived** (`tasks/math*.qmd`) |
-| Stories / ToM | theory-of-mind | 1931 | 198 | **deep-dived** (`tasks/stories_tom*`, `tom_*`) |
+| Stories / ToM | theory-of-mind | 1931 | 198 | **deep-dived** (`tasks/stories.qmd`; forensic appendix `tasks/tom_reality_check_bug.qmd`) |
 | Vocabulary | vocab | 1481 | 239 | **deep-dived** (`tasks/vocab.qmd`) |
 | ROAR-Word | swr | 1610 | 195 | **deep-dived** (`tasks/roar_word.qmd`) |
 | Memory | memory-game | 1717 | 284 | **deep-dived** (`tasks/memory.qmd`) — grid OK, DROP likely obsolete |

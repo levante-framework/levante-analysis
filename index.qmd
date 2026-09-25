@@ -54,8 +54,9 @@ measures: item structure and difficulty, DIF, answer-key forensics, and
 scoring audits — Hearts & Flowers, Memory, Same & Different (IRTree scoring
 models and recode audit), Math (plus item calibration and
 EAP-vs-ML scoring), Shape Rotation, Sentence Understanding (TROG),
-Vocabulary, Stories (ToM; three companion reports on dimensionality, DIF,
-and the reality-check bug), ROAR-Word, ROAR-Phoneme/Sentence, and the
+Vocabulary, Stories (ToM; one consolidated analysis on the corrected 2026-09
+data, with the reality-check bug forensics as an appendix), ROAR-Word,
+ROAR-Phoneme/Sentence, and the
 ROAR-Sentence (SRE) scoring deepdive. **Cross-task analyses** collect the
 corrected longitudinal trajectories, the cross-language DIF batch,
 test–retest figures, and the training-vs-development comparison.

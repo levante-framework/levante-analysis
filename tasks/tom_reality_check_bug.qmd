@@ -14,9 +14,28 @@ execute:
 
 {{< include ../_disclaimer.qmd >}}
 
+::: {.callout-note}
+## Revised in September 2026
+
+This appendix is the June 2026 forensic account, kept as a record. The
+consolidated [Stories chapter](stories.qmd#june-conclusions-now), on data
+rebuilt from raw with the PR #27 corrections, revises three of its
+conclusions (see that chapter's "June conclusions → now" table):
+
+- **About half, not ~70%.** In June's design, corrections plus exclusions cut
+  the scalar misfit by 49% (χ² 797 → 407), and the reduction comes from the
+  exclusions, not from key flips.
+- **Not site-specific, and not all key inversions.** The defective cells are
+  real, but they are not specific to one site, and not all of them are
+  inverted keys.
+- **Not a catalog of defects.** Of the 28 story-level items behind the 12
+  hand-flagged uids, 20 should be un-excluded.
+:::
+
 # Question & hypothesis
 
-Our ToM analyses (`stories_tom`, `tom_dif_multigroup`) found large cross-site
+Our June ToM analyses (`stories_tom`, `tom_dif_multigroup`; now retired to
+`old/` and superseded by the consolidated [Stories chapter](stories.qmd)) found large cross-site
 DIF concentrated on **reality-check (control) items** — and excluding them
 bought scalar invariance. But that never made theoretical sense: comprehension
 checks should be the *most* translatable items. Hypothesis: the DIF is a
