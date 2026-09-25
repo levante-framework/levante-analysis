@@ -26,6 +26,23 @@ trials    <- read_rds(file.path(dir26, "stories_trials.rds"))
 runs      <- read_rds(file.path(dir26, "stories_runs.rds"))
 recon     <- read_rds(file.path(dir26, "reconciliation.rds"))
 
+# block-CAT design simulation (tasks/_stories_cat_sim.R)
+res_cat <- read_rds(file.path(dir26, "results_cat_sim.rds"))
+rule_labels <- c(random = "random", maxinfo = "max information", infomin = "information per minute",
+                 rq2 = "top-2 randomesque", disc_a2 = "highest summed discrimination",
+                 disc_mean = "highest mean discrimination", oracle = "information at true θ",
+                 fixed = "fixed form")
+cat_designs <- res_cat$designs |> select(design, design_label = label, n_stories, steps)
+# mean realized reliability over the 8 calibration groups; minutes = median over groups
+cat_grid <- res_cat$q1 |>
+  group_by(design, n_stories, rule) |>
+  summarise(rel = mean(rel_realized), med_min = median(median_min), q90_min = median(q90_min),
+            max_exp = mean(max_exposure), .groups = "drop")
+cg <- function(d, r, col = "rel") {
+  x <- cat_grid[[col]][cat_grid$design == d & cat_grid$rule == r]
+  stopifnot(length(x) == 1); x
+}
+
 # number formatting: n2(0.456) = ".46", n2(1.234) = "1.23"
 n2  <- function(x, d = 2) sub("^(-?)0\\.", "\\1.", formatC(x, format = "f", digits = d))
 pct <- function(x, d = 0) paste0(formatC(100 * x, format = "f", digits = d), "%")
@@ -337,6 +354,13 @@ sum_rasch <- \(a, col) pick(res_inv$tests, {{ col }}, analysis == a, comparison 
   `r n2(median(cs$rel_adaptive - cs$rel_random))` (up to
   `r n2(max(cs$rel_adaptive - cs$rel_random))`). German alternate-form stability over 2–6 months is
   `r n2(k$stab_60)` [`r n2(k$stab_60_lo)`, `r n2(k$stab_60_hi)`].
+- **Block CAT (simulation).** Choosing the most informative story within today's
+  three blocks raises mean reliability from `r n2(cg("cur3", "random"))` to
+  `r n2(cg("cur3", "maxinfo"))` in the same time; adding a fourth, free story
+  reaches `r n2(cg("cur3p1", "maxinfo"))` in about `r n2(cg("cur3p1", "maxinfo", "med_min"), 1)`
+  median minutes, more than a fixed six-story form in less time. Select by information at
+  the current estimate (not by discrimination), under the group's prior; see
+  [Designing the block CAT](#designing-the-block-cat).
 - **Scoring.** The means and variances of low-scoring groups are weakly
   identified: they move with the integration grid, the latent density and
   the guessing convention, while scores within a group barely change.
@@ -2356,6 +2380,193 @@ res_rel$scores_plot |>
   of runs score at or below what guessing would give, so for those children
   the EAP rests largely on the prior.
 
+# Designing the block CAT
+
+```{r cat-setup}
+val <- res_cat$validation$fcat3_random
+val_time <- res_cat$validation$time
+q5m <- res_cat$q5 |> group_by(se_inflation, rule) |>
+  summarise(across(c(capitalization, selection_loss, rescoring_gain), mean), .groups = "drop")
+q4r <- res_cat$q4_two |> filter(growth == "latent_slope", !history_aware) |>
+  group_by(design, rule, gap_years) |> summarise(repeated = mean(share_repeated), .groups = "drop")
+q4cost <- res_cat$q4_two |> filter(growth == "latent_slope") |>
+  select(dataset, design, rule, gap_years, history_aware, rel_wave2) |>
+  pivot_wider(names_from = history_aware, values_from = rel_wave2, names_prefix = "ha_") |>
+  group_by(design, rule, gap_years) |> summarise(cost = mean(ha_FALSE - ha_TRUE), .groups = "drop")
+```
+
+The deployed fCAT picks one story at random from each of three blocks. To decide how a real block CAT should choose stories, we simulated administrations from the analysis model (`tasks/_stories_cat_sim.R`).
+
+**The simulation.**
+
+- **Items:** the analysis model's items, minus story 4's reality checks 2 and 3 (broken on image 4g). Their time is still counted: `r length(res_cat$meta$bank_items)` items.
+- **Children:** each calibration group's latent distribution, with `r big(res_cat$meta$n[["main"]])` simulated children per group and design.
+- **Time:** story durations from the deployed fCAT runs, with a per-child speed effect.
+- **Procedure:** after each story, ability is updated by EAP under the group's prior, and the next story is chosen within its block.
+- **Validation:** the simulated deployed design matches the observed fCAT. Reliability agrees within `r n2(max(abs(val$sim_rel_fcat3_random - val$obs_rel_group_fcat), na.rm = TRUE))` per dataset, and the median time is `r n2(median(val$sim_median_min), 1)` min simulated vs `r n2(val_time$obs_median_min, 1)` observed. The 90th-percentile time is `r n2(val_time$obs_q90_min - median(val$sim_q90_min), 1)` min too short, so read every 90th-percentile figure below as that much optimistic.
+
+This is a model-based simulation. It assumes the 2PL with fixed guessing holds, with scalar invariance except where tested below, and it models no practice effects.
+
+## Precision against time
+
+```{r cat-grid}
+cat_grid |>
+  filter(rule %in% c("random", "maxinfo", "infomin", "rq2", "fixed")) |>
+  mutate(rule = factor(rule_labels[rule], unname(rule_labels))) |>
+  select(design, n_stories, rule, rel) |>
+  pivot_wider(names_from = rule, values_from = rel) |>
+  left_join(cat_grid |> filter(rule %in% c("maxinfo", "fixed")) |>
+              transmute(design, minutes = paste0(n2(med_min, 1), " / ", n2(q90_min, 1))),
+            by = "design") |>
+  left_join(cat_designs |> select(design, design_label, steps), by = "design") |>
+  arrange(n_stories, match(design, c("cur3", "canvas3", "best3", "free3", "cur3p1", "canvas4",
+                                     "best4", "free4", "fixed_1to6", "fixed_13to18"))) |>
+  select(-design) |>
+  mutate(across(where(is.double) & !n_stories, \(x) if_else(is.na(x), "", n2(x))),
+         n_stories = as.integer(n_stories)) |>
+  select(design = design_label, blocks = steps, stories = n_stories,
+         any_of(unname(rule_labels[c("random", "maxinfo", "infomin", "rq2", "fixed")])), minutes) |>
+  knitr::kable(caption = paste("Mean reliability over the 8 groups by design and selection rule;",
+                               "minutes = median / 90th percentile under max information",
+                               "(fixed forms: the whole form). RK reality known, IN interpretation,",
+                               "MR moral reasoning, SO second order, DC deception, RF reference."))
+```
+
+```{r cat-grid-plot, fig.height = 4.5}
+cat_grid |>
+  filter(rule %in% c("random", "maxinfo", "rq2", "fixed")) |>
+  left_join(cat_designs |> select(design, design_label), by = "design") |>
+  ggplot(aes(med_min, rel, colour = rule_labels[rule], shape = factor(n_stories))) +
+  geom_point(size = 3) +
+  ggrepel::geom_text_repel(aes(label = design), size = 3, show.legend = FALSE) +
+  labs(x = "Median minutes", y = "Mean reliability (8 groups)", colour = "Selection", shape = "Stories") +
+  theme(legend.position = "bottom")
+```
+
+- **Adaptive selection within today's blocks is the largest single gain.** Reliability goes from `r n2(cg("cur3", "random"))` to `r n2(cg("cur3", "maxinfo"))` in the same time (`r n2(cg("cur3", "random", "med_min"), 1)` vs `r n2(cg("cur3", "maxinfo", "med_min"), 1)` median minutes).
+- **A fourth story adds about as much again.** The current three blocks plus one free story (at most one per story type) reach `r n2(cg("cur3p1", "maxinfo"))` in `r n2(cg("cur3p1", "maxinfo", "med_min"), 1)` median minutes. That beats a fixed six-story form (`r n2(cg("fixed_1to6", "fixed"))`, `r n2(cg("fixed_1to6", "fixed", "med_min"), 1)` min) in about 2.5 fewer minutes.
+- **Grouping matters less than selection.**
+  - The searched 4-block grouping splits today's moral-reasoning + second-order block into two single-type blocks: `r n2(cg("best4", "maxinfo"))`.
+  - No blocks at all, with at most one story per type: `r n2(cg("free4", "maxinfo"))`.
+  - The canvas 4-block design: `r n2(cg("canvas4", "maxinfo"))`, lower because every child must take a two-question reality-known story.
+
+```{r cat-by-group}
+res_cat$q1 |>
+  filter((design == "cur3" & rule %in% c("random", "maxinfo")) |
+         (design %in% c("cur3p1", "canvas4", "best4") & rule == "maxinfo") |
+         (design == "fixed_1to6" & rule == "fixed")) |>
+  mutate(cell = paste(design, rule_labels[rule], sep = ", ")) |>
+  select(label, cell, rel_realized) |>
+  pivot_wider(names_from = label, values_from = rel_realized) |>
+  mutate(across(where(is.double), \(x) n2(x))) |>
+  knitr::kable(caption = "Reliability by group for the main designs")
+```
+
+```{r cat-blocks}
+res_cat$block_balance |>
+  filter(design %in% c("cur3", "canvas4", "best4")) |>
+  transmute(design, block, stories, types, `expected info, best story` = n2(exp_info_best),
+            `expected info, mean story` = n2(exp_info_mean), `median seconds` = median_secs_range) |>
+  knitr::kable(caption = "Information and time per block (expected information averaged over the groups)")
+```
+
+Today's blocks are unbalanced. The moral-reasoning + second-order block carries about twice the information of the reality-known + interpretation block. The canvas design's reality-known block (stories 1, 7 and 13: two questions each, about 40 seconds) carries the least.
+
+## Choosing stories: information, not discrimination
+
+```{r cat-disc}
+res_cat$disc_vs_info_cor |>
+  transmute(theta, `rank r, summed discrimination vs information` = n2(spearman_sum_a2),
+            `best story` = best_story_info, `highest-discrimination story` = best_story_sum_a2,
+            `its share of the best story's information` = pct(info_ratio_top_a2_to_best)) |>
+  knitr::kable(caption = "Does a story's discrimination predict its information at a given ability?")
+```
+
+Choosing the story with the highest summed discrimination gives `r n2(cg("cur3", "disc_a2"))` against `r n2(cg("cur3", "maxinfo"))` for information-based selection in today's blocks (mean over groups). It does as well as information-based selection for the higher-scoring groups (Leipzig, Sheffield, Western), but for the lowest-scoring samples it is no better than random: `r dq <- res_cat$q1 |> filter(design == "cur3", rule %in% c("random", "disc_a2"), label %in% c("MPIB-intl", "UTDT-intl", "Bogota")) |> select(label, rule, rel_realized) |> pivot_wider(names_from = rule, values_from = rel_realized); paste0(dq$label, " ", n2(dq$disc_a2), " vs ", n2(dq$random), " random", collapse = "; ")`. Discrimination tracks information only near the middle of the scale. Where most young Spanish-speaking children sit, the high-discrimination stories are pitched too hard: story 14 has the highest summed discrimination, while story 18 carries most of the information below θ = −2. What to maximize is each story's Fisher information at the child's current EAP, summed over its questions. Dividing by expected minutes (information per minute) gives about the same reliability in slightly less time.
+
+## Starting value and prior
+
+```{r cat-start}
+res_cat$q3 |>
+  filter(rule == "maxinfo", design %in% c("cur3", "best4")) |>
+  group_by(design, start) |> summarise(rel = mean(rel_realized), .groups = "drop") |>
+  mutate(start = recode(start, zero = "θ = 0, group prior", group_mean = "group mean",
+                        age = "age-predicted", zero_refprior = "θ = 0 under the N(0, 1) reference prior",
+                        pooled_prior = "pooled 8-group prior"),
+         rel = n2(rel)) |>
+  pivot_wider(names_from = design, values_from = rel) |>
+  knitr::kable(caption = "Mean reliability by starting value and the prior used while testing (max information)")
+```
+
+Start each child at the group mean, or at an age-predicted value, which gives more variety in the first story. Run the online estimate under the group's prior. Running the whole test under the German N(0, 1) reference prior is the one choice that hurts badly, and it hurts most in the lowest-scoring groups. For a site without its own calibration, the pooled prior is a reasonable fallback, followed by rescoring once the site's own distribution is known.
+
+## Retest: repeated stories
+
+```{r cat-retest}
+q4r |>
+  filter(gap_years == 1, design %in% c("cur3", "canvas4", "best4", "free4")) |>
+  left_join(q4cost |> filter(gap_years == 1), by = c("design", "rule", "gap_years")) |>
+  transmute(design, rule = rule_labels[rule], `stories repeated at 12 months` = pct(repeated),
+            `reliability cost of forbidding repeats` = n2(abs(round(cost, 3)), 3)) |>
+  knitr::kable(caption = "Second wave 12 months later, with growth from the data (latent slopes)")
+res_cat$q4_waves_bound |> rename(`waves without any repeat` = bound) |>
+  knitr::kable(caption = "How many waves each grouping allows before a story must repeat")
+```
+
+Pure information-based selection gives most children the same stories at every wave, because growth of a few tenths of a logit a year barely changes the best story. Choosing at random among the top two about halves the repeats, at little cost. Forbidding repeats costs reliability at every wave. Across six history-aware waves, reliability in the current three blocks falls below random selection by wave 4, because the informative stories are used up. Whether re-seeing a story causes a practice effect is not in these data; only a retest study can answer that.
+
+## Calibration error and rescoring after the fact
+
+```{r cat-calib}
+q5m |>
+  transmute(`calibration SEs` = if_else(se_inflation == 1, "current", "doubled"),
+            rule = rule_labels[rule],
+            `overstated reliability (capitalization)` = n2(capitalization, 3),
+            `lost to worse story choices` = n2(selection_loss, 3),
+            `recovered by rescoring with true parameters` = n2(rescoring_gain, 3)) |>
+  knitr::kable(caption = "Selecting with perturbed parameters, scoring with the true ones (mean over groups and designs)")
+```
+
+At today's calibration precision, runtime parameter error barely matters. Rescoring after the fact recovers the scoring error, but it cannot change which stories were given; with doubled SEs (a new language on a small calibration sample), that loss is about .01. Recalibrating before deployment on the corrected data is still worthwhile. Rescoring every administration offline, as the score of record, is what makes the runtime parameters low-stakes.
+
+## Cross-language non-invariance
+
+```{r cat-dif}
+res_cat$q6 |>
+  filter(rule == "maxinfo", design %in% c("cur3", "best4")) |>
+  group_by(label, language, variant, design) |>
+  summarise(across(c(bias_pooled, bias_rescored, realized_pooled, realized_rescored, realized_oracle), mean),
+            .groups = "drop") |>
+  mutate(across(where(is.double), \(x) n2(x))) |>
+  knitr::kable(caption = paste("Responses generated with group-specific difficulties, stories selected with pooled",
+                               "parameters; bias (logits) and realized reliability, scored with pooled vs",
+                               "group-specific parameters. Variants bracket the two items at the guessing floor."))
+```
+
+The pooled parameters for stories 13–18 are dominated by Argentine data, so under non-invariance it is the German children who are scored off-model on those stories, not the Argentine ones. Rescoring with group-specific parameters removes the bias. This also flags a caveat for this chapter's German scores on stories 13–18.
+
+## Local dependence
+
+Generating responses with story testlet effects, but selecting and scoring with the unidimensional model, overstates reliability by `r n2(min(res_cat$q7 |> filter(rule == "maxinfo", scenario != "independent") |> group_by(scenario) |> summarise(o = mean(predicted - realized)) |> pull(o)), 3)`–`r n2(max(res_cat$q7 |> filter(rule == "maxinfo", scenario != "independent") |> group_by(scenario) |> summarise(o = mean(predicted - realized)) |> pull(o)), 3)`. The ranking of designs is unchanged (rank r ≥ `r n2(min(res_cat$q7_rank$spearman_pred_real))`). A testlet model is not needed for selection. Discount reliability claims slightly.
+
+## Recommendation
+
+1. **Select stories adaptively within blocks,** by Fisher information at the current EAP (or information per minute), not by discrimination.
+2. **Give 4 stories:** today's three blocks plus one free story, at most one per story type. That is about `r n2(cg("cur3p1", "maxinfo", "med_min"), 1)` minutes median and about `r n2(cg("cur3p1", "maxinfo", "q90_min") + val_time$obs_q90_min - median(val$sim_q90_min), 1)` at the 90th percentile (adding the simulation's known shortfall). It ties the best 4-block grouping, is the smallest change from today, and allows the most waves before stories must repeat. It is also better than the canvas grouping.
+3. **Start at the group mean or an age-predicted value, and run the online estimate under the group's prior.** For new sites, use the pooled prior and rescore afterwards. Never test under N(0, 1).
+4. **Use top-2 randomesque selection,** at least until recalibration. It spreads exposure and calibration data across stories and halves repeats at retest. Allow repeats rather than forbidding them until a retest study measures practice effects.
+5. **Before deploying:**
+   - recalibrate on the corrected data (after levantemodels PR #27);
+   - fix or remove the dead items;
+   - rescore every administration offline as the score of record, group by group, with group-specific parameters for items known to be non-invariant.
+6. **Engineering:**
+   - core-tasks needs story-level selection;
+   - the runtime ability update must use each item's discrimination (today it is fixed at 1);
+   - estimation must be EAP with a prior;
+   - θ, SE and the chosen story should be logged per trial.
+
+   The item bank is thin above θ = 0 on the German scale, so better precision for older or higher-scoring children needs harder stories as well as a better selection rule.
+
 # June conclusions → now
 
 Each June conclusion is re-tested on the corrected data and labelled by
@@ -2567,8 +2778,8 @@ k$fb_flag_list <- paste(uid_label(fb_flag), collapse = ", ")
    model here uses `r big(pick(res_rel$itemtype_bic, runs, model == "analysis", itemtype == "2PL"))`
    runs in 8 groups. The 2PL is preferred, and local dependence is modest,
    so a testlet model is optional. If it is skipped, discount story
-   information by about `r k$info_over` in reliability claims and in CAT
-   selection.
+   information by about `r k$info_over` in reliability claims. The block-CAT
+   simulation shows it does not change which stories are selected.
 9. Treat cross-language comparisons of Stories scores as partial-scalar at
    best, and remember that the language groups also differ in age, prior
    exposure and site. Report group differences only with that caveat and
@@ -2580,11 +2791,13 @@ k$fb_flag_list <- paste(uid_label(fb_flag), collapse = ", ")
     `r k$rel_fcat` in a median of `r k$fcat_min` minutes. In the same
     children, three random stories instead of a six-story form cost
     `r rng(cs$rel_full - cs$rel_random)` in reliability for half the time.
-    The 3-vs-4 decision is mostly a trade of minutes for precision.
+    The 3-vs-4 decision is mostly a trade of minutes for precision; the
+    simulation in [Designing the block CAT](#designing-the-block-cat) recommends
+    4 stories (today's blocks plus one free story) with adaptive selection.
 11. Adaptive selection within blocks helps: choosing the more informative of
     the form's two stories per block raises the reliability of a 3-story
     form by a median of `r n2(median(cs$rel_adaptive - cs$rel_random))`
-    (up to `r n2(max(cs$rel_adaptive - cs$rel_random))`) in the same time. With six stories per block it could do more, but the bank is thin
+    (up to `r n2(max(cs$rel_adaptive - cs$rel_random))`) in the same time. With six stories per block it does more (simulation: `r n2(cg("cur3", "random"))` → `r n2(cg("cur3", "maxinfo"))`), but the bank is thin
     above θ = 0 on the DE scale, so real gains also need harder stories and
     items, calibrated in several languages. The fCAT's fixed block order
     confounds block with position; randomize it if blocks are to be
