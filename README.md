@@ -1,4 +1,4 @@
-# levante-longitudinal
+# levante-analysis
 
 Exploratory longitudinal analyses of LEVANTE core-task data, built as a
 sequence of reproducible Quarto notebooks. Data come from the **per-site
@@ -9,7 +9,7 @@ per-site datasets directly. Shared conventions, palettes, loaders, and
 cleaning helpers live in `common.R`; every notebook starts with
 `source(here::here("common.R"))`.
 
-See [`levante-meta/LEVANTE.md`](https://github.com/levante-framework/levante-data-meta/blob/main/LEVANTE.md) for cross-project LEVANTE context.
+See [`levante-data-meta/LEVANTE.md`](https://github.com/levante-framework/levante-data-meta/blob/main/LEVANTE.md) for cross-project LEVANTE context.
 
 ## Quarto book
 
