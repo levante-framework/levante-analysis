@@ -1,5 +1,17 @@
 ---
 title: "Stories (ToM) — multigroup anchored DIF (DE vs CO)"
+levante:
+  summary: "Anchored multigroup IRT DIF for ToM between Leipzig (de-DE) and Bogotá (es-CO) on the 27 shared items."
+  status: draft
+  task_ids: [theory-of-mind]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota]
+  data:
+    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+  depends_on: [tasks/build_tom_metadata.R]
+  findings:
+    - "Target items (false belief, emotion) have small DIF (mean |DIF| ≈ 0.5 logits) and supply an invariant anchor set."
+    - "Reality-check controls carry most of the non-invariance (mean |DIF| ≈ 1.9 logits); tasks/tom_reality_check_bug.qmd later traced most of it to data defects."
+  last_run: 2026-07-16
 format:
   html:
     toc: true

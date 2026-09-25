@@ -1,5 +1,21 @@
 ---
 title: "07 — RT intra-individual variability: purification and cross-task structure"
+levante:
+  summary: "Once RT intra-individual variability is purified (detrending, trial-count awareness), does it cohere across tasks, differ by site and age, and remain stable longitudinally?"
+  status: draft
+  task_ids: [egma-math, matrix-reasoning, mental-rotation, trog, vocab, same-different-selection, hearts-and-flowers, theory-of-mind, swr, sre, pa]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota, pilot_uniandes_co_rural, pilot_western_ca_main]
+  data:
+    - {source: "load_levante_scores", version: "2026-08-24", table: "scores"}
+    - {source: "load_levante_trials", version: "2026-08-24", table: "trials"}
+    - {source: "load_item_parameters", version: "v1_14", table: "item_parameters"}
+  depends_on: [00_load_data.qmd, 06_within_child_variability.qmd]
+  findings:
+    - "Detrending by trial order and item difficulty roughly triples cross-task coherence (≈ 0.05 → ≈ 0.13 all tasks, ≈ 0.20 reliable subset)."
+    - "RT-IIV reliability tracks trial count (≈ 0.5 at ≤ 25 trials to ≈ 0.94 at 120)."
+    - "RT-IIV declines with age and is higher in Bogotá than Leipzig (urban +0.29, rural +0.38 SD, age-adjusted); not directly comparable across sites."
+    - "Test–retest ≈ 0.24 pooled, but the speeded factor score (swr/sre/hf) reaches ≈ 0.63 (n = 224)."
+  last_run: 2026-08-24
 format:
   html:
     toc: true

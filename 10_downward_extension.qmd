@@ -1,5 +1,21 @@
 ---
 title: "10 — Downward extension (Boston Children's, ages 2–5): hand scores, official scores, and task selection"
+levante:
+  summary: "First look at downward-extension data (Boston Children's, ages 2–5): hand-score tasks from trial-level correctness, describe accuracy/time/trials by age, compare to official θ, and decide which tasks work for 2-year-olds."
+  status: draft
+  task_ids: [hearts-and-flowers, memory-game, same-different-selection, matrix-reasoning, mental-rotation, egma-math, vocab, trog, pa]
+  datasets: [pilot_bostonchildrens_us_main]
+  data:
+    - {source: "pilot_bostonchildrens_us_main_raw:7e6c", version: "v5_0", table: "trials"}
+    - {source: "pilot_bostonchildrens_us_main_raw:7e6c", version: "v5_0", table: "runs"}
+    - {source: "pilot_bostonchildrens_us_main:2fj2", version: "next (pulled 2026-08-31)", table: "scores"}
+    - {source: "load_item_parameters", version: "v1_14", table: "item_parameters"}
+  findings:
+    - "Sample: 44 children, 378 runs; no validated scoring models exist for this age band."
+    - "For 2-year-olds: keep Vocabulary and Sentence Understanding (clear lift-off, +1.4 logits/yr); drop Math and Memory (flat or floor)."
+    - "Hearts & Flowers is borderline below ~3; Same & Different looks promising from ~2.5."
+    - "Pattern Matching shows behavioral lift-off but is ~unscorable (4 of 50 runs) because the downward-extension items are not in the calibrated bank."
+  last_run: 2026-08-31
 format:
   html:
     toc: true

@@ -1,5 +1,20 @@
 ---
 title: "Hearts & Flowers — item structure (start/stay/switch) and 2PL vs Rasch"
+levante:
+  summary: "Is the start/stay/switch item structure real, does a 2PL fit better than Rasch, and does the structure replicate across sites?"
+  status: draft
+  task_ids: [hearts-and-flowers]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota]
+  data:
+    - {source: "load_item_parameters", version: "v1_14", table: "item_parameters"}
+    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
+  depends_on: [00_load_data.qmd]
+  findings:
+    - "Start/stay/switch is psychometrically real: switch trials are hardest, start trials discriminate least."
+    - "2PL fits better than Rasch (LR + AIC)."
+    - "Item structure replicates across sites (r ≈ 0.94); H&F is usable on corrected data."
+  last_run: 2026-07-16
 format:
   html:
     toc: true

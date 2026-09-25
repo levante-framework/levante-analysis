@@ -1,5 +1,18 @@
 ---
 title: "Shape Rotation (Mental Rotation) — the angle effect and item validity"
+levante:
+  summary: "Do Shape Rotation item difficulties show the canonical mental-rotation angle effect, and does the structure replicate across sites?"
+  status: draft
+  task_ids: [mental-rotation]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota]
+  data:
+    - {source: "load_item_parameters", version: "v1_14", table: "item_parameters"}
+    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+  findings:
+    - "Near-linear angle effect (r ≈ 0.99 for 2-D); 3-D figures harder."
+    - "Difficulty replicates across sites (r ≈ 0.96)."
+    - "A few low-n polygon stimuli are uncalibrated and should be excluded from scoring."
+  last_run: 2026-07-16
 format:
   html:
     toc: true

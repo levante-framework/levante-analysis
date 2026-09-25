@@ -1,5 +1,19 @@
 ---
 title: "Memory (Corsi) — can we shorten the task?"
+levante:
+  summary: "Can the Memory (Corsi) staircase be shortened without losing precision or test–retest reliability?"
+  status: draft
+  task_ids: [memory-game]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota]
+  data:
+    - {source: "levante_data_latest:e9pf", version: "v1_2", table: "scores"}
+    - {source: "levante_data_latest:e9pf", version: "v1_2", table: "trials"}
+  depends_on: [tasks/_prep_memory_length.R, tasks/_prep_memory_length2.R]
+  findings:
+    - "Task duration is a tax on ability (r ≈ .5–.8 with θ)."
+    - "Do not cut the 3-error budget: it drops DE retest .58 → .48 and Bogotá stability .46 → .32."
+    - "Recommendation (S4): promote after 2 consecutive correct and start both blocks at length 3: −22% median time, −25% at q90, no detectable reliability cost."
+  last_run: 2026-08-20
 format:
   html:
     toc: true

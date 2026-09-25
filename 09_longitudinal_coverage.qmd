@@ -1,5 +1,15 @@
 ---
 title: "09 — LEVANTE network: enrollment ages & longitudinal coverage"
+levante:
+  summary: "Planning view of the whole LEVANTE network (not analyzed data): enrollment ages and projected longitudinal age coverage for all 23 funded grants, transcribed from the Q1 2026 Advisory Committee deck."
+  status: draft
+  task_ids: []
+  datasets: []
+  data: []
+  findings:
+    - "Projected coverage is densest at ages 6–11 (peak ~9) and thin at 2–5 and 13+."
+    - "Upper tails are upper bounds: accelerated-longitudinal sites are projected per year-cohort, which overstates their upper extent."
+  last_run: 2026-07-13
 format:
   html:
     toc: true

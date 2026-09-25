@@ -1,5 +1,20 @@
 ---
 title: "Sentence Understanding (TROG) — grammatical categories & cross-site DIF"
+levante:
+  summary: "Are TROG grammatical-category difficulty effects consistent across German, Spanish, and English, and do any items carry DIF?"
+  status: draft
+  task_ids: [trog]
+  datasets: all
+  data:
+    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+    - {source: "load_item_parameters", version: "v1_14", table: "item_parameters"}
+  depends_on: [00_load_data.qmd]
+  findings:
+    - "Category difficulty is consistent across languages (r ≈ 0.88–0.93)."
+    - "Item-level DIF is mostly modest (r ≈ 0.82–0.88)."
+    - "One broken item: trog_embedding_cat_cow_chase_black (~6.5-logit DIF in German)."
+  last_run: 2026-07-16
 format:
   html:
     toc: true

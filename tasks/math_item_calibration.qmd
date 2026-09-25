@@ -1,5 +1,20 @@
 ---
 title: "Math — item calibration & re-scoring diagnostics"
+levante:
+  summary: "Why does the Math CAT route high-ability children onto number-line items, and why did that depress their IRT scores?"
+  status: superseded
+  superseded_by: tasks/math_eap_vs_ml.qmd
+  task_ids: [egma-math]
+  datasets: [pilot_uniandes_co_bogota]
+  data:
+    - {source: "load_levante_scores", version: "v1_0", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_0", table: "trials"}
+    - {source: "load_item_parameters", version: "v1_14", table: "item_parameters"}
+  depends_on: [00_load_data.qmd, tasks/math.qmd]
+  findings:
+    - "Attributes the T2 score depression to mode-dependent EAP shrinkage; tasks/math_eap_vs_ml.qmd later traced it mainly to the v1.0 column-order scoring bug."
+    - "Still valid: CAT routing is mechanical; nearly all items above β = 1 are number-line, so high-ability children get mostly number-line items."
+  last_run: unknown
 format:
   html:
     toc: true

@@ -1,5 +1,20 @@
 ---
 title: "Same & Different — scoring: IRTrees, chance floors, and a recommendation"
+levante:
+  summary: "How should Same & Different be scored? Compares IRTree and dichotomous models, guessing floors, and a recode bug, on reliability and validity."
+  status: draft
+  task_ids: [same-different-selection]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota, pilot_uniandes_co_rural, pilot_western_ca_main]
+  data:
+    - {source: "../levante-pilots/01_fetched_data/task_data_nested.rds", table: "trials"}
+    - {source: "../levante-pilots/01_fetched_data/run_data.rds", table: "runs"}
+  depends_on: [tasks/_sds_scoring_fits.R]
+  findings:
+    - "levantemodels::recode_sds() has a repeat-detection bug (compares raw response strings); fix by comparing sorted pairs. This matters more than any modeling choice."
+    - "Score with status-aware dichotomous match items plus gate items, no floors on match items, multigroup-scalar Rasch."
+    - "Corpus chance metadata for SDS match items matches no guessing model; correct it or document the no-floor choice."
+    - "The IRTree is measurement-equivalent (r = .99); keep it for diagnostics."
+  last_run: 2026-07-22
 format:
   html:
     toc: true

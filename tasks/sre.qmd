@@ -1,5 +1,23 @@
 ---
 title: "ROAR-Sentence (SRE) — scoring deepdive"
+levante:
+  summary: "ROAR-Sentence scoring deep dive: timing forensics, rate-normalized scoring, and efficiency models (EZ, zero-fill IRT, hierarchical SA, diffusion IRT)."
+  status: draft
+  task_ids: [sre]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota, pilot_uniandes_co_rural, pilot_western_ca_main]
+  data:
+    - {source: "../levante-pilots/01_fetched_data/task_data_nested.rds", table: "trials"}
+    - {source: "../levante-pilots/01_fetched_data/run_data.rds", table: "runs"}
+    - {source: "../levante-pilots/01_fetched_data/participants.rds", table: "participants"}
+    - {source: "../levante-pilots/02_scoring_outputs/scores/registry_scores.rds", table: "scores"}
+    - {source: "levante_data_latest:e9pf", version: "v1_2", table: "scores"}
+  depends_on: [tasks/_fit_sre_zerofill_irt.R, tasks/_fit_sre_hierarchical_sa.R, tasks/_fit_sre_ddm.R]
+  findings:
+    - "score_sre() truncates at the first 180 trials, not 180 seconds; the filter only bites in Canada, where 20 runs contain two ~180-s blocks."
+    - "Rate normalization barely changes scores in DE and Colombia (r ≈ .99) but does in Canada (r = .82)."
+    - "The corrected rate score beats every model-based efficiency alternative on most criteria."
+    - "Germany retest and diffusion-IRT columns render as NA without local caches."
+  last_run: 2026-07-22
 format:
   html:
     toc: true

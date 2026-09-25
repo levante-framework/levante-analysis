@@ -1,5 +1,19 @@
 ---
 title: "02 — Longitudinal traces and simple growth models"
+levante:
+  summary: "Do children show consistent within-child growth in IRT ability across waves, and do within-child growth rates match the cross-sectional age gradient?"
+  status: draft
+  task_ids: [hearts-and-flowers, memory-game, same-different-selection, matrix-reasoning, mental-rotation, egma-math, vocab, trog, theory-of-mind, swr, sre, pa]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota, pilot_uniandes_co_rural, pilot_western_ca_main]
+  data:
+    - {source: "load_levante_scores", version: "2026-08-31", table: "scores"}
+  depends_on: [00_load_data.qmd, 01_data_integrity.qmd]
+  findings:
+    - "On corrected data all within-child slopes are positive (Math ≈ 0.6 θ/yr; vocab, EF, reasoning ≈ 0.1–0.4); earlier 'declines' were the v1.0 scoring bug."
+    - "Rural Colombia's within-child growth matches its cross-sectional gradient almost exactly (Math 0.45 vs 0.45 θ/yr; ROAR-Word 0.47 vs 0.49)."
+    - "Western Canada has too few repeat children (~10–21 per task) for the mixed models."
+    - "Leipzig's third wave provides the first ≥3-timepoint children; per-child growth curves become identifiable once it completes."
+  last_run: 2026-08-31
 format:
   html:
     toc: true

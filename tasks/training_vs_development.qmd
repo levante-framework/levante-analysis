@@ -1,5 +1,19 @@
 ---
 title: "Pattern Matching & Sentence Understanding — training vs development?"
+levante:
+  summary: "Is the release-notes 'T2 > T1' gain on Pattern Matching and Sentence Understanding a practice effect or development?"
+  status: draft
+  task_ids: [matrix-reasoning, trog]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota]
+  data:
+    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+  depends_on: [00_load_data.qmd]
+  findings:
+    - "On corrected data the T2 > T1 effect largely does not replicate; it was mostly the scoring bug."
+    - "The one clean cell (Leipzig Pattern Matching, mode-stable, equal length) shows no practice gain."
+    - "Not fully resolvable with current data; a fixed-form, fixed-length retest would isolate practice."
+  last_run: 2026-07-16
 format:
   html:
     toc: true

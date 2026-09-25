@@ -1,5 +1,18 @@
 ---
 title: "00 — Load data (per-site processed datasets, 2026-08-31 draft snapshot)"
+levante:
+  summary: "Entry point: pull and cache scores from the per-site processed datasets, apply cleaning, and inventory what data exist by site, task, age, and wave."
+  status: draft
+  task_ids: [hearts-and-flowers, memory-game, same-different-selection, matrix-reasoning, mental-rotation, egma-math, vocab, trog, theory-of-mind, swr, sre, pa]
+  datasets: all
+  data:
+    - {source: "load_levante_scores", version: "2026-08-31", table: "scores"}
+    - {source: "load_levante_trials", version: "2026-08-24", table: "trials"}
+  findings:
+    - "The unified levante_data_latest is still at v1_2 (June), so scores are bound from each per-site processed dataset's unreleased 'next' draft; the cached rds is the reproducibility anchor."
+    - "Relative to June this adds rural Colombia's second wave, the start of Leipzig's third wave (39 children, 167 three-wave child×task cells), and UTDT Argentina (788 children)."
+    - "Cleaning drops pipeline `exclusion` rows and ToM placeholder rows, backfills missing `adaptive` to FALSE, and applies the ROAR-Word engagement filter (accuracy < 0.4 or median RT < 500 ms)."
+  last_run: 2026-08-31
 format:
   html:
     toc: true

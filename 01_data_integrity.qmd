@@ -1,5 +1,20 @@
 ---
 title: "01 — Data integrity audit (Leipzig & Bogotá)"
+levante:
+  summary: "Audit data integrity on the two original longitudinal sites and produce a per-(site, task) verdict: usable as-is, with a filter, within one administration mode only, or drop."
+  status: draft
+  task_ids: [hearts-and-flowers, memory-game, same-different-selection, matrix-reasoning, mental-rotation, egma-math, vocab, trog, theory-of-mind, swr, sre, pa]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota]
+  data:
+    - {source: "load_levante_scores", version: "2026-08-24", table: "scores"}
+  depends_on: [00_load_data.qmd]
+  findings:
+    - "With the column-order scoring bug fixed, most tasks are OK; the large v1.0 mode-confound caveats were the bug, not the data."
+    - "Memory DROP lifted: use θ, never cross-grid sumscores."
+    - "Same & Different: corrected scoring landed in registry v2_3; zero T2 at Bogotá, so cross-sectional there."
+    - "ROAR-Word floor runs (θ = −6) are rushers or genuine near-chance non-readers; handled by the cleaning filter in 00."
+    - "Registry v2_3 re-scoring changed ToM most (r = 0.88 vs June); ToM conclusions should be re-validated."
+  last_run: 2026-08-24
 format:
   html:
     toc: true

@@ -1,5 +1,19 @@
 ---
 title: "Stories (ToM) — dimensionality & sub-construct structure"
+levante:
+  summary: "Does ToM have an interpretable sub-construct structure (by story construct, question type, or story testlet), and would a sub-scale be a cleaner measure?"
+  status: draft
+  task_ids: [theory-of-mind]
+  datasets: [pilot_mpieva_de_main]
+  data:
+    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+  depends_on: [00_load_data.qmd, tasks/build_tom_metadata.R]
+  findings:
+    - "ToM is a reliable (0.92) but heterogeneous composite; inter-item correlations are ~0.13."
+    - "No tidy sub-construct structure; question type organizes covariance only slightly."
+    - "A false-belief-only sub-scale is less reliable and no more age-valid; keep the full composite."
+  last_run: 2026-07-16
 format:
   html:
     toc: true

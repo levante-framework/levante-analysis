@@ -1,5 +1,20 @@
 ---
 title: "04 — Construct structure: emergent dimensions, differentiation, and the role of g"
+levante:
+  summary: "With ROAR and MEFS added as first-class measures (13 total), what dimensions emerge, how do they differentiate with age, and is the g-loading a shared-speed artifact?"
+  status: draft
+  task_ids: [hearts-and-flowers, memory-game, same-different-selection, matrix-reasoning, mental-rotation, egma-math, vocab, trog, theory-of-mind, swr, sre, pa, mefs]
+  datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota, pilot_uniandes_co_rural, pilot_western_ca_main]
+  data:
+    - {source: "load_levante_scores", version: "2026-08-24", table: "scores"}
+    - {source: "load_levante_trials", version: "2026-08-24", table: "trials"}
+    - {source: "../levante-pilots/02_scoring_outputs/scores/scores_mefs.rds", table: "scores"}
+  depends_on: [00_load_data.qmd, 03_structure_invariance.qmd]
+  findings:
+    - "ESEM finds ~two correlated dimensions (fluid incl. MEFS; verbal/literacy incl. ROAR; r ≈ 0.67), not three; reasoning and EF stay fused (r ≈ 0.92)."
+    - "The fluid–verbal correlation falls from 0.96 to 0.87 between ages 7 and 11, replicating across sites (Δ 0.06–0.15)."
+    - "The g-loading is substantive: not a site-mean effect and not a response-speed artifact."
+  last_run: 2026-08-24
 format:
   html:
     toc: true
