@@ -24,7 +24,7 @@
 #
 # Run from a working directory OUTSIDE the repo (the book's renv has an mgcv
 # binary that breaks mirt), passing the book root:
-#   Rscript /path/to/levante-longitudinal/tasks/_stories_fits_items.R /path/to/levante-longitudinal
+#   Rscript /path/to/levante-analysis/tasks/_stories_fits_items.R /path/to/levante-analysis
 # (or set STORIES_BOOK_ROOT; default: the directory above this script's tasks/).
 # Takes a few minutes (mirt + glmer fits).
 

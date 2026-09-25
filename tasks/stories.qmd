@@ -2677,11 +2677,11 @@ tribble(
 ```bash
 cd /some/dir/outside/the/repo
 export LEVANTEMODELS_PATH=/path/to/levantemodels   # checkout of PR #27's branch
-Rscript /path/to/levante-longitudinal/tasks/_build_stories_data.R /path/to/levante-longitudinal
-Rscript /path/to/levante-longitudinal/tasks/_stories_fits_items.R /path/to/levante-longitudinal
-Rscript /path/to/levante-longitudinal/tasks/_stories_fits_dimensionality.R /path/to/levante-longitudinal
-STORIES_CORES=6 Rscript /path/to/levante-longitudinal/tasks/_stories_fits_invariance.R /path/to/levante-longitudinal
-Rscript /path/to/levante-longitudinal/tasks/_stories_fits_reliability.R /path/to/levante-longitudinal
+Rscript /path/to/levante-analysis/tasks/_build_stories_data.R /path/to/levante-analysis
+Rscript /path/to/levante-analysis/tasks/_stories_fits_items.R /path/to/levante-analysis
+Rscript /path/to/levante-analysis/tasks/_stories_fits_dimensionality.R /path/to/levante-analysis
+STORIES_CORES=6 Rscript /path/to/levante-analysis/tasks/_stories_fits_invariance.R /path/to/levante-analysis
+Rscript /path/to/levante-analysis/tasks/_stories_fits_reliability.R /path/to/levante-analysis
 ```
 
 The data build and the reliability script load levantemodels from the PR #27

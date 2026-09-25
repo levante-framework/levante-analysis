@@ -1,4 +1,6 @@
-# levante-longitudinal
+# levante-analysis
+
+(Formerly `levante-longitudinal`; the published book keeps its Quarto Pub URL.)
 
 Exploratory longitudinal analyses of LEVANTE core-task data, built as a
 sequence of reproducible Quarto notebooks. Data come from the **per-site
