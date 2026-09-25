@@ -52,6 +52,9 @@ quarto render && cd . && quarto publish quarto-pub --no-render
 Commit the resulting `_publish.yml` so re-publishes reuse the same URL. Keep the
 clearance note here current after each publish.
 
+**Last published:** 2026-09-25 (commit 98460f2), at Mike Frank's request — adds the
+consolidated Stories chapter (`tasks/stories.qmd`) and retires the June ToM chapters.
+
 ## Main notebook stack (run in order)
 
 | Notebook | What it does |
