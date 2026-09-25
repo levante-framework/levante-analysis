@@ -7,13 +7,13 @@ levante:
   task_ids: [egma-math]
   datasets: [pilot_uniandes_co_bogota]
   data:
-    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
-    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+    - {source: "load_levante_scores", version: "v1_0", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_0", table: "trials"}
   depends_on: [00_load_data.qmd]
   findings:
     - "Attributes the pattern to CAT routing onto number-line items; tasks/math_eap_vs_ml.qmd later traced the compression mainly to the v1.0 column-order scoring bug."
     - "Still valid: on items shared across waves, every T1 quartile is more accurate at T2."
-  last_run: 2026-07-16
+  last_run: unknown
 format:
   html:
     toc: true

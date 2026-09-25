@@ -22,10 +22,10 @@ reads this yet.
 | `superseded_by` | if `superseded` | path | Notebook that replaces it. |
 | `task_ids` | yes | list of long `task_id`s | Tasks analyzed, using the long forms in `common.R::task_lookup` (e.g. `memory-game`, not `mg`). List every task explicitly — no shorthands — so a query for one task matches. Empty list for notebooks not about specific tasks (e.g. `09`). |
 | `datasets` | yes | `all`, or list of `dataset` values | Datasets analyzed, as in the `dataset` column (e.g. `pilot_uniandes_co_bogota`). Uses `dataset` rather than `site` because notebooks filter at that level (`site` merges Bogotá and rural Colombia). `all` = every dataset in the loaded data, unfiltered. Empty list for notebooks that analyze no LEVANTE data. |
-| `data` | yes | list of sources (below) | Every data input. Empty list for notebooks that analyze no LEVANTE data. |
+| `data` | yes | list of sources (below) | Every data input, at the version the recorded `findings` were computed on. This can differ from what the code loads today (e.g. findings rendered on v1_0 before the loaders moved to v1_2); re-rendering should update both. Empty list for notebooks that analyze no LEVANTE data. |
 | `depends_on` | no | list of paths | Notebooks or scripts whose cached outputs this one reads (e.g. `00_load_data.qmd` for `data/scores_all_sites.rds`; `tasks/_sds_scoring_fits.R` for `data/sds_scoring/`). |
 | `findings` | no | list of strings | Headline conclusions, one claim each, as currently rendered. Must be updated when the notebook is re-run on new data. |
-| `last_run` | yes | date (`YYYY-MM-DD`) | When the rendered results and `findings` were last produced. Findings are only as current as this date. (Initial values were back-filled from each notebook's last commit date, since render dates weren't recorded.) |
+| `last_run` | yes | date (`YYYY-MM-DD`), or `unknown` | When the rendered results and `findings` were last produced. Findings are only as current as this date. Use `unknown` when it can't be established; the `data` versions then carry the provenance. (Initial values were back-filled from each notebook's last commit date, since render dates weren't recorded; notebooks whose text shows the findings predate the repo's first commit are `unknown`.) |
 
 Each `data` entry:
 

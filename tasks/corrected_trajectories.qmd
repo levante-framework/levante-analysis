@@ -6,12 +6,12 @@ levante:
   task_ids: [egma-math, vocab]
   datasets: [pilot_mpieva_de_main, pilot_uniandes_co_bogota]
   data:
-    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
-    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+    - {source: "load_levante_scores", version: "v1_0", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_0", table: "trials"}
   depends_on: [00_load_data.qmd, tasks/math_eap_vs_ml.qmd, tasks/vocab.qmd]
   findings:
     - "Figures only; written to figures/trajectories_before_after.png and figures/t1_t2_scatter_before_after.png."
-  last_run: 2026-07-22
+  last_run: unknown
 format:
   html:
     toc: true

@@ -6,15 +6,15 @@ levante:
   task_ids: [egma-math]
   datasets: [pilot_uniandes_co_bogota]
   data:
-    - {source: "load_levante_scores", version: "v1_2", table: "scores"}
-    - {source: "load_levante_trials", version: "v1_2", table: "trials"}
+    - {source: "load_levante_scores", version: "v1_0", table: "scores"}
+    - {source: "load_levante_trials", version: "v1_0", table: "trials"}
     - {source: "load_item_parameters", version: "v1_14", table: "item_parameters"}
   depends_on: [00_load_data.qmd]
   findings:
     - "score_irt passed response columns to mirt::fscores() out of model order; fscores matches by position, so θs were wrong."
     - "Fixing column order moves the Bogotá Math Galton slope from 0.19 to 0.81: the apparent compression largely disappears."
     - "EAP vs ML matters little once the bug is fixed (slopes 0.81 vs 0.72)."
-  last_run: 2026-07-22
+  last_run: unknown
 format:
   html:
     toc: true
