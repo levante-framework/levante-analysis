@@ -52,9 +52,10 @@ quarto render && cd . && quarto publish quarto-pub --no-render
 Commit the resulting `_publish.yml` so re-publishes reuse the same URL. Keep the
 clearance note here current after each publish.
 
-**Last published:** 2026-09-28 (commit b5309c1), at Mike Frank's request — adds the
-Stories chapter's monotonicity screen, reference-question section and the consolidated
-table of recommended item actions (`tasks/stories_item_actions.csv`). Earlier: 2026-09-25 (98460f2), the consolidated Stories chapter.
+**Last published:** 2026-09-28 (commit 1bf6af0), at Mike Frank's request — adds the TROG
+skin-tone chapter (`tasks/trog_skin_tone.qmd`: stimulus skin measurement + DIF by sample).
+Earlier: 2026-09-28 (b5309c1), the Stories item-actions table; 2026-09-25 (98460f2), the
+consolidated Stories chapter.
 
 Quarto Pub rejects any single file over about 1 MiB (`API Error: 413 - Payload Too
 Large` during upload). `tasks/stories.qmd` crossed that on 2026-09-28, so it now renders
