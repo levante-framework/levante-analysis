@@ -52,8 +52,14 @@ quarto render && cd . && quarto publish quarto-pub --no-render
 Commit the resulting `_publish.yml` so re-publishes reuse the same URL. Keep the
 clearance note here current after each publish.
 
-**Last published:** 2026-09-25 (commit 98460f2), at Mike Frank's request — adds the
-consolidated Stories chapter (`tasks/stories.qmd`) and retires the June ToM chapters.
+**Last published:** 2026-09-28 (commit f08e548 + the highlighting change below), at Mike
+Frank's request — adds the Stories chapter's monotonicity screen and reference-question
+section. Earlier: 2026-09-25 (98460f2), the consolidated Stories chapter.
+
+Quarto Pub rejects any single file over about 1 MiB (`API Error: 413 - Payload Too
+Large` during upload). `tasks/stories.qmd` crossed that on 2026-09-28, so it now renders
+with `highlight-style: none` (folded code without syntax spans; 1.09 MB → 0.82 MB).
+Check `find _book -type f -size +1000k` before publishing.
 
 ## Main notebook stack (run in order)
 

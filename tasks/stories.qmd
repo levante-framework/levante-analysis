@@ -5,6 +5,7 @@ format:
     toc: true
     toc-depth: 3
     code-fold: true
+    highlight-style: none
     fig-width: 9
     fig-height: 5
 execute:
