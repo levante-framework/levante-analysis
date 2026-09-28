@@ -44,6 +44,7 @@ book:
         - tasks/math_eap_vs_ml.qmd
         - tasks/shape_rotation.qmd
         - tasks/sentence_understanding.qmd
+        - tasks/trog_skin_tone.qmd
         - tasks/vocab.qmd
         - tasks/stories.qmd
         - tasks/tom_reality_check_bug.qmd
