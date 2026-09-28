@@ -19,6 +19,7 @@ source(here::here("common.R"))
 
 dir26 <- here("data/stories_2026-09")
 res_items <- read_rds(file.path(dir26, "results_items.rds"))
+res_mono  <- read_rds(file.path(dir26, "results_monotonicity.rds"))
 res_dim   <- read_rds(file.path(dir26, "results_dimensionality.rds"))
 res_inv   <- read_rds(file.path(dir26, "results_invariance.rds"))
 res_rel   <- read_rds(file.path(dir26, "results_reliability.rds"))
@@ -302,6 +303,16 @@ sum_rasch <- \(a, col) pick(res_inv$tests, {{ col }}, analysis == a, comparison 
   reality_known false belief keeps an analysis flag in Spanish, and any
   Airtable row for it should wait for the translation check. The scoped
   rows cannot be written in today's Airtable schema.
+- **Do higher scorers do better?** Checked directly (top against bottom
+  third on the other items), `r sum(res_mono$mono_all$mono == "higher scorers do better")`
+  of `r nrow(res_mono$mono_all)` items pass, and the screen finds the
+  policy-flagged items on its own. Outside the flags, two fail with enough
+  data: story 17's emotion question ("How does Mom feel about not finding
+  the book?"), where higher-scoring German children answer *surprised*, and
+  story 2's reality check 2 on the V0 Bogotá scene. The three reference
+  questions are reversed or flat: children answer with what the speaker
+  meant, more so the higher they score, and none is worth keeping as
+  written.
 - **What organizes the items.** Question type organizes item difficulty
   (R² `r n2(k$r2_qt, 3)`, against `r n2(k$r2_og, 3)` and `r n2(k$r2_nc, 3)`
   for the two story-construct schemes). Above the guessing floor,
@@ -658,6 +669,142 @@ res_items$items_cell |>
 ```
 :::
 
+## Do higher scorers do better?
+
+The item screen asks whether an item correlates with the rest of the test.
+A more direct check of what an item should do is whether children who do
+better on their other items also do better on this one. For each item, the
+responses in each dataset × form cell with at least
+`r res_mono$meta$thresholds$MIN_N_CELL` of them are split into thirds by the
+rest score used above (proportion correct on the run's other non-policy
+items; ties broken at random). The accuracy difference between the top and
+the bottom third (the *gain*) is pooled over cells with Mantel–Haenszel
+weights and the Sato variance, so each site and form is compared only with
+itself. An item is *reversed* if the 95% CI of its gain lies below 0,
+*flat* if the CI includes 0 but rules out a gain of
+`r n2(res_mono$meta$thresholds$GAIN_MIN)` or more, *inconclusive* if it
+includes both, at *ceiling* if accuracy is at least
+`r n2(res_mono$meta$thresholds$ACC_CEILING)`, and otherwise *higher scorers
+do better*. Items and item × language cells are classified from
+`r res_mono$meta$thresholds$MIN_N_FLAG` responses.[^monorules] The screen is
+`tasks/_stories_fits_monotonicity.R`.
+
+[^monorules]: The classes were revised once after the first run, which had a
+single "no credible gain" class for every CI that included 0. That class
+mixed items that are flat with precision (story 17's emotion reasoning 1,
+n = `r big(pick(res_mono$mono_all, n, story_uid == "tom_story17_reference_emotion_reasoning_1"))`)
+with small fCAT-only items whose CIs are wide, so it was split at a gain of
+`r n2(res_mono$meta$thresholds$GAIN_MIN)`. The screen by content version was
+also added after the first run, because story 2's reality check 2 was flat
+overall but reversed on one scene.
+
+```{r mono-numbers}
+mono_n <- \(cls) sum(res_mono$mono_all$mono == cls)
+mono_row <- \(uid, col, cont = "all") pick(res_mono$mono_all, {{ col }}, story_uid == uid, content == cont)
+mono_lang_row <- \(uid, lang, col) pick(res_mono$mono_lang, {{ col }}, story_uid == uid, content == "all",
+                                        language == lang)
+gain_ci <- \(d, lo, hi) paste0(n2(d), " [", n2(lo), ", ", n2(hi), "]")
+er17 <- "tom_story17_reference_emotion_reasoning_1"
+er17_share <- \(lg, th, emo) pick(res_mono$er17, share, lang == lg, third == th, emotion == emo)
+s2v <- \(prt, col) pick(res_mono$s2rc2, {{ col }}, part == prt)
+k$mono_policy_hit <- res_mono$mono_all |>
+  filter(policy, mono %in% c("reversed", "flat")) |> nrow()
+```
+
+```{r fig-mono, fig.height=13}
+res_mono$mono_all |>
+  mutate(label = paste0(uid_label(story_uid),
+                        case_when(str_detect(content, "4g") ~ " [4g]", str_detect(content, "2e") ~ " [2e]",
+                                  content == "other content" ~ " [other content]", TRUE ~ "")),
+         label = fct_reorder(label, diff),
+         question_type = factor(question_type, qtype_levels),
+         policy = if_else(policy, "policy-flagged", "not flagged")) |>
+  ggplot(aes(x = diff, y = label, colour = mono, shape = policy)) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_pointrange(aes(xmin = diff_lo, xmax = diff_hi), size = .3) +
+  facet_wrap(vars(question_type), scales = "free_y", ncol = 2) +
+  scale_colour_manual(values = c(reversed = "#c0392b", flat = "#e08e2b", inconclusive = "#9aa3ae",
+                                 ceiling = "#6b8fb5", `higher scorers do better` = "#2e6b4f"), name = NULL) +
+  scale_shape_manual(values = c(`policy-flagged` = 4, `not flagged` = 16), name = NULL) +
+  labs(x = "Accuracy in the top third minus the bottom third of the rest score (95% CI)", y = NULL,
+       title = "Do children who score higher on the other items do better on this one?",
+       subtitle = "Thirds within dataset × form, pooled (Mantel–Haenszel); [4g], [2e] = policy-flagged content") +
+  theme(legend.position = "bottom", legend.box = "vertical", axis.text.y = element_text(size = 7))
+```
+
+- Of the `r nrow(res_mono$mono_all)` item × content rows,
+  `r mono_n("higher scorers do better")` pass, `r mono_n("ceiling")` are at
+  ceiling, `r mono_n("inconclusive")` are inconclusive, `r mono_n("flat")`
+  are flat and `r mono_n("reversed")` are reversed.
+- **The screen finds the existing exclusions on its own.** The reversed
+  rows are the reference questions of stories 5 and 17 and story 4's
+  reality check 3 on image 4g. Story 11's reference question, story 4's
+  reality check 2 on 4g and story 2's reality check 1 on the V0 scene are
+  flat. All `r k$mono_policy_hit` are policy-flagged. Story 10's deception
+  false belief 1, also flagged, is inconclusive
+  (n = `r mono_row("tom_story10_deception_false_belief_1", n)`).
+- **Outside the policy flags, two items fail with enough data.**
+  - Story 17's emotion reasoning 1 ("How do you think Mom feels about not
+    finding the book she wanted?", keyed *sad*) is flat: gain
+    `r gain_ci(mono_row(er17, diff), mono_row(er17, diff_lo), mono_row(er17, diff_hi))`,
+    n = `r big(mono_row(er17, n))`. In German it reverses
+    (`r gain_ci(mono_lang_row(er17, "de-DE", diff), mono_lang_row(er17, "de-DE", diff_lo), mono_lang_row(er17, "de-DE", diff_hi))`):
+    higher-scoring children answer *surprised*, from
+    `r pct(er17_share("de-DE", 1, "surprised"))` in the bottom third to
+    `r pct(er17_share("de-DE", 3, "surprised"))` in the top. That is a
+    defensible answer for someone who expected the book to be there. In the
+    other languages the answers split between sad, scared and surprised at
+    every level (sad `r pct(er17_share("other languages", 1, "sad"))` in the
+    bottom third, `r pct(er17_share("other languages", 3, "sad"))` in the top).
+  - Story 2's reality check 2 ("Can you help Ethan find his book? Is it on
+    the shelf or under the coats?") is flat overall only because of the V0
+    Bogotá scene (2e). There it reverses, from `r n2(s2v("V0 Bogota (2e)", acc_low))`
+    in the bottom third to `r n2(s2v("V0 Bogota (2e)", acc_high))` in the top
+    (gain `r gain_ci(s2v("V0 Bogota (2e)", diff), s2v("V0 Bogota (2e)", diff_lo), s2v("V0 Bogota (2e)", diff_hi))`,
+    n = `r s2v("V0 Bogota (2e)", n)`), as its partner reality check 1 does on
+    the same scene. On later content it is near ceiling and rises
+    (`r n2(s2v("later content", acc_low))` to `r n2(s2v("later content", acc_high))`).
+- Two more reality checks are flat just below ceiling: story 7's
+  (`r n2(mono_row("tom_story7_reality_known_reality_check", acc), 3)`) and
+  story 12's second (`r n2(mono_row("tom_story12_second_order_reality_check_2", acc), 3)`).
+  Nearly everyone passes them. That is what controls are for, and not a
+  reason to drop them.
+- The `r mono_n("inconclusive")` inconclusive rows are mostly questions from
+  stories 8–12, which only fCAT runs contain (about 150–220 responses
+  each), and most of them sit near ceiling. They need more data, not a
+  verdict.
+- By language, the reversed cells are the reference questions (story 5 in
+  de-DE and es-CO, story 17 in es-AR) and story 17's emotion reasoning 1 in
+  de-DE. Story 13's reality_known false belief in es-AR, which the item
+  screen flags, is inconclusive here: gain
+  `r gain_ci(mono_lang_row("tom_story13_reality_known_false_belief", "es-AR", diff), mono_lang_row("tom_story13_reality_known_false_belief", "es-AR", diff_lo), mono_lang_row("tom_story13_reality_known_false_belief", "es-AR", diff_hi))`.
+
+Two caveats. In a 3-story fCAT run the rest score rests on about a dozen
+items, so its thirds are coarse; that weakens the test there but does not
+bias its direction. And the rest includes the item's own story, whose
+questions are locally dependent (see [Local dependence](#local-dependence)),
+which can make a gain look larger than it is.
+
+::: {.callout-note collapse="true"}
+## Screen by language and by content version
+
+```{r mono-tables}
+res_mono$mono_lang |>
+  filter(mono %in% c("reversed", "flat", "inconclusive")) |>
+  arrange(mono, diff) |>
+  transmute(item = uid_label(story_uid), content, language, n, accuracy = acc, chance,
+            bottom = acc_low, top = acc_high, gain = diff, lo = diff_lo, hi = diff_hi, class = mono) |>
+  knitr::kable(digits = 3, caption = "Item × language cells (n ≥ 90) that are not 'higher scorers do better' or at ceiling")
+res_mono$mono_version |>
+  filter(!mono %in% c("higher scorers do better", "n < 90")) |>
+  arrange(mono, diff) |>
+  transmute(item = uid_label(story_uid), version = item_original, n, accuracy = acc,
+            bottom = acc_low, top = acc_high, gain = diff, lo = diff_lo, hi = diff_hi, class = mono,
+            policy_flagged = pct(policy_share)) |>
+  knitr::kable(digits = 3, caption = "Items deployed in more than one content version, by version (n ≥ 90)")
+```
+:::
+
 ## The exclusion list, story by story
 
 The Airtable exclusion table holds 12 generic ToM uids, such as
@@ -851,6 +998,137 @@ res_items$scoped_split |>
   knitr::kable(digits = 3)
 ```
 :::
+
+## The reference questions (stories 5, 11 and 17)
+
+Each reference story asks two questions about the same request. The reality
+check asks what the speaker meant; the reference question asks what the
+listener will do, and its key is the listener's misreading:
+
+```{r ref-prompts}
+res_mono$ref$prompts |>
+  mutate(story = as.integer(str_extract(story_uid, "(?<=story)\\d+")),
+         question = if_else(str_ends(story_uid, "reality_check"), "reality check", "reference")) |>
+  select(story, question, prompt) |>
+  pivot_wider(names_from = question, values_from = prompt) |>
+  arrange(story) |>
+  knitr::kable(caption = "The two questions about the request in each reference story")
+```
+
+```{r ref-numbers}
+rf <- res_mono$ref
+ref_cl <- rf$choice_levels
+ref_share <- \(s, ch, st = "All sites") pick(rf$choices, share, story == s, site == st, choice == ch)
+ref_r <- \(s, col, st = "All sites") pick(rf$ir, {{ col }}, story == s, entry == "reference", site == st)
+ref_icc <- \(s, th, ch = ref_cl[2]) pick(rf$icc, share, story == s, third == th, choice == ch)
+ref_rc <- \(s, col) pick(rf$rc, {{ col }}, story == s)
+ref_flip <- \(s) pick(rf$flip, r, story == s)
+ref_age <- \(s, band, col) pick(rf$age, {{ col }}, story == s, age_band == band)
+ref_sites <- rf$ir |> filter(entry == "reference", site != "All sites", n >= res_mono$meta$thresholds$MIN_N_SITE)
+k$ref_cells <- nrow(ref_sites)
+k$ref_cells_neg <- sum(ref_sites$r < 0)
+k$ref_cells_excl <- sum(ref_sites$hi < 0)
+r_ci3 <- \(s) paste0(n2(ref_r(s, r)), " [", n2(ref_r(s, lo)), ", ", n2(ref_r(s, hi)), "]")
+```
+
+```{r fig-reference, fig.width=11, fig.height=15}
+story_lab <- c(`5` = "Story 5: cups", `11` = "Story 11: balls", `17` = "Story 17: book stacks")
+site_order <- c("All sites", "Leipzig (de)", "Sheffield (en-GB)", "Western (en-US)", "UTDT-AR (es-AR)",
+                "UTDT-intl (es)", "Bogotá (es-CO)", "CO rural (es-CO)", "MPIB-intl (es-CO)", "LangCog (en-US)")
+q_lab <- c(reference = "reference: what will the listener do?",
+           reality_check = "reality check: what did the speaker mean?",
+           emotion_reasoning_1 = "emotion reasoning 1", emotion_reasoning_2 = "emotion reasoning 2")
+pal_choice <- set_names(c("#2c6e9b", "#c8742c", "#b9bec6"), ref_cl)
+pal_q <- set_names(c("#c8342c", "#4a5462", "#8e98a4", "#c3c9d1"), q_lab)
+min_site <- res_mono$meta$thresholds$MIN_N_SITE
+
+pA <- rf$choices |>
+  filter(n_site >= min_site) |>
+  mutate(story = factor(story_lab[as.character(story)], story_lab),
+         site_n = paste0(site, " (n=", n_site, ")"),
+         site_n = fct_reorder(site_n, match(site, site_order), .desc = TRUE),
+         choice = factor(choice, ref_cl)) |>
+  ggplot(aes(share, site_n, fill = choice)) +
+  geom_col(width = .72, position = position_stack(reverse = TRUE)) +
+  geom_vline(xintercept = 1/3, linetype = "dashed", linewidth = .3) +
+  facet_wrap(vars(story), scales = "free_y") +
+  scale_fill_manual(values = pal_choice, name = NULL) +
+  scale_x_continuous(labels = scales::percent, breaks = c(0, 1/3, 2/3, 1), expand = c(0, 0)) +
+  labs(x = "Share of responses (the keyed answer starts at the left; dashed = chance)", y = NULL,
+       title = glue("A. What children choose on the reference question (sites with n ≥ {min_site})")) +
+  theme(legend.position = "bottom", legend.direction = "vertical")
+
+pB <- rf$ir |>
+  filter(n >= min_site, !is.na(r)) |>
+  mutate(story = factor(story_lab[as.character(story)], story_lab),
+         q = factor(q_lab[entry], q_lab), site = factor(site, rev(site_order))) |>
+  ggplot(aes(r, site, colour = q)) +
+  geom_vline(xintercept = 0, linewidth = .3) +
+  geom_pointrange(aes(xmin = lo, xmax = hi), position = position_dodge(width = .7), size = .2) +
+  facet_wrap(vars(story)) +
+  scale_colour_manual(values = pal_q, name = NULL) +
+  labs(x = "Item-rest r (95% CI; within dataset × form, Fisher-pooled)", y = NULL,
+       title = "B. The reference question against the other questions of its story") +
+  theme(legend.position = "bottom", legend.direction = "vertical")
+
+pC <- rf$icc |>
+  mutate(story = factor(story_lab[as.character(story)], story_lab), choice = factor(choice, ref_cl)) |>
+  ggplot(aes(third, share, colour = choice)) +
+  geom_hline(yintercept = 1/3, linetype = "dashed", linewidth = .3) +
+  geom_line(linewidth = .8) + geom_point(aes(size = n_third)) +
+  facet_wrap(vars(story)) +
+  scale_colour_manual(values = pal_choice, name = NULL) +
+  scale_size_area(max_size = 3, guide = "none") +
+  scale_x_continuous(breaks = 1:3, labels = c("bottom", "middle", "top"), expand = expansion(add = .3)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  labs(x = "Third of the rest score (within dataset)", y = "Share choosing",
+       title = "C. Choice by the child's score on the other items, pooled over sites") +
+  theme(legend.position = "bottom", legend.direction = "vertical")
+
+patchwork::wrap_plots(pA, pB, pC, ncol = 1, heights = c(1.1, 1.3, .8))
+```
+
+- **Children answer with what the speaker meant.** The keyed answer is
+  chosen by `r pct(ref_share(5, ref_cl[1]))`, `r pct(ref_share(11, ref_cl[1]))`
+  and `r pct(ref_share(17, ref_cl[1]))` of children (stories 5, 11, 17;
+  chance 33%), and the reality-check answer by
+  `r pct(ref_share(5, ref_cl[2]))`, `r pct(ref_share(11, ref_cl[2]))` and
+  `r pct(ref_share(17, ref_cl[2]))`.
+- **Higher scorers do so more.** Item-rest r is
+  `r r_ci3(5)`, `r r_ci3(11)` and `r r_ci3(17)`. Of the site cells with
+  at least `r min_site` responses, `r k$ref_cells_neg` of `r k$ref_cells`
+  have a negative point estimate, and in `r k$ref_cells_excl` of them the
+  CI lies below 0. From the bottom to the top third of the rest score,
+  the share answering with the speaker's meaning rises from
+  `r pct(ref_icc(5, 1))` to `r pct(ref_icc(5, 3))` (cups),
+  `r pct(ref_icc(11, 1))` to `r pct(ref_icc(11, 3))` (balls) and
+  `r pct(ref_icc(17, 1))` to `r pct(ref_icc(17, 3))` (book stacks).
+  Age shows the same: on the cups story the keyed answer stays within
+  `r rng(rf$age$keyed[rf$age$story == 5])` in every age band from under 6
+  to 10 and over, while the speaker's meaning rises from
+  `r n2(ref_age(5, "<6", wanted))` to `r n2(ref_age(5, "10+", wanted))`.
+  The only near-chance answering comes from the youngest and lowest-scoring
+  children.
+- **Cups is the least bad, and still fails.** It is at chance in Leipzig
+  (`r n2(pick(rf$ir, acc, story == 5, entry == "reference", site == "Leipzig (de)"))`),
+  but it reverses there as well (see the screen above).
+- **Flipping the key does not rescue them.** Scored the other way, the
+  questions discriminate (item-rest r `r n2(ref_flip(5))`,
+  `r n2(ref_flip(11))`, `r n2(ref_flip(17))`), but mostly as a second copy of
+  the reality check: children who pass it answer the reference question
+  with the speaker's meaning `r pct(ref_rc(5, wanted_if_rc_pass))`,
+  `r pct(ref_rc(11, wanted_if_rc_pass))` and
+  `r pct(ref_rc(17, wanted_if_rc_pass))` of the time.
+- **The rest of each story works.** Its reality check and emotion
+  questions discriminate, except story 17's emotion reasoning 1 (see the
+  screen above).
+
+None of the three reference questions is worth retaining as written. One
+reading of the pattern is that older, higher-scoring children expect the
+listener to work out what the speaker meant, which may be a reasonable
+pragmatic inference rather than a failure to track the listener's belief.
+A reference measure would need new stimuli in which the listener clearly
+cannot know the intended referent, piloted before deployment.
 
 # What organizes the items
 
@@ -2742,16 +3020,22 @@ k$fb_flag_list <- paste(uid_label(fb_flag), collapse = ", ")
    corrections applied somewhere.
 3. Consider V0 Bogotá story-2 reality check 2 and story 5's reference
    reality check (non-invariant only because of V0) as further V0-scoped
-   rows, next to V0 reality check 1, whose cause stays undetermined.
+   rows, next to V0 reality check 1, whose cause stays undetermined. For
+   reality check 2 the monotonicity screen supports this: on the V0 scene
+   higher scorers do worse (see [Do higher scorers do better?](#do-higher-scorers-do-better)).
 
 **Deployed items (core-tasks; item bank).**
 
 4. Re-author story-4 reality checks 2/3 for image 4g (or change their key,
-   as above), and redesign reference_reference (stories 5/11/17). Both are
-   still in the deployed corpora.
-5. Review the near-chance yes/no "Is [sibling] mad at [sibling]?" questions
-   (story 4 fb_3, story 16 ref_2), the non-discriminating story-17 emotion
-   question and story 10's deception false belief 1, and the same-scene
+   as above), and redesign reference_reference (stories 5/11/17; see
+   [The reference questions](#the-reference-questions-stories-5-11-and-17)).
+   Both are still in the deployed corpora.
+5. Exclude or rewrite story 17's emotion reasoning 1 ("How do you think Mom
+   feels about not finding the book she wanted?"): it is flat overall and
+   reversed in German, where higher scorers answer *surprised*. Review the
+   near-chance yes/no "Is [sibling] mad at [sibling]?" questions
+   (story 4 fb_3, story 16 ref_2) and story 10's deception false belief 1,
+   and the same-scene
    doublets (story 6 fb_2/fb_5, both keyed "shoes"; story 4 fb_2/fb_3, both
    "no").
 6. Check the Spanish translations (es-CO, es-AR) of the false-belief
