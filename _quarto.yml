@@ -36,6 +36,7 @@ book:
     - part: "Task deepdives"
       chapters:
         - tasks/hearts_and_flowers.qmd
+        - tasks/hearts_and_flowers_v2.qmd
         - tasks/memory.qmd
         - tasks/memory_length.qmd
         - tasks/same_different.qmd

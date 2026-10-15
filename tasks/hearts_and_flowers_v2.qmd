@@ -1,0 +1,403 @@
+---
+title: "Hearts & Flowers v2 — feedback sound, faster mixed blocks: did it help?"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    fig-width: 9
+    fig-height: 5
+execute:
+  warning: false
+  message: false
+---
+
+{{< include ../_disclaimer.qmd >}}
+
+# Question
+
+In spring 2026 Hearts & Flowers got a redesign ("version 2"). Two changes were
+intended: a feedback sound ("ding") and a third mixed block run at different
+speeds. Did the revision help? Specifically: does the ding help or hurt, does
+the new form buy reliability, and does it remove the known ceiling? The two
+changes shipped together, so they are confounded by design; the strategy here
+is to find outcomes that only one of them should move.
+
+Data: `levante_data_latest:e9pf:v3_17` (scores, processed trials) plus the
+**raw** per-site `trials`/`runs`/`variants` tables (13 sites, pulled
+2026-10-15 by [`_prep_hf_v2.R`](_prep_hf_v2.R); derivations in
+[`_hf_v2_common.R`](_hf_v2_common.R)).
+
+```{r setup}
+source(here::here("common.R"))
+source(here::here("tasks/_hf_v2_common.R"))
+
+scores <- readRDS(here("data/scores_latest_v3_17.rds")) |>
+  filter(task_id == "hearts-and-flowers", !is.na(score)) |>
+  distinct(run_id, .keep_all = TRUE) |>
+  select(run_id, theta = score, theta_se = score_se)
+
+age_band <- \(a) cut(a, c(0, 6, 8, 10, 20), right = FALSE,
+                     labels = c("<6", "6-8", "8-10", "10+"))
+
+runs <- hf_run_struct |>
+  left_join(hf_runs |> select(run_id, dataset, user_id, age, time_started,
+                              stop_reason, variant_name, variant_created),
+            by = "run_id") |>
+  left_join(scores, by = "run_id")
+complete_runs <- runs |> filter(grepl("complete \\(", layout))
+scored_runs <- runs |> filter(!grepl("heavy", layout), !is.na(theta))
+```
+
+# 1. What changed, and which variants carry it
+
+The redesign is core-tasks PR #442 (merged 2026-04-21, first shipped in task
+version 1.1.2), gated on the **variant parameter `taskVersion === 2`**. That
+parameter isn't exported to the Redivis `variants` table, but every variant
+created from 2026-04-23 on runs the new form, and every variant created
+2025-07-21 (the legacy `de` / `es-CO` / `English (North America) - Legacy`
+variants) runs the old form, **regardless of code version**: old variants still
+produce the 32-trial mixed block on code 1.3.17.
+
+```{r variant-table}
+runs |>
+  filter(layout != "incomplete") |>
+  count(form, variant_name, variant_created = substr(variant_created, 1, 10), layout) |>
+  pivot_wider(names_from = layout, values_from = n, values_fill = 0) |>
+  arrange(form, variant_created) |>
+  knitr::kable(caption = "H&F variants by intended form (complete runs only; variant names repeat across site datasets)")
+```
+
+What v2 changes, read from the code:
+
+| | v1 (old) | v2 (new) |
+|---|---|---|
+| Response deadline | **none** (configured presentation times were dead code) | pure blocks 3000 ms; mixed 3000 / 2000 / 1500 ms |
+| Mixed block | 32 trials, untimed | 48 trials = 3 segments × 16, "going faster" instructions between |
+| Feedback | none on test trials | **coin sound if correct, fail sound if not, every test trial** |
+| No response | impossible | `response = null`, scored incorrect |
+| Early stop | effectively none (`maxIncorrect` = 100) | **shared rule: stop if > 6 of the last 10 test trials are wrong** |
+| `heavyInstructions` variants | — | mixed block cut to the first 16 trials |
+
+Note that the early-stop rule's code comment says "4 of the last 10" but the
+code tests `> 6`. Timeouts count as errors for it.
+
+Scoring is unchanged across forms: the released `multigroup_dataset` Rasch
+model uses the same item uids (`hf_{block}_{stim}_{start|stay|switch}`) for
+both, and `recode_hf()` still marks every response faster than 200 ms or
+slower than 2000 ms incorrect. (I checked whether processing drops timeouts.
+It does not: all raw no-response trials are in the processed table, scored
+incorrect.)
+
+# 2. Mechanics: the new segments make the task harder only through time
+
+```{r mechanics}
+mech <- hf_test |>
+  semi_join(complete_runs, by = "run_id") |>
+  filter(!is.na(block)) |>
+  group_by(form, block, segment, window) |>
+  summarise(trials = n(),
+            correct_side_if_answered = mean(correct[!timeout] %in% TRUE),
+            timeout = mean(timeout),
+            rt_over_2s = mean(rt_numeric > 2000, na.rm = TRUE),
+            scored_correct = mean(sc_pipeline),
+            median_rt = median(rt_numeric, na.rm = TRUE), .groups = "drop") |>
+  mutate(block = factor(block, c("hearts", "flowers", "mixed"))) |>
+  arrange(form, block, segment)
+
+knitr::kable(mech, digits = 3,
+             caption = "Trial-level mechanics, complete runs. window = response deadline (Inf = untimed v1). scored_correct = as released (timeouts and RT outside 200-2000 ms are errors).")
+```
+
+Within v2 the three mixed segments differ only in their deadline (the
+feedback is constant), so they isolate the timing manipulation. Shortening the
+window from 3 s to 2 s to 1.5 s raises timeouts from 0.6% to 2.9% to 8.3%,
+and that is most of the drop in scored accuracy (.89 → .83); the rest is a
+small decline in accuracy on answered trials. The faster segments add
+difficulty mainly by making children miss the window.
+
+Across forms, the bigger effect is on slow responses. Untimed v1 children
+answered after 2 s on 6–15% of trials, all of which `recode_hf()` scores
+incorrect. Under v2's deadlines and feedback that share falls to 0–2.5%. One
+mismatch follows: in the 3-s windows (pure blocks and mixed segment 1), a
+correct 2–3 s response plays the coin but is scored wrong (0.3–2.5% of those
+trials).
+
+# 3. Many more v2 runs end early
+
+```{r completion}
+runs |>
+  filter(!grepl("heavy", layout)) |>
+  group_by(dataset) |>
+  filter(n_distinct(form) == 2) |>
+  ungroup() |>
+  group_by(form) |>
+  summarise(runs = n(), incomplete = mean(layout == "incomplete"), .groups = "drop") |>
+  knitr::kable(digits = 3, caption = "Share of runs that end before the last trial, sites that ran both forms")
+
+last_trial <- hf_test |>
+  group_by(run_id) |>
+  slice_max(trial_index, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(run_id, last_block = block, last_segment = segment)
+
+runs |>
+  filter(layout == "incomplete") |>
+  left_join(last_trial, by = "run_id") |>
+  count(form, where_stopped = paste(last_block, coalesce(as.character(last_segment), ""))) |>
+  pivot_wider(names_from = form, values_from = n, values_fill = 0) |>
+  knitr::kable(caption = "Where incomplete runs stop (block and mixed segment)")
+
+runs |>
+  filter(form == "v2", layout == "incomplete") |>
+  count(stop_reason) |>
+  knitr::kable(caption = "stop_reason for incomplete v2 runs (logged from 2026-07-31 only)")
+```
+
+About a quarter of v2 runs stop early (29% at sites that ran both forms),
+against ~8% of v1 runs. Most v2 stops (371 of 581) fall in the 2-s and 1.5-s
+segments, and 293 of the 343 stops with a logged reason are `errorOut`. That is the rule working as written: timeouts count as errors, so
+a child who can't keep up with the 1.5-s pace is stopped. The truncation is
+response-dependent, so θ estimates from the observed trials stay valid, but
+these children lose their hardest trials and many leave the task on a run of
+failures.
+
+# 4. Ceiling: fewer perfect scores at the top, but the low end moves up
+
+```{r ceiling}
+run_acc <- hf_test |>
+  semi_join(complete_runs, by = "run_id") |>
+  filter(!is.na(block)) |>
+  group_by(run_id) |>
+  summarise(acc = mean(sc_pipeline),
+            perfect_mixed = all(sc_pipeline[block == "mixed"]), .groups = "drop")
+
+complete_runs |>
+  inner_join(run_acc, by = "run_id") |>
+  filter(!is.na(age)) |>
+  group_by(form, age = age_band(age)) |>
+  summarise(runs = n(), mean_scored_acc = mean(acc),
+            perfect_mixed = mean(perfect_mixed),
+            acc_97_plus = mean(acc >= .97), .groups = "drop") |>
+  pivot_wider(names_from = form, values_from = -c(form, age)) |>
+  knitr::kable(digits = 3, caption = "Ceiling indicators by age band, complete runs")
+```
+
+The fast segment does break the ceiling for the oldest children: perfect
+mixed-block performance at 10+ falls from about one run in five (v1) to under
+one in ten (v2). But scored accuracy rises in every younger band (e.g. .66 →
+.86 under age 6), because v2 removes most of the slow-response errors that
+dominated v1's lower range. Overall the score distribution is pushed *up*, not
+spread out.
+
+# 5. Reliability
+
+## Split-half: v1's advantage is partly "slowness"
+
+```{r split-half}
+split_half <- function(trials, var) {
+  halves <- trials |>
+    arrange(run_id, trial_index) |>
+    group_by(run_id) |>
+    mutate(half = row_number() %% 2) |>
+    group_by(run_id, half) |>
+    summarise(x = mean(.data[[var]], na.rm = TRUE), .groups = "drop") |>
+    pivot_wider(names_from = half, values_from = x)
+  r <- cor(halves$`0`, halves$`1`, use = "complete.obs")
+  2 * r / (1 + r)
+}
+
+sh_trials <- hf_test |>
+  semi_join(complete_runs, by = "run_id") |>
+  filter(!is.na(block)) |>
+  mutate(slow = as.numeric(rt_numeric > 2000))
+
+map_dfr(c("v1", "v2"), \(f) {
+  d <- sh_trials |> filter(form == f)
+  tibble(form = f, runs = n_distinct(d$run_id),
+         scored_accuracy = split_half(d, "sc_pipeline"),
+         side_correct_only = split_half(d, "sc_task"),
+         share_slower_than_2s = split_half(d, "slow"))
+}) |>
+  knitr::kable(digits = 3, caption = "Odd/even split-half reliability (Spearman-Brown), complete runs")
+```
+
+On raw split-half, v1 looks more reliable (.96 vs .86). Part of that is a
+stable individual difference v2 suppresses on purpose: in untimed v1, a
+child's share of responses slower than 2 s is almost perfectly consistent
+(.96), and those responses are scored as errors. Under v2's deadlines that
+trait is much less reliable (.68). v1 still leads on side-correctness alone
+(.93 vs .83).
+
+## Model-based reliability of θ (all scored runs)
+
+```{r empirical-rel}
+scored_runs |>
+  group_by(form, dataset) |>
+  filter(n() >= 30) |>
+  summarise(runs = n(), incomplete = mean(layout == "incomplete"),
+            sd_theta = sd(theta), mean_se = mean(theta_se),
+            reliability = var(theta) / (var(theta) + mean(theta_se^2)),
+            .groups = "drop") |>
+  knitr::kable(digits = 3, caption = "Empirical reliability of released θ by dataset and form, all scored runs (incomplete runs included)")
+```
+
+Counting every scored run (including the children stopped early), v2's
+model-based reliability is .85–.91 at most sites, about the same as v1's
+.84–.93. Leipzig's wave 3 is the exception (.73): those children are older,
+and their v2 scores are compressed (SD 1.1 vs 2.6 for v1). Restricting to
+complete runs would understate v2 (it drops its weakest children), so these
+all-runs numbers are the fair comparison. **The new form does not add
+reliability; at best it holds it.**
+
+## Test–retest
+
+```{r retest}
+pairs <- scored_runs |>
+  filter(!is.na(user_id)) |>
+  arrange(user_id, time_started) |>
+  group_by(user_id) |>
+  mutate(theta2 = lead(theta), form2 = lead(form), dataset2 = lead(dataset),
+         age2 = lead(age),
+         gap_days = as.numeric(difftime(lead(time_started), time_started,
+                                        units = "days"))) |>
+  ungroup() |>
+  filter(!is.na(theta2), gap_days >= 14, dataset == dataset2)
+
+pairs |>
+  group_by(dataset, forms = paste(form, form2, sep = " -> ")) |>
+  filter(n() >= 10) |>
+  summarise(pairs = n(), median_gap_days = median(gap_days),
+            age_t2 = mean(age2, na.rm = TRUE), sd_theta_t2 = sd(theta2),
+            r = cor(theta, theta2), .groups = "drop") |>
+  knitr::kable(digits = 2, caption = "Retest correlation of θ by form pair (consecutive runs, >= 14 days apart, n >= 10)")
+```
+
+The only large cross-form sample is Leipzig: wave 1 → wave 2 (both v1)
+retests at **.54**, while wave 2 (v1) → wave 3 (v2) retests at **.12**. Three
+things are confounded in that drop: the form change, a much longer gap (~16
+vs ~4 months), and range restriction in the older wave-3 sample (θ SD 1.1).
+Western's small cross-form sample (n = 11, ~1 year) retests about like its
+v1 → v1 pairs (.55 vs .58), while MPIB's 14 cross-form pairs (~7.5 months,
+age ~7.5) come out negative (−.63). There is no adequate v2 → v2 retest yet
+(Boston's 11 pairs are three weeks apart, in 4-year-olds).
+**Cross-form continuity is not established, and the Leipzig number is a
+warning for any longitudinal analysis that spans the switch.**
+
+# 6. Age validity
+
+```{r age-validity}
+scored_runs |>
+  filter(!is.na(age)) |>
+  group_by(dataset) |>
+  filter(n_distinct(form) == 2) |>
+  group_by(dataset, form) |>
+  filter(n() >= 30) |>
+  summarise(runs = n(), mean_age = mean(age), sd_age = sd(age),
+            r_theta_age = cor(theta, age),
+            logits_per_year = coef(lm(theta ~ age))[2], .groups = "drop") |>
+  knitr::kable(digits = 2, caption = "θ–age association within sites that ran both forms, all scored runs")
+```
+
+Age associations are weaker under v2 at most sites that ran both forms (the
+exception is rural Colombia). Sample age ranges differ by wave and site, so
+this is suggestive rather than decisive. It fits the compression seen above:
+v2 lifts the low end, so younger children look more like older ones.
+
+# 7. The ding: a clean feedback signature
+
+Feedback should change what happens *after an error*. The pure blocks are the
+best place to look, because the 3-s deadline almost never binds there (<1%
+timeouts) and only the feedback differs.
+
+```{r post-error}
+post_error <- hf_test |>
+  filter(!is.na(block), !timeout, !is.na(age)) |>
+  arrange(run_id, trial_index) |>
+  group_by(run_id, block) |>
+  mutate(prev_error = lag(!(correct %in% TRUE))) |>
+  ungroup() |>
+  filter(!is.na(prev_error)) |>
+  group_by(form, block, age = age_band(age), prev_error) |>
+  summarise(trials = n(), acc = mean(correct %in% TRUE),
+            rt = median(rt_numeric, na.rm = TRUE), .groups = "drop") |>
+  pivot_wider(names_from = prev_error, values_from = c(trials, acc, rt)) |>
+  transmute(form, block = factor(block, c("hearts", "flowers", "mixed")), age,
+            error_trials = trials_TRUE,
+            acc_after_error = acc_TRUE, acc_after_correct = acc_FALSE,
+            post_error_slowing_ms = rt_TRUE - rt_FALSE)
+
+post_error |>
+  arrange(block, age, form) |>
+  knitr::kable(digits = 3, caption = "Post-error behaviour (side-correctness; timeouts excluded)")
+```
+
+```{r post-error-plot, fig.height = 4}
+post_error |>
+  filter(block != "mixed") |>
+  ggplot(aes(x = age, y = acc_after_error, colour = form, group = form)) +
+  geom_line() + geom_point(aes(size = error_trials)) +
+  facet_wrap(~block) +
+  scale_size_area(max_size = 4, guide = "none") +
+  labs(x = "Age band", y = "Accuracy on the trial after an error",
+       title = "With feedback, children recover from errors")
+```
+
+Without feedback (v1), children speed up after an error (negative
+post-error slowing) and are often wrong again: post-error accuracy in the
+flowers block is .41–.63, a signature of being stuck on the wrong rule. With
+the coin/fail sound (v2), post-error slowing turns positive or near zero, and
+post-error accuracy rises sharply in 7 of the 8 pure-block age cells
+(flowers, ages 6–8: .47 → .73; 10+: .63 → .90; the exception is hearts at
+8–10, from small counts).
+Accuracy after a *correct* trial is the same in both forms, so this isn't a
+difference in the samples' baseline ability.
+
+**So the ding does what feedback should**: it breaks perseverative error runs.
+Whether that "helps" depends on what the task should measure. v1's lower range
+was partly children who never grasped or held the flower rule; v2 corrects
+them within a few trials, which makes it more a measure of conflict
+efficiency and less of rule acquisition. That shift accounts for much of the
+low-end compression in sections 4–6.
+
+# 8. Separating the two interventions
+
+| Outcome | Moved by | Evidence |
+|---|---|---|
+| Post-error recovery, pure blocks | feedback | v1 → v2 at matched post-correct accuracy (§7) |
+| Timeouts, early stops in mixed | timing | dose-response across v2's three segments, feedback constant (§2, §3) |
+| Fewer slow (>2 s) responses | both | deadline caps them; feedback also speeds responses in the pure blocks, where the deadline barely binds |
+| Fewer perfect scores at 10+ | timing | concentrated in the 1.5-s segment (§2, §4) |
+| Higher scored accuracy at young ages | both, mostly feedback + fewer slow errors | §4, §7 |
+| Reliability, retest, age validity | not separable | only overall v1 vs v2 contrasts exist |
+
+# Verdict
+
+1. **Variants.** The new form is `taskVersion = 2`, carried by every H&F
+   variant created from 2026-04-23 (`English (North America)`, `es-AR`,
+   `English (United Kingdom)`, `German (Germany)`, `Spanish (Colombia)`); the
+   2025-07-21 variants are v1. Form follows the variant, not the code
+   version, and several sites ran both concurrently.
+2. **The ding works as feedback** (§7) but compresses the low end of the
+   distribution. Keep it if the target construct is efficiency under
+   conflict, not rule acquisition.
+3. **The faster segments reduce the ceiling only for the oldest children,
+   and do it through timeouts**, which also drive a large rise in early
+   stops (~25% of v2 runs vs ~8%) via the error-out rule.
+4. **No reliability gain**: model-based reliability is about equal, split-half
+   is lower, and cross-form retest at Leipzig is poor (.12, confounded with
+   gap and age).
+
+Recommendations for the DCC:
+
+- **Score v1 and v2 as different forms.** Same item uids are scored with one
+  set of parameters, although v2 items differ in difficulty (deadlines,
+  feedback). At minimum, add form-specific (or segment-specific) item uids
+  and recalibrate; until then, don't interpret θ change across the v1 → v2
+  boundary (e.g. Leipzig wave 3) as growth.
+- **Align `recode_hf()` with the v2 windows.** A 2000 ms cutoff inside a
+  3000 ms window scores coin-rewarded responses as errors. Either cut at the
+  window or set the windows to 2 s.
+- **Reconsider the error-out rule for H&F.** Exempt timeouts, or turn it off
+  for this task. Its comment and code disagree (4 vs > 6 of 10) either way.
+- **Plan a v2 → v2 retest** before deciding on the redesign's net value.
