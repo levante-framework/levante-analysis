@@ -52,10 +52,12 @@ quarto render && cd . && quarto publish quarto-pub --no-render
 Commit the resulting `_publish.yml` so re-publishes reuse the same URL. Keep the
 clearance note here current after each publish.
 
-**Last published:** 2026-10-15 (commit 764c4cd), at Mike Frank's request — adds the
-Hearts & Flowers v2 chapter (`tasks/hearts_and_flowers_v2.qmd`: feedback sound + timed
-mixed segments vs v1, on `levante_data_latest` v3_17 + raw per-site trials).
-Earlier: 2026-09-28 (1bf6af0), the TROG skin-tone chapter; 2026-09-28 (b5309c1), the
+**Last published:** 2026-10-15 (commit 1446e1a), at Mike Frank's request — adds §9 of the
+Hearts & Flowers v2 chapter (timing, calibration, and the ceiling: counterfactual deadline
+items on the released scale, construct check, stop-rule replay).
+Earlier: 2026-10-15 (764c4cd), the Hearts & Flowers v2 chapter
+(`tasks/hearts_and_flowers_v2.qmd`, on `levante_data_latest` v3_17 + raw per-site trials);
+2026-09-28 (1bf6af0), the TROG skin-tone chapter; 2026-09-28 (b5309c1), the
 Stories item-actions table; 2026-09-25 (98460f2), the consolidated Stories chapter.
 
 Quarto Pub rejects any single file over about 1 MiB (`API Error: 413 - Payload Too
