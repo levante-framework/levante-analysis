@@ -52,10 +52,11 @@ quarto render && cd . && quarto publish quarto-pub --no-render
 Commit the resulting `_publish.yml` so re-publishes reuse the same URL. Keep the
 clearance note here current after each publish.
 
-**Last published:** 2026-09-28 (commit 1bf6af0), at Mike Frank's request — adds the TROG
-skin-tone chapter (`tasks/trog_skin_tone.qmd`: stimulus skin measurement + DIF by sample).
-Earlier: 2026-09-28 (b5309c1), the Stories item-actions table; 2026-09-25 (98460f2), the
-consolidated Stories chapter.
+**Last published:** 2026-10-15 (commit 764c4cd), at Mike Frank's request — adds the
+Hearts & Flowers v2 chapter (`tasks/hearts_and_flowers_v2.qmd`: feedback sound + timed
+mixed segments vs v1, on `levante_data_latest` v3_17 + raw per-site trials).
+Earlier: 2026-09-28 (1bf6af0), the TROG skin-tone chapter; 2026-09-28 (b5309c1), the
+Stories item-actions table; 2026-09-25 (98460f2), the consolidated Stories chapter.
 
 Quarto Pub rejects any single file over about 1 MiB (`API Error: 413 - Payload Too
 Large` during upload). `tasks/stories.qmd` crossed that on 2026-09-28, so it now renders
