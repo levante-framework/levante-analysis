@@ -371,6 +371,299 @@ low-end compression in sections 4–6.
 | Higher scored accuracy at young ages | both, mostly feedback + fewer slow errors | §4, §7 |
 | Reliability, retest, age validity | not separable | only overall v1 vs v2 contrasts exist |
 
+# 9. Timing, calibration, and the ceiling
+
+The redesign's goal was to remove the ceiling and make the task harder for
+older children while measuring the same constructs. This section asks how
+well the timings serve that goal: where items of each timing sit relative to
+children's abilities at each age, and whether shorter windows add
+information about inhibition and switching or about something else.
+
+## Where the released items sit
+
+The released model is a Rasch model with a fixed guessing floor of 0.5,
+calibrated on 1,671 runs (registry v2_3, August 2026), essentially all of
+them untimed v1.
+
+```{r released-items}
+released <- readRDS(here("data/hf_v2/item_parameters_released.rds")) |>
+  group_by(item_uid) |>
+  summarise(b = mean(difficulty), guessing = first(guessing), .groups = "drop") |>
+  arrange(b)
+knitr::kable(released, digits = 2, caption = "Released H&F item difficulties (Rasch, guessing 0.5)")
+
+age_band5 <- \(a) cut(a, c(0, 6, 8, 10, 12, 20), right = FALSE,
+                      labels = c("<6", "6-8", "8-10", "10-12", "12+"))
+theta_by_age <- scored_runs |>
+  filter(form == "v1", !is.na(age)) |>
+  group_by(age = age_band5(age)) |>
+  summarise(runs = n(), q10 = quantile(theta, .1), median = median(theta),
+            q90 = quantile(theta, .9), .groups = "drop")
+knitr::kable(theta_by_age, digits = 2, caption = "Released θ by age, v1 runs")
+
+# "top decile" below = 90th percentile of v1 children aged 10 and over
+top_decile <- unname(quantile(scored_runs$theta[scored_runs$form == "v1" &
+                                                  scored_runs$age >= 10], .9, na.rm = TRUE))
+```
+
+The hardest released item (a mixed-block switch trial) sits at about +0.6,
+while median ability is above 1.7 from age 10 on and the top decile of
+children aged 10 and over sits near 3.9, close to the highest score the
+model gives. With a 0.5 guessing floor an
+item is most informative about half a logit above its difficulty, and its
+information can never exceed 0.09 per trial (a 2AFC item carries at most a
+quarter of the information of an item with no guessing floor).
+
+```{r item-info}
+info_3pl <- \(theta, b, g = 0.5) {
+  p <- g + (1 - g) * plogis(theta - b)
+  ((p - g) / (1 - g))^2 * (1 - p) / p
+}
+b_of <- \(uid) released$b[released$item_uid == uid]
+at <- theta_by_age |> select(age, theta = median) |>
+  bind_rows(tibble(age = "top decile, ages 10+", theta = top_decile))
+item_classes <- c(hearts = "hf_hearts_heart_stay", flowers = "hf_flowers_flower_stay",
+                  mixed_stay = "hf_heartsflowers_heart_stay",
+                  mixed_switch = "hf_heartsflowers_heart_switch")
+at |>
+  mutate(purrr::map_dfc(item_classes, \(u) info_3pl(theta, b_of(u)))) |>
+  knitr::kable(digits = 3, caption = "Fisher information per trial at the median θ of each age band (maximum possible: 0.09)")
+```
+
+At the median older child, mixed-block switch trials are still fairly
+informative (about two-thirds of the maximum). The pure blocks are close to
+worthless from age 8 up, and every untimed item gives only about a sixth of
+the maximum in the top decile. That top decile is the ceiling.
+
+## Deadline items on the released scale
+
+v1 was untimed, so any deadline D can be imposed after the fact: score a
+response correct only if it is on the right side **and** 200 ms ≤ RT ≤ D, then
+estimate each item class's difficulty with the children's released θ held
+fixed. This puts every hypothetical deadline on the released scale
+([`_hf_v2_deadlines.R`](_hf_v2_deadlines.R)).
+
+```{r deadline-items}
+dl_file <- here("data/hf_v2/deadline_items.rds")
+if (!file.exists(dl_file)) source(here("tasks/_hf_v2_deadlines.R"))
+dl <- readRDS(dl_file)
+
+dl$v1_items |>
+  mutate(b = if_else(b > 7.9, NA_real_, b)) |>
+  select(deadline, item_class, b) |>
+  pivot_wider(names_from = item_class, values_from = b) |>
+  select(deadline, hearts, flowers, mixed_stay, mixed_switch) |>
+  knitr::kable(digits = 2, caption = "Item difficulty (released scale) when a deadline D is imposed on untimed v1 responses. Blank = accuracy below the 0.5 guessing floor, which the model cannot fit.")
+```
+
+At D = 2000 ms (the cutoff `recode_hf()` applies today) the counterfactual
+difficulties reproduce the released ones, as they should. Tightening to
+1500 ms moves the mixed items to about b = 1.3–1.9, right at the older
+children's median ability; 1250 ms moves them to about 3–4, the top decile.
+Below about 1250 ms accuracy falls under 50%. A model with a 0.5 guessing
+floor cannot represent that: a child who misses the window scores 0, not
+chance.
+
+The counterfactual can be checked against v2, where children really were
+given these windows. Imposing 2000 and 1500 ms on the v2 3-s segment
+predicts what the same children did in the 2-s and 1.5-s segments:
+
+```{r deadline-validation}
+dl$validation |>
+  summarise(across(everything(), \(x) x[!is.na(x)][1])) |>
+  knitr::kable(digits = 3, caption = "Counterfactual vs actual accuracy, v2 runs with all three mixed segments")
+```
+
+It matches closely at 2000 ms (.877 vs .875) and slightly underestimates at
+1500 ms (.770 vs .801): children speed up a little when the deadline is
+real, so the counterfactual is conservative.
+
+```{r deadline-by-age}
+typed <- dl$typed
+deadline_acc <- \(d) typed |>
+  filter(form == "v1", !is.na(age), item_class == "mixed_switch") |>
+  group_by(age = age_band5(age)) |>
+  summarise(D = d, accuracy = mean(correct %in% TRUE & rt_numeric >= 200 &
+                                     rt_numeric <= d), .groups = "drop")
+
+purrr::map_dfr(c(Inf, 2000, 1750, 1500, 1250, 1000), deadline_acc) |>
+  pivot_wider(names_from = D, values_from = accuracy, names_prefix = "D = ") |>
+  knitr::kable(digits = 2, caption = "Counterfactual accuracy on mixed switch trials by age and imposed deadline (v1 children)")
+
+typed |>
+  filter(form == "v2", !is.na(age), item_class == "mixed_switch") |>
+  group_by(age = age_band5(age), window) |>
+  summarise(accuracy = mean(correct %in% TRUE & !timeout), .groups = "drop") |>
+  pivot_wider(names_from = window, values_from = accuracy, names_prefix = "window ") |>
+  knitr::kable(digits = 2, caption = "Actual accuracy on mixed switch trials by age and window (v2 children)")
+```
+
+In real data the 1.5-s window puts 10–12-year-olds at 83% correct on switch
+trials, close to the accuracy at which a 2AFC item with a 0.5 floor is most
+informative (about 81%). So that window is well targeted for the median
+older child. The 12+ group (88%) and the top decile need something faster:
+near 1.25 s in the counterfactual.
+
+## Do shorter windows still measure inhibition and switching?
+
+If a deadline makes items harder on construct, the deadline score should keep
+tracking children's switching skill (their untimed mixed-block accuracy), and
+the switch-vs-stay contrast should grow. If it only adds speed, the score
+should track plain response speed instead, measured here by the median RT on
+the easy same-side hearts trials.
+
+```{r construct-check}
+partial_r <- \(a, b, z) {
+  ok <- complete.cases(a, b, z)
+  cor(resid(lm(a[ok] ~ z[ok])), resid(lm(b[ok] ~ z[ok])))
+}
+
+v1_base <- typed |>
+  filter(form == "v1", !is.na(age)) |>
+  group_by(run_id, age) |>
+  summarise(untimed_mixed = mean(correct[block == "mixed"] %in% TRUE),
+            hearts_rt = median(rt_numeric[block == "hearts"], na.rm = TRUE),
+            n_mixed = sum(block == "mixed"), .groups = "drop") |>
+  filter(n_mixed == 32)
+
+purrr::map_dfr(c(2000, 1500, 1250, 1000), \(d) {
+  sd_ <- typed |>
+    filter(form == "v1", block == "mixed") |>
+    group_by(run_id) |>
+    summarise(score = mean(correct %in% TRUE & rt_numeric >= 200 &
+                             rt_numeric <= d), .groups = "drop") |>
+    inner_join(v1_base, by = "run_id")
+  tibble(deadline = d,
+         r_with_untimed_switching = partial_r(sd_$score, sd_$untimed_mixed, sd_$age),
+         r_with_plain_speed = partial_r(sd_$score, sd_$hearts_rt, sd_$age))
+}) |>
+  knitr::kable(digits = 2, caption = "Counterfactual (v1): age-partialled correlation of the mixed-block deadline score with untimed switching accuracy and with hearts-block median RT")
+
+typed |>
+  filter(form == "v2", block == "mixed") |>
+  group_by(window, item_class) |>
+  summarise(accuracy = mean(correct %in% TRUE & !timeout), .groups = "drop") |>
+  pivot_wider(names_from = item_class, values_from = accuracy) |>
+  mutate(switch_cost = mixed_stay - mixed_switch) |>
+  knitr::kable(digits = 3, caption = "Actual (v2): stay vs switch accuracy by window")
+```
+
+In the counterfactual, the deadline score's link to switching skill
+collapses as the window shortens (.47 at 2000 ms, .19 at 1500, .03 at 1250)
+while its link to plain speed stays around −.5 to −.6: a short fixed
+deadline turns the mixed block into a speed test. Real deadlines change
+behaviour, so the v2 data are the stronger test, and they point the same way
+by a different route: **the switch cost does not grow as the window
+tightens** (.060 at 3 s, .059 at 2 s, .067 at 1.5 s). The deadline adds the
+same difficulty to stay and switch trials rather than sharpening the
+inhibition and switching contrast.
+
+Two natural alternatives also fail:
+
+```{r alternatives}
+hearts_rt_correct <- typed |>
+  filter(form == "v1", block == "hearts", correct %in% TRUE) |>
+  group_by(run_id) |>
+  summarise(hrt = median(rt_numeric, na.rm = TRUE), .groups = "drop")
+indiv <- purrr::map_dfr(c(1.5, 2, 2.5), \(k) {
+  sk <- typed |>
+    filter(form == "v1", block == "mixed") |>
+    inner_join(hearts_rt_correct, by = "run_id") |>
+    group_by(run_id) |>
+    summarise(score = mean(correct %in% TRUE & rt_numeric <= k * hrt), .groups = "drop") |>
+    inner_join(v1_base |> select(run_id, age, untimed_mixed), by = "run_id") |>
+    inner_join(hearts_rt_correct, by = "run_id")
+  tibble(window = paste0(k, " × own hearts RT"), mean_accuracy = mean(sk$score),
+         r_with_untimed_switching = partial_r(sk$score, sk$untimed_mixed, sk$age),
+         r_with_plain_speed = partial_r(sk$score, sk$hrt, sk$age))
+})
+knitr::kable(indiv, digits = 2, caption = "Counterfactual individualized windows (v1)")
+
+rt_halves <- typed |>
+  filter(form == "v1", block == "mixed", correct %in% TRUE) |>
+  arrange(run_id, trial_index) |>
+  group_by(run_id) |>
+  mutate(half = row_number() %% 2) |>
+  group_by(run_id, half) |>
+  summarise(switch_cost = median(rt_numeric[item_class == "mixed_switch"]) -
+              median(rt_numeric[item_class == "mixed_stay"]),
+            mixed_rt = median(rt_numeric), .groups = "drop")
+sb_halves <- \(v) {
+  h <- rt_halves |> select(run_id, half, x = all_of(v)) |>
+    pivot_wider(names_from = half, values_from = x)
+  r <- cor(h$`0`, h$`1`, use = "complete.obs")
+  2 * r / (1 + r)
+}
+tibble(measure = c("RT switch cost (switch − stay median RT)", "mixed-block median RT"),
+       split_half = c(sb_halves("switch_cost"), sb_halves("mixed_rt"))) |>
+  knitr::kable(digits = 2, caption = "Split-half reliability of RT measures, untimed v1 mixed block")
+```
+
+A window scaled to each child's own hearts-block speed overcorrects: slower
+children end up scoring *higher* (positive correlation with hearts RT). And
+the classic ceiling-free alternative, the RT switch cost, is unreliable (a
+split-half near zero); mixed-block RT itself is highly reliable but measures
+general speed.
+
+## The stop rule is mostly triggered by timeouts
+
+```{r stop-rule-replay}
+fires <- function(err) {
+  for (i in seq_along(err)) if (sum(err[max(1, i - 9):i]) > 6) return(TRUE)
+  FALSE
+}
+error_out_runs <- runs |> filter(stop_reason %in% "errorOut") |> pull(run_id)
+replay <- typed |>
+  filter(run_id %in% error_out_runs) |>
+  arrange(run_id, trial_index) |>
+  group_by(run_id) |>
+  summarise(fires_as_deployed = fires(!(correct %in% TRUE) | timeout),
+            fires_without_timeouts = fires(!(correct %in% TRUE) & !timeout),
+            timeout_share_last_10 = mean(tail(timeout, 10)),
+            age = first(age), .groups = "drop")
+replay |>
+  summarise(error_out_runs = n(), rule_reproduced = mean(fires_as_deployed),
+            would_still_fire_without_timeouts = mean(fires_without_timeouts),
+            timeout_share_last_10 = mean(timeout_share_last_10),
+            median_age = median(age, na.rm = TRUE)) |>
+  knitr::kable(digits = 3, caption = "Replaying the error-out rule on the v2 runs it stopped")
+```
+
+The rule reproduces exactly from the saved trials, and **72% of the stops
+would not have happened if timeouts did not count**. Timeouts are 30% of
+these children's last ten trials, and their median age is 6.3: the fast
+segments mostly cut off young children.
+
+## What reallocating trials would buy
+
+```{r reallocation}
+mix_info <- \(theta, p_switch) p_switch * info_3pl(theta, b_of("hf_heartsflowers_heart_switch")) +
+  (1 - p_switch) * info_3pl(theta, b_of("hf_heartsflowers_heart_stay"))
+test_info <- \(theta, n_hearts, n_flowers, n_mixed, p_switch)
+  n_hearts * info_3pl(theta, b_of("hf_hearts_heart_stay")) +
+  n_flowers * info_3pl(theta, b_of("hf_flowers_flower_stay")) +
+  n_mixed * mix_info(theta, p_switch)
+
+designs <- tribble(
+  ~design, ~n_hearts, ~n_flowers, ~n_mixed, ~p_switch,
+  "v2 as deployed (12 + 16 + 48)", 12, 16, 48, 0.62,
+  "shorter pure blocks (6 + 8 + 62)", 6, 8, 62, 0.62,
+  "shorter pure blocks, 80% switch", 6, 8, 62, 0.80)
+targets <- c(`median, 10-12` = theta_by_age$median[theta_by_age$age == "10-12"],
+             `top decile, ages 10+` = top_decile)
+designs |>
+  mutate(purrr::map_dfc(targets, \(t) 1 / sqrt(test_info(t, n_hearts, n_flowers, n_mixed, p_switch)))) |>
+  select(design, names(targets)) |>
+  knitr::kable(digits = 2, caption = "Expected standard error of θ at a given ability, by trial allocation (released untimed difficulties, same total length; switch share of 62% as observed)")
+```
+
+Moving trials from the pure blocks into the mixed block, and raising the
+share of switch trials, makes the median older child's score somewhat more
+precise at the same test length (SE about 0.53 → 0.48). It helps the top
+decile only a little (SE 1.26 → 1.08 at best, still above 1), because every
+untimed item is too easy there. Only harder items help much there, and in
+this task the only lever the data show is time.
+
 # Verdict
 
 1. **Variants.** The new form is `taskVersion = 2`, carried by every H&F
@@ -387,6 +680,14 @@ low-end compression in sections 4–6.
 4. **No reliability gain**: model-based reliability is about equal, split-half
    is lower, and cross-form retest at Leipzig is poor (.12, confounded with
    gap and age).
+5. **Shorter fixed windows won't remove the ceiling on construct** (§9).
+   They do move items to the older children's abilities (about 1.5 s for the
+   median 10–12-year-old, about 1.25 s for the top decile), but the added
+   difficulty is generic: the switch cost doesn't grow, and in the
+   counterfactual the score drifts from switching skill to plain speed.
+   Measuring the top decile with this task means deciding that conflict
+   resolution under time pressure is an acceptable construct for older
+   children.
 
 Recommendations for the DCC:
 
@@ -398,6 +699,16 @@ Recommendations for the DCC:
 - **Align `recode_hf()` with the v2 windows.** A 2000 ms cutoff inside a
   3000 ms window scores coin-rewarded responses as errors. Either cut at the
   window or set the windows to 2 s.
-- **Reconsider the error-out rule for H&F.** Exempt timeouts, or turn it off
-  for this task. Its comment and code disagree (4 vs > 6 of 10) either way.
+- **Exempt timeouts from the error-out rule** (or turn it off for H&F). That
+  alone would have prevented 72% of v2's early stops, mostly of young
+  children. The rule's comment and code also disagree (4 vs > 6 of 10).
+- **Don't use a 0.5 guessing floor for timed items.** A missed window scores
+  0, not chance; calibrate each window separately with a lower or estimated
+  floor, which also recovers information from trials already given.
+- **Spend trials where the information is:** shorten the pure blocks (they
+  are close to worthless from age 8 up, but useful as practice) and give
+  the trials to mixed switch trials.
+- **If the top decile must be measured,** offer a ~1.25–1.5 s segment only
+  to children who do well at 2 s, rather than to everyone; that adds
+  information at the top without the young-child error-outs.
 - **Plan a v2 → v2 retest** before deciding on the redesign's net value.
