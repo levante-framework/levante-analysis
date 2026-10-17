@@ -52,7 +52,11 @@ quarto render && cd . && quarto publish quarto-pub --no-render
 Commit the resulting `_publish.yml` so re-publishes reuse the same URL. Keep the
 clearance note here current after each publish.
 
-**Last published:** 2026-10-15 (commit 1446e1a), at Mike Frank's request — adds §9 of the
+**Last published:** 2026-10-17 (commit 7e4452f), at Mike Frank's request — Stories chapter
+follow-ups to Rebecca Saxe's review: corrected question types (relabel table
+`tasks/stories_qtype_relabels.csv`) and story type beyond question type, why development
+looks flat in Leipzig and Colombia (Bogotá V0), and Argentina vs Colombia.
+Earlier: 2026-10-15 (1446e1a), §9 of the
 Hearts & Flowers v2 chapter (timing, calibration, and the ceiling: counterfactual deadline
 items on the released scale, construct check, stop-rule replay).
 Earlier: 2026-10-15 (764c4cd), the Hearts & Flowers v2 chapter
