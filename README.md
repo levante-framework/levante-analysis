@@ -52,7 +52,10 @@ quarto render && cd . && quarto publish quarto-pub --no-render
 Commit the resulting `_publish.yml` so re-publishes reuse the same URL. Keep the
 clearance note here current after each publish.
 
-**Last published:** 2026-10-17 (commit 7e4452f), at Mike Frank's request — Stories chapter
+**Last published:** 2026-10-18 (commit 3cf9e3c), at Mike Frank's request — second pass on the
+Stories question-type relabels (knowledge-access type; story 10 "Is Brian lying?" back to
+reality check; "mad" questions kept as false belief / reality check).
+Earlier: 2026-10-17 (7e4452f), Stories chapter
 follow-ups to Rebecca Saxe's review: corrected question types (relabel table
 `tasks/stories_qtype_relabels.csv`) and story type beyond question type, why development
 looks flat in Leipzig and Colombia (Bogotá V0), and Argentina vs Colombia.
