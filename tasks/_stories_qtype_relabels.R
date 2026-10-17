@@ -24,12 +24,15 @@ why <- tribble(
   4,  "false_belief_1", "Fairness judgment about another character's anger; keyed no",
   16, "false_belief_1", "Fairness judgment about another character's anger; keyed no",
   10, "false_belief_1", "Lie judgment: a false statement made in good faith is not a lie; keyed no",
-  10, "reality_check_1", "Lie judgment (the deceiver); keyed yes. Corpus treats it as the control for the item above",
   16, "reference_1", "Belief-based attribution, the same structure as story 4 false_belief_2 (not a listener/reference question)",
   16, "reference_2", "Belief-based attribution, the same structure as story 4 false_belief_3",
   16, "reference_3", "Post-reveal check, the same structure as story 4 reality_check_1",
   16, "reference_4", "Post-reveal check, the same structure as story 4 reality_check_2",
-  16, "reference_5", "Post-reveal check, the same structure as story 4 reality_check_3")
+  16, "reference_5", "Post-reveal check, the same structure as story 4 reality_check_3",
+  6,  "false_belief_1", "Knowledge access (does a character know a fact?), not a false belief; easy, like the controls",
+  6,  "reality_check", "Knowledge access, the counterpart question for the other character",
+  12, "false_belief_2", "Knowledge access, not a false belief",
+  18, "false_belief_2", "Knowledge access, not a false belief")
 
 applied <- items |>
   filter(question_type_v2 != question_type) |>
@@ -42,14 +45,11 @@ stopifnot(nrow(applied) == nrow(why), !anyNA(applied$rationale))
 
 discuss <- tribble(
   ~story, ~entry, ~proposed_type, ~rationale,
-  4,  "emotion_reasoning_2", "counterfactual emotion (split?)", "\"How would X feel if...\" counterfactual emotion items (all stories' emotion_reasoning_2) are harder than actual-emotion items; a separate type may be warranted",
-  4,  "false_belief_2", "false_belief (keep?) or emotion attribution", "\"Is Mother mad at Isabel?\" attributes an emotion that depends on what Mother knows; story 4 false_belief_3 and story 16 reference_1/_2 are the same structure",
-  6,  "false_belief_1", "knowledge access (split?)", "\"Does Sam know that...?\" asks about knowledge, not a false belief; also story 12 false_belief_2 and story 18 false_belief_2",
-  10, "reality_check_2", "reality_check (duplicate prompt)", "Identical prompt to story 10 reality_check_3; one of the two is redundant")
+  10, "reality_check_2", "reality_check (keep; note)", "Same prompt as story 10 reality_check_3, but not served twice by mistake: separate corpus rows asked at scenes 10c and 10d, once after each lie question. 87% of children answer both the same way, so the pair is locally dependent")
 discuss <- discuss |>
   left_join(items |> select(story, entry, old_group, story_uid, prompt, keyed_answer, question_type, responses, accuracy),
             by = c("story", "entry")) |>
-  transmute(status = "for discussion (not applied)", story, story_type = old_group, entry, item_uid = story_uid,
+  transmute(status = "note (not relabelled)", story, story_type = old_group, entry, item_uid = story_uid,
             prompt, keyed_answer, current_type = question_type, proposed_type, rationale, responses,
             accuracy = round(accuracy, 3))
 

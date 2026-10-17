@@ -127,8 +127,8 @@ ds_label <- function(d) coalesce(unname(dataset_labels_named[d]), d)
 
 Three sections were added after a review by Rebecca Saxe, on the same
 2026-09 data: [corrected question types](#sec-qtype-relabel) (the corpus
-entry names file moral judgments under false belief; a relabel table for
-the team, and a test of whether story type matters beyond question type),
+entry names file moral judgments and knowledge-access questions under
+false belief; a relabel table for the team, and a test of whether story type matters beyond question type),
 [why development looks flat in Leipzig and Colombia](#sec-flat-dev), and
 [Argentina vs Colombia](#sec-ar-co). Earlier sections still use the corpus
 labels.
@@ -1372,27 +1372,37 @@ res_items$calib_summary |>
 ## Corrected question types, and story type beyond question type {#sec-qtype-relabel}
 
 The question types above come from the corpus entry names
-(`reality_check_N`, `false_belief_N`, ...). Read against the prompts, 15
-items are mislabelled. The moral questions are filed under false belief:
+(`reality_check_N`, `false_belief_N`, ...). Read against the prompts,
+`r sum(str_starts(relabels$status, "proposed"))` items are mislabelled. The moral questions are filed under false belief:
 "Is Ethan being mean and naughty?" and "Should Ethan get in trouble?" are
 `false_belief_2` and `_3` in the three moral-reasoning stories (2, 8 and 14),
 and the fairness question in stories 4 and 16 ("Is it fair that Mother is mad
-at Joshua?") is `false_belief_1`. The two lie questions in story 10 ("Is
-Teacher Sarah lying?", "Is Brian lying?") are grouped with them. Story 16's
-five questions are named `reference_1`–`_5` although they follow story 4's
-structure (belief-based attributions and post-reveal checks), so the
+at Joshua?") is `false_belief_1`. Story 10's "Is Teacher Sarah lying?" (a
+false statement made in good faith; keyed "no") is grouped with them, while
+"Is Brian lying?" stays a reality check. Story 16's five questions are named
+`reference_1`–`_5` although they follow story 4's structure, so the
 "reference" type was not only the listener questions of stories 5, 11 and 17.
+Like story 4's, they are scored by their logic: the belief-dependent "Is Dad
+mad at James?" as false belief, the post-reveal "... now?" as reality checks.
+A separate emotion-inference type was considered and not adopted: only two
+stories (one scenario) carry these questions, and within children the
+belief-dependent ones track false belief (partial r ≈ .12) more than emotion
+(≈ .04). Finally, the four "Does X know that ...?" questions of the
+second-order stories (6, 12, 18) become **knowledge access**, a step of the
+Wellman and Liu theory-of-mind scale; three of them were filed as false
+belief.
 The corrected scheme ([`_stories_qtype_recode.R`](_stories_qtype_recode.R))
 names the moral type `moral_judgment` to keep it apart from the
 `moral_reasoning` story type. The table is also in the repository as
-[`stories_qtype_relabels.csv`](stories_qtype_relabels.csv), with four
-borderline cases listed for discussion but not applied.
+[`stories_qtype_relabels.csv`](stories_qtype_relabels.csv), with a note on
+story 10's repeated reality check (two separate corpus rows asked at
+different scenes, not a serving bug).
 
 ```{r qtype-relabels}
 relabels |>
   transmute(status, story, story_type, entry, prompt, keyed_answer, current_type, proposed_type,
             rationale) |>
-  knitr::kable(caption = "Proposed question-type relabels (the first 15 rows are applied below)")
+  knitr::kable(caption = "Proposed question-type relabels (rows marked proposed are applied below)")
 ```
 
 ```{r qtype-v2-profile}
@@ -1409,8 +1419,10 @@ trials |>
   knitr::kable(digits = 2, caption = "Corrected question types: accuracy by age, and the mean age slope above the guessing floor (logits per year; cells as in the floor-model section)")
 ```
 
-Moral judgments (`r pick(res_nest$slope_by_qtype_v2, items, question_type_v2 == "moral_judgment")`
-items) are of medium difficulty and gain with age at
+Knowledge-access questions are easy, like the controls, but where they are
+not at ceiling they gain with age about as fast as false belief (only
+`r pick(res_nest$slope_by_qtype_v2, cells, question_type_v2 == "knowledge_access")`
+item × language cells). Moral judgments are of medium difficulty and gain with age at
 `r n2(pick(res_nest$slope_by_qtype_v2, mean_slope_floor, question_type_v2 == "moral_judgment"))`
 logits per year above the floor, between false belief
 (`r n2(pick(res_nest$slope_by_qtype_v2, mean_slope_floor, question_type_v2 == "false_belief"))`)
@@ -1446,6 +1458,7 @@ nt_st <- \(col) pick(nt, {{ col }}, comparison == "story type beyond question ty
 nt_orig_p <- pick(res_nest$difficulty_tests, p, qtype_scheme == "original",
                   comparison == "story type beyond question type")
 ir2 <- \(m) pick(res_nest$item_r2, R2, model == m)
+qt_v2_label <- res_nest$item_r2$model[2]
 ```
 
 - **For difficulty, story type adds a modest and uncertain amount beyond
@@ -1453,26 +1466,29 @@ ir2 <- \(m) pick(res_nest$item_r2, R2, model == m)
   χ²(`r nt_st(df)`) = `r n2(nt_st(chisq), 1)`, p = `r n2(nt_st(p), 3)`; AIC
   favours adding story type (dAIC `r n2(nt_st(dAIC), 1)`), BIC does not
   (dBIC `r n2(nt_st(dBIC), 1)`). At the item level R² goes from
-  `r n2(ir2("question type (corrected, 5)"))` to
+  `r n2(ir2(qt_v2_label))` to
   `r n2(ir2("corrected question type + story type"))`
   (p = `r n2(pick(res_nest$item_r2, p, model == "corrected question type + story type"), 2)`).
-  Given question type, items in deception stories are the hardest, and
-  items in interpretation and second-order stories about 0.75 SD easier.
+  Given question type, items in deception stories are the hardest; items in
+  interpretation stories are
+  `r n2(-pick(res_nest$story_type_effects, estimate, term == "interpretation"))` SD
+  easier and those in second-order stories
+  `r n2(-pick(res_nest$story_type_effects, estimate, term == "second_order"))` SD
+  easier.
   Individual stories add nothing beyond item-level variation.
 - With the corpus labels the same test was not significant
   (p = `r n2(nt_orig_p, 2)`), so the relabelling matters. The corrected types
-  explain slightly less difficulty variance than the corpus labels did
-  (R² `r n2(ir2("question type (corrected, 5)"))` vs
-  `r n2(ir2("question type (original, 4)"))`): the old false-belief bin
-  happened to group items of similar difficulty. The relabelling is a
+  explain about as much difficulty variance as the corpus labels did
+  (R² `r n2(ir2(qt_v2_label))` vs
+  `r n2(ir2("question type (original, 4)"))`); the relabelling is a
   correction, not a better fit.
 - **For age sensitivity, story type adds nothing** (p =
   `r n2(pick(res_nest$slope_tests, p, comparison == "story type beyond question type"), 2)`),
   while question type does (p =
   `r n2(pick(res_nest$slope_tests, p, comparison == "question type beyond story type"), 3)`).
 - The two schemes are only partly crossed: reference questions occur only in
-  reference stories, and moral judgments only in moral-reasoning and
-  deception stories. The test is identified mainly by false-belief,
+  reference stories, moral judgments only in moral-reasoning and deception
+  stories, and knowledge access only in second-order stories. The test is identified mainly by false-belief,
   reality-check and emotion items that appear across story types, with
   fewer than 90 items in all, so its power is limited.
 

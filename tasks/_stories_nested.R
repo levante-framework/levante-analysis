@@ -40,8 +40,9 @@ item_means <- diff |>
   group_by(story_uid, story, old_group, question_type, question_type_v2) |>
   summarise(difficulty_z = mean(difficulty_z), n_lang = n(), .groups = "drop")
 r2 <- \(f) summary(lm(f, data = item_means))$r.squared
+n_qt <- n_distinct(item_means$question_type_v2)
 item_r2 <- tibble(
-  model = c("question type (original, 4)", "question type (corrected, 5)", "story type (6)",
+  model = c("question type (original, 4)", paste0("question type (corrected, ", n_qt, ")"), "story type (6)",
             "corrected question type + story type", "corrected question type + story (18)"),
   R2 = c(r2(difficulty_z ~ question_type), r2(difficulty_z ~ question_type_v2), r2(difficulty_z ~ old_group),
          r2(difficulty_z ~ question_type_v2 + old_group), r2(difficulty_z ~ question_type_v2 + factor(story))))
