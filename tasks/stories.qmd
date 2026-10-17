@@ -27,6 +27,10 @@ res_rel   <- read_rds(file.path(dir26, "results_reliability.rds"))
 trials    <- read_rds(file.path(dir26, "stories_trials.rds"))
 runs      <- read_rds(file.path(dir26, "stories_runs.rds"))
 recon     <- read_rds(file.path(dir26, "reconciliation.rds"))
+dir2610   <- here("data/stories_2026-10")
+res_nest  <- read_rds(file.path(dir2610, "results_nested.rds"))
+res_fu    <- read_rds(file.path(dir2610, "results_followups.rds"))
+relabels  <- read_csv(here("tasks/stories_qtype_relabels.csv"), show_col_types = FALSE)
 
 # block-CAT design simulation (tasks/_stories_cat_sim.R)
 res_cat <- read_rds(file.path(dir26, "results_cat_sim.rds"))
@@ -117,6 +121,18 @@ ds_label <- function(d) coalesce(unname(dataset_labels_named[d]), d)
 ```
 
 # Purpose and what changed since June
+
+::: {.callout-note}
+## Update, 2026-10-17
+
+Three sections were added after a review by Rebecca Saxe, on the same
+2026-09 data: [corrected question types](#sec-qtype-relabel) (the corpus
+entry names file moral judgments under false belief; a relabel table for
+the team, and a test of whether story type matters beyond question type),
+[why development looks flat in Leipzig and Colombia](#sec-flat-dev), and
+[Argentina vs Colombia](#sec-ar-co). Earlier sections still use the corpus
+labels.
+:::
 
 This chapter consolidates the Stories (Theory of Mind, ToM) analyses on the
 newest data, with item identities corrected. It supersedes three June
@@ -1353,6 +1369,113 @@ res_items$calib_summary |>
 ```
 :::
 
+## Corrected question types, and story type beyond question type {#sec-qtype-relabel}
+
+The question types above come from the corpus entry names
+(`reality_check_N`, `false_belief_N`, ...). Read against the prompts, 15
+items are mislabelled. The moral questions are filed under false belief:
+"Is Ethan being mean and naughty?" and "Should Ethan get in trouble?" are
+`false_belief_2` and `_3` in the three moral-reasoning stories (2, 8 and 14),
+and the fairness question in stories 4 and 16 ("Is it fair that Mother is mad
+at Joshua?") is `false_belief_1`. The two lie questions in story 10 ("Is
+Teacher Sarah lying?", "Is Brian lying?") are grouped with them. Story 16's
+five questions are named `reference_1`–`_5` although they follow story 4's
+structure (belief-based attributions and post-reveal checks), so the
+"reference" type was not only the listener questions of stories 5, 11 and 17.
+The corrected scheme ([`_stories_qtype_recode.R`](_stories_qtype_recode.R))
+names the moral type `moral_judgment` to keep it apart from the
+`moral_reasoning` story type. The table is also in the repository as
+[`stories_qtype_relabels.csv`](stories_qtype_relabels.csv), with four
+borderline cases listed for discussion but not applied.
+
+```{r qtype-relabels}
+relabels |>
+  transmute(status, story, story_type, entry, prompt, keyed_answer, current_type, proposed_type,
+            rationale) |>
+  knitr::kable(caption = "Proposed question-type relabels (the first 15 rows are applied below)")
+```
+
+```{r qtype-v2-profile}
+trials |>
+  filter(!policy_exclude, !is.na(age)) |>
+  inner_join(res_nest$keys |> select(story_uid, question_type_v2), by = "story_uid") |>
+  group_by(question_type = question_type_v2) |>
+  summarise(items = n_distinct(story_uid), responses = n(), accuracy = mean(correct),
+            `under 7` = mean(correct[age < 7]), `7 to 9` = mean(correct[age >= 7 & age < 9]),
+            `9 and over` = mean(correct[age >= 9]), .groups = "drop") |>
+  left_join(res_nest$slope_by_qtype_v2 |> select(question_type = question_type_v2,
+                                                 slope_above_floor = mean_slope_floor),
+            by = "question_type") |>
+  knitr::kable(digits = 2, caption = "Corrected question types: accuracy by age, and the mean age slope above the guessing floor (logits per year; cells as in the floor-model section)")
+```
+
+Moral judgments (`r pick(res_nest$slope_by_qtype_v2, items, question_type_v2 == "moral_judgment")`
+items) are of medium difficulty and gain with age at
+`r n2(pick(res_nest$slope_by_qtype_v2, mean_slope_floor, question_type_v2 == "moral_judgment"))`
+logits per year above the floor, between false belief
+(`r n2(pick(res_nest$slope_by_qtype_v2, mean_slope_floor, question_type_v2 == "false_belief"))`)
+and reality checks
+(`r n2(pick(res_nest$slope_by_qtype_v2, mean_slope_floor, question_type_v2 == "reality_check"))`).
+
+The question that matters for story categories is not whether some story
+types have harder items overall, but whether stories of a given type carry
+*additional* variance once question type is controlled. The models below
+compare item difficulty (per-language Rasch difficulty, z within language)
+with and without story type, with crossed random intercepts for item and
+language ([`_stories_nested.R`](_stories_nested.R)), and the same comparison
+for the age slopes above the floor as a meta-regression.
+
+```{r nested-tests}
+res_nest$difficulty_tests |>
+  transmute(question_types = qtype_scheme, comparison, df, chisq, p = fp(p), dAIC, dBIC) |>
+  knitr::kable(digits = 2, caption = "Item difficulty: likelihood-ratio tests between nested models (negative dAIC/dBIC favours the larger model)")
+res_nest$item_r2 |>
+  mutate(p = fp(p)) |>
+  knitr::kable(digits = 3, caption = "Item level (one value per item, mean over languages): R² of each scheme, and the F test for story type beyond corrected question type")
+res_nest$story_type_effects |>
+  transmute(story_type = term, estimate, std.error) |>
+  knitr::kable(digits = 2, caption = "Story-type effects on difficulty given corrected question type (relative to deception stories; z units)")
+res_nest$slope_tests |>
+  mutate(p = fp(p)) |>
+  knitr::kable(digits = 2, caption = "Age slopes above the floor: story type beyond question type and the reverse")
+```
+
+```{r nested-numbers}
+nt <- res_nest$difficulty_tests |> filter(qtype_scheme == "corrected")
+nt_st <- \(col) pick(nt, {{ col }}, comparison == "story type beyond question type")
+nt_orig_p <- pick(res_nest$difficulty_tests, p, qtype_scheme == "original",
+                  comparison == "story type beyond question type")
+ir2 <- \(m) pick(res_nest$item_r2, R2, model == m)
+```
+
+- **For difficulty, story type adds a modest and uncertain amount beyond
+  question type.** The likelihood-ratio test gives
+  χ²(`r nt_st(df)`) = `r n2(nt_st(chisq), 1)`, p = `r n2(nt_st(p), 3)`; AIC
+  favours adding story type (dAIC `r n2(nt_st(dAIC), 1)`), BIC does not
+  (dBIC `r n2(nt_st(dBIC), 1)`). At the item level R² goes from
+  `r n2(ir2("question type (corrected, 5)"))` to
+  `r n2(ir2("corrected question type + story type"))`
+  (p = `r n2(pick(res_nest$item_r2, p, model == "corrected question type + story type"), 2)`).
+  Given question type, items in deception stories are the hardest, and
+  items in interpretation and second-order stories about 0.75 SD easier.
+  Individual stories add nothing beyond item-level variation.
+- With the corpus labels the same test was not significant
+  (p = `r n2(nt_orig_p, 2)`), so the relabelling matters. The corrected types
+  explain slightly less difficulty variance than the corpus labels did
+  (R² `r n2(ir2("question type (corrected, 5)"))` vs
+  `r n2(ir2("question type (original, 4)"))`): the old false-belief bin
+  happened to group items of similar difficulty. The relabelling is a
+  correction, not a better fit.
+- **For age sensitivity, story type adds nothing** (p =
+  `r n2(pick(res_nest$slope_tests, p, comparison == "story type beyond question type"), 2)`),
+  while question type does (p =
+  `r n2(pick(res_nest$slope_tests, p, comparison == "question type beyond story type"), 3)`).
+- The two schemes are only partly crossed: reference questions occur only in
+  reference stories, and moral judgments only in moral-reasoning and
+  deception stories. The test is identified mainly by false-belief,
+  reality-check and emotion items that appear across story types, with
+  fewer than 90 items in all, so its power is limited.
+
 ## Dimensionality
 
 The factor-analytic samples are complete fixed forms, one run per child,
@@ -2159,6 +2282,46 @@ fa <- res_inv$flag_agreement
   effect alone. Translation, prior exposure to the task and the samples
   themselves remain possible causes, and these data cannot separate them.
 
+## Argentina vs Colombia {#sec-ar-co}
+
+The two Spanish-speaking pilots took mostly different parts of the task.
+UTDT-AR children did only stories 13–18 (the no-HA retest-B form), aged
+about 6–8, on the newest task version. Bogotá children did stories 1–6, at
+older ages, almost all in the V0 deployment described in the section on
+flat development. Only rural Colombia overlaps with UTDT-AR, on stories
+13–18 through the 3-random-story form. The comparison below uses that
+overlap, at matched ages (5.5–9), with Leipzig and Sheffield on the same
+stories as reference points.
+
+```{r ar-co}
+res_fu$ac_samples |>
+  knitr::kable(digits = 1, caption = "Children aged 5.5–9 with stories 13–18")
+res_fu$ac_profile |>
+  knitr::kable(digits = 2, caption = "Correlation of item accuracies between samples (stories 13–18, ages 5.5–9)")
+res_fu$ac_wide |>
+  mutate(AR_minus_CO = `UTDT-AR` - `rural Colombia`) |>
+  arrange(desc(abs(AR_minus_CO))) |>
+  select(story, entry, question_type, n_colombia, `UTDT-AR`, `rural Colombia`, Leipzig, Sheffield, AR_minus_CO) |>
+  knitr::kable(digits = 2, caption = "Item accuracy, stories 13–18, ages 5.5–9 (n_colombia = rural Colombian answers per item)")
+```
+
+- **The item profiles are about as similar as any two samples.** UTDT-AR
+  and rural Colombia correlate
+  `r n2(pick(res_fu$ac_profile, r, pair == "UTDT-AR vs rural Colombia"))`
+  across items, against
+  `r n2(pick(res_fu$ac_profile, r, pair == "UTDT-AR vs Leipzig"))` for
+  UTDT-AR and Leipzig and
+  `r n2(pick(res_fu$ac_profile, r, pair == "UTDT-AR vs Sheffield"))` for
+  UTDT-AR and Sheffield.
+- UTDT-AR is about `r n2(100 * (res_fu$ac_means[["UTDT-AR"]] - res_fu$ac_means[["rural Colombia"]]), 0)`
+  points higher on average. With `r rng(res_fu$ac_wide$n_colombia, 0)`
+  Colombian answers per item, no single item difference is reliable.
+- The one Spanish-specific signal is story 13's false belief, low in both
+  Spanish samples and already on the hold list for a translation check.
+- So the large differences between the two countries in the pooled tables
+  reflect the older V0 version and different stories. On the stories they
+  share, what remains is a modest difference in level.
+
 ## The June bridge
 
 ```{r inv-bytype}
@@ -2664,6 +2827,95 @@ outside Leipzig, and
 Leipzig, where the Leipzig fCAT's age correlation is weak
 (`r n2(de_av_fcat)`). The corrections barely change age validity (compare
 `r_age_released`).
+
+## Why development looks flat in Leipzig and Colombia {#sec-flat-dev}
+
+The rate of growth in the score differs widely between sites with similar
+age ranges (`r n2(pick(av, slope_per_year, dataset == "pilot_mpieva_de_main"))`
+logits per year in Leipzig against
+`r n2(pick(av, slope_per_year, dataset == "pilot_western_ca_main"))` at
+Western). To see what children get wrong, this section works with raw
+accuracy on stories 1–6, which Leipzig, Bogotá, rural Colombia and Western
+share, splitting Bogotá at July 2024: everything before is the first
+deployment ("V0"), which supplies all of Bogotá's fixed-form data on these
+stories ([`_stories_followups_2026_10.R`](_stories_followups_2026_10.R)).
+
+```{r flat-groups}
+res_fu$group_runs |>
+  knitr::kable(digits = 1, caption = "Runs on stories 1–6 by group (policy-excluded items removed)")
+res_fu$controls_by_age |>
+  pivot_wider(names_from = age, values_from = c(accuracy, runs)) |>
+  knitr::kable(digits = 2, caption = "Accuracy on control questions (reality checks and emotion questions) by age")
+```
+
+```{r flat-items}
+res_fu$items_10plus |>
+  filter(group != "Bogotá, later") |>
+  left_join(res_nest$keys |> distinct(story, entry, question_type_v2), by = c("story", "entry")) |>
+  select(story, entry, question_type = question_type_v2, group, accuracy) |>
+  pivot_wider(names_from = group, values_from = accuracy) |>
+  arrange(`Bogotá V0 (May–Jun 2024)` - Western) |>
+  knitr::kable(digits = 2, caption = "Accuracy of children aged 10 and over, stories 1–6 (corrected question types), sorted by how far Bogotá V0 falls below Western")
+```
+
+```{r flat-numbers}
+cba <- \(g, a) pick(res_fu$controls_by_age, accuracy, group == g, age == a)
+v0g <- "Bogotá V0 (May–Jun 2024)"
+fl_ir <- \(g) pick(res_fu$item_rest, median_item_rest_r, group == g)
+fl_rt <- \(g, col) pick(res_fu$rt_floor, {{ col }}, group == g)
+```
+
+- **Leipzig is at ceiling.** Its children under 8 already get
+  `r n2(cba("Leipzig", "< 8"))` of the control questions right (Western:
+  `r n2(cba("Western", "< 8"))`), and those aged 10 and over get most items
+  in stories 1–6 above .90 right. There is little room left to grow; the
+  flat slope does not mean older children are getting something wrong.
+- **In Colombia, the flat slope comes mostly from Bogotá's first deployment.**
+  In V0, children aged 10 and over get only `r n2(cba(v0g, "10+"))` of the
+  control questions right, no better than at 8–10
+  (`r n2(cba(v0g, "8–10"))`), against `r n2(cba("Western", "10+"))` at
+  Western, `r n2(cba("Leipzig", "10+"))` in Leipzig and
+  `r n2(cba("Bogotá, later", "10+"))` in later Bogotá runs (only
+  `r pick(res_fu$controls_by_age, runs, group == "Bogotá, later", age == "10+")` children).
+  The items older V0 children miss are mostly easy controls (four of the
+  six largest gaps), on the same content versions other sites used for
+  stories 1, 3, 4 and 5, and on several two-choice questions their answers
+  split almost evenly:
+
+```{r flat-splits}
+res_fu$answer_splits |>
+  arrange(story, entry, group) |>
+  knitr::kable(digits = 2, caption = "Answers of children aged 9 and over on the items older V0 children miss")
+```
+
+- These are not responses attached to the wrong question: V0 items track
+  the rest of the child's answers about as strongly as elsewhere (median
+  item-rest r `r n2(fl_ir(v0g))` vs `r n2(fl_ir("Western"))` at Western).
+  Weaker older children in V0 are weaker consistently.
+- **V0 was also a different administration.** In every later version, the
+  answer buttons only work once the question audio has finished: the
+  fastest 1% of answers to story 1's reality check come at
+  `r n2(fl_rt("Western", rt_q01_s), 1)`–`r n2(fl_rt("rural Colombia", rt_q01_s), 1)` s.
+  In V0 they come at `r n2(fl_rt(v0g, rt_q01_s), 1)` s, and
+  `r pct(fl_rt(v0g, share_under_2s))` of answers are faster than 2 s.
+
+```{r flat-rt}
+res_fu$rt_floor |>
+  knitr::kable(digits = 2, caption = "Response times on story 1's reality check (seconds)")
+res_fu$v0_rt_terciles |>
+  knitr::kable(digits = 2, caption = "Within V0: control accuracy by response-time tercile (per item)")
+```
+
+- Within V0, fast answers are not less accurate, so early answering is not
+  itself the cause. But V0 differs from every later deployment in how
+  children answered, and it is the only source of Bogotá's fixed-form data
+  on these stories. It should be treated as a separate, older form and kept
+  out of developmental conclusions until the Bogotá team can say how those
+  sessions ran.
+- **Rural Colombia has no V0 data and does improve** (control accuracy
+  `r n2(cba("rural Colombia", "< 8"))` → `r n2(cba("rural Colombia", "8–10"))` →
+  `r n2(cba("rural Colombia", "10+"))`), but stays below the other sites at
+  every age.
 
 ::: {.callout-note collapse="true"}
 ## Spanish false-belief items: scores with and without
