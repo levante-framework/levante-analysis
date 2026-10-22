@@ -139,11 +139,11 @@ Among *proper* models the **2-factor (fluid/verbal) is BIC-preferred**, tying th
 :::
 ::::
 
-## Task deep-dives (1/3): adaptive testing & engagement {.smaller}
+## Task deep-dives (1/3): scoring artifacts & engagement {.smaller}
 
-- **Math:** Bogotá "regression to the mean" is a **CAT-routing artifact** (item selection shifts across waves), not within-child change; item bank unbalanced by sub-domain.
+- **Math:** Bogotá "regression to the mean" was mostly the **column-order scoring bug**, not CAT routing (Galton slope 0.19 → 0.81 once corrected; `tasks/math_eap_vs_ml`); item bank still unbalanced by sub-domain (number-line items dominate above β = 1).
 - **ROAR-Word:** super-low scores = **floor / non-engagement** (rushers, near-chance responders), not truncated runs → cleaning filter (acc < 0.4 or median RT < 500 ms).
-- **Vocab:** apparent "decline" reflects **CAT item-exposure / floor**, not ability loss.
+- **Vocab:** apparent "decline" was mostly the **column-order scoring bug** (Leipzig mean T1→T2 change −0.91 → −0.00 logits once corrected; `tasks/vocab`); easy non-adaptive forms still leave high scorers with large SEs.
 
 ## Task deep-dives (2/3): measurement checks {.smaller}
 
