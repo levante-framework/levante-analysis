@@ -39,6 +39,8 @@ scores <- readRDS(here("data/scores_latest_v3_17.rds")) |>
 
 age_band <- \(a) cut(a, c(0, 6, 8, 10, 20), right = FALSE,
                      labels = c("<6", "6-8", "8-10", "10+"))
+age_band5 <- \(a) cut(a, c(0, 6, 8, 10, 12, 20), right = FALSE,
+                      labels = c("<6", "6-8", "8-10", "10-12", "12+"))
 
 runs <- hf_run_struct |>
   left_join(hf_runs |> select(run_id, dataset, user_id, age, time_started,
@@ -123,6 +125,33 @@ mismatch follows: in the 3-s windows (pure blocks and mixed segment 1), a
 correct 2–3 s response plays the coin but is scored wrong (0.3–2.5% of those
 trials).
 
+```{r rt-distributions, fig.height = 3.8, fig.width = 11}
+rt_panels <- hf_test |>
+  semi_join(complete_runs, by = "run_id") |>
+  filter(!is.na(block), !timeout, rt_numeric > 0, rt_numeric < 4000) |>
+  mutate(panel = case_when(block != "mixed" ~ "pure blocks",
+                           form == "v1" ~ "v1 mixed",
+                           TRUE ~ paste0("v2 mixed, ", window / 1000, " s")),
+         panel = factor(panel, c("pure blocks", "v1 mixed", "v2 mixed, 3 s",
+                                 "v2 mixed, 2 s", "v2 mixed, 1.5 s")))
+windows <- tibble(panel = factor(c("pure blocks", "v2 mixed, 3 s", "v2 mixed, 2 s",
+                                   "v2 mixed, 1.5 s"), levels(rt_panels$panel)),
+                  window = c(3000, 3000, 2000, 1500))
+ggplot(rt_panels, aes(rt_numeric, fill = form)) +
+  geom_density(alpha = .45, colour = NA, adjust = .8) +
+  geom_vline(xintercept = 2000, linetype = "dashed") +
+  geom_vline(data = windows, aes(xintercept = window), colour = "firebrick") +
+  facet_wrap(~panel, nrow = 1) +
+  scale_x_continuous(breaks = c(0, 1000, 2000, 3000), labels = c("0", "1", "2", "3")) +
+  labs(x = "Response time (s)", y = "Density", fill = "Form",
+       title = "Response times by block: v1's slow tail vs v2's windows",
+       subtitle = "Red: v2 response window. Dashed: the 2000 ms cutoff recode_hf() scores as an error. Answered trials of complete runs.")
+```
+
+The untimed v1 distributions have a long right tail past 2 s, all of which
+is scored as error. v2's windows cut the tail off, and in the 2-s and 1.5-s
+segments the whole distribution shifts left as children speed up.
+
 # 3. Many more v2 runs end early
 
 ```{r completion}
@@ -162,16 +191,65 @@ response-dependent, so θ estimates from the observed trials stay valid, but
 these children lose their hardest trials and many leave the task on a run of
 failures.
 
-# 4. Ceiling: fewer perfect scores at the top, but the low end moves up
+# 4. Floor and ceiling: the floor nearly disappears, the ceiling moves
 
-```{r ceiling}
+```{r theta-by-age, fig.height = 4.8}
+theta_age <- scored_runs |>
+  filter(!is.na(age), age >= 4, age < 14) |>
+  group_by(form) |>
+  mutate(at_cap = theta >= max(theta) - 0.05) |>
+  ungroup()
+ggplot(theta_age, aes(age, theta)) +
+  geom_point(aes(colour = at_cap), alpha = 0.35, size = 0.9) +
+  geom_quantile(quantiles = c(.1, .5, .9), formula = y ~ splines::ns(x, 3),
+                colour = "black") +
+  facet_wrap(~form) +
+  scale_colour_manual(values = c(`FALSE` = "grey55", `TRUE` = "firebrick"),
+                      labels = c("below the score cap", "at the score cap"), name = NULL) +
+  labs(x = "Age (years)", y = "Released θ",
+       title = "Released θ by age",
+       subtitle = "All scored runs. Lines: 10th, 50th, 90th percentiles. The cap is the score of an error-free run.") +
+  theme(legend.position = "bottom")
+```
+
+```{r floor-ceiling-by-age, fig.height = 4.2}
 run_acc <- hf_test |>
   semi_join(complete_runs, by = "run_id") |>
   filter(!is.na(block)) |>
   group_by(run_id) |>
   summarise(acc = mean(sc_pipeline),
+            acc_mixed = mean(sc_pipeline[block == "mixed"]),
             perfect_mixed = all(sc_pipeline[block == "mixed"]), .groups = "drop")
 
+ceiling_share <- scored_runs |>
+  filter(!is.na(age), age >= 4, age < 14) |>
+  group_by(form) |>
+  mutate(near_cap = theta >= max(theta) - 0.5) |>
+  group_by(form, age_yr = floor(age)) |>
+  summarise(n = n(), share = mean(near_cap), .groups = "drop") |>
+  mutate(end = "Ceiling: θ within 0.5 logits of the cap (all scored runs)")
+floor_share <- complete_runs |>
+  inner_join(run_acc, by = "run_id") |>
+  filter(!is.na(age), age >= 4, age < 14) |>
+  group_by(form, age_yr = floor(age)) |>
+  summarise(n = n(), share = mean(acc_mixed <= .625), .groups = "drop") |>
+  mutate(end = "Floor: mixed block ≤ 62.5% correct (complete runs)")
+
+bind_rows(ceiling_share, floor_share) |>
+  filter(n >= 15) |>
+  ggplot(aes(age_yr, share, colour = form)) +
+  geom_line() +
+  geom_point(aes(size = n)) +
+  facet_wrap(~end) +
+  scale_size_area(max_size = 4, guide = "none") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = seq(4, 13, 2)) +
+  labs(x = "Age (years)", y = "Share of runs", colour = "Form",
+       title = "Floor and ceiling by age",
+       subtitle = "Age bins with at least 15 runs; point size = runs. 62.5% correct is just above the 50% guessing rate.")
+```
+
+```{r ceiling-table}
 complete_runs |>
   inner_join(run_acc, by = "run_id") |>
   filter(!is.na(age)) |>
@@ -180,15 +258,39 @@ complete_runs |>
             perfect_mixed = mean(perfect_mixed),
             acc_97_plus = mean(acc >= .97), .groups = "drop") |>
   pivot_wider(names_from = form, values_from = -c(form, age)) |>
-  knitr::kable(digits = 3, caption = "Ceiling indicators by age band, complete runs")
+  knitr::kable(digits = 3, caption = "Accuracy-based ceiling indicators by age band, complete runs. Note the mixed block is 32 trials in v1 and 48 in v2, so a perfect mixed block is harder to achieve in v2 regardless of difficulty.")
+
+scored_runs |>
+  filter(!is.na(age)) |>
+  group_by(form) |>
+  mutate(cap = max(theta)) |>
+  group_by(form, age = age_band5(age)) |>
+  summarise(runs = n(), at_cap = mean(theta >= cap - 0.05),
+            within_half_logit = mean(theta >= cap - 0.5), .groups = "drop") |>
+  pivot_wider(names_from = form, values_from = -c(form, age)) |>
+  knitr::kable(digits = 3, caption = "θ-scale ceiling by age band, all scored runs (cap = 4.0 in v1, 4.13 in v2)")
 ```
 
-The fast segment does break the ceiling for the oldest children: perfect
-mixed-block performance at 10+ falls from about one run in five (v1) to under
-one in ten (v2). But scored accuracy rises in every younger band (e.g. .66 →
-.86 under age 6), because v2 removes most of the slow-response errors that
-dominated v1's lower range. Overall the score distribution is pushed *up*, not
-spread out.
+**The floor nearly disappears.** In v1, a third to a half of 5- and
+6-year-olds scored near chance on the mixed block, and a fifth to a third of
+7- to 9-year-olds. In v2 that share is under 5% at every age. Part of v1's floor
+was slow responding: answers after 2 s are scored as errors (§2), and v1
+children gave many of them.
+
+**The ceiling moves to younger ages rather than falling.** On the released θ
+scale, the oldest children are clearly further from the cap in v2 (within
+half a logit of the cap at 10–12: 18% in v1 vs 4% in v2; at 12+: 25% vs
+9%). But more 6- to 10-year-olds sit exactly at the cap in v2 (4–6% vs about
+1%), and on accuracy the share of complete runs with at least 97% correct is
+higher in v2 below age 10 and only somewhat lower at 10+ (29% vs 34%). In v2 a single error moves a child from
+the cap (θ ≈ 4.1) to about 3.2, the band visible in the first figure.
+
+An earlier version of this section said the fast segment cut perfect
+mixed-block performance at 10+ from about one run in five to under one in
+ten. That comparison is confounded: the v2 mixed block is half again as long
+(48 vs 32 trials), so a perfect block is harder to achieve whatever the
+items' difficulty. The θ-scale comparison above accounts for trial count and
+difficulty.
 
 # 5. Reliability
 
@@ -367,7 +469,7 @@ low-end compression in sections 4–6.
 | Post-error recovery, pure blocks | feedback | v1 → v2 at matched post-correct accuracy (§7) |
 | Timeouts, early stops in mixed | timing | dose-response across v2's three segments, feedback constant (§2, §3) |
 | Fewer slow (>2 s) responses | both | deadline caps them; feedback also speeds responses in the pure blocks, where the deadline barely binds |
-| Fewer perfect scores at 10+ | timing | concentrated in the 1.5-s segment (§2, §4) |
+| Fewer near-cap scores at 10+ | timing (likely) | the 1.5-s segment is the only part of v2 that is hard for older children (§2, §9) |
 | Higher scored accuracy at young ages | both, mostly feedback + fewer slow errors | §4, §7 |
 | Reliability, retest, age validity | not separable | only overall v1 vs v2 contrasts exist |
 
@@ -392,8 +494,6 @@ released <- readRDS(here("data/hf_v2/item_parameters_released.rds")) |>
   arrange(b)
 knitr::kable(released, digits = 2, caption = "Released H&F item difficulties (Rasch, guessing 0.5)")
 
-age_band5 <- \(a) cut(a, c(0, 6, 8, 10, 12, 20), right = FALSE,
-                      labels = c("<6", "6-8", "8-10", "10-12", "12+"))
 theta_by_age <- scored_runs |>
   filter(form == "v1", !is.na(age)) |>
   group_by(age = age_band5(age)) |>
@@ -463,6 +563,38 @@ children's median ability; 1250 ms moves them to about 3–4, the top decile.
 Below about 1250 ms accuracy falls under 50%. A model with a 0.5 guessing
 floor cannot represent that: a child who misses the window scores 0, not
 chance.
+
+```{r wright-map, fig.height = 5.2}
+item_lines <- dl$v1_items |>
+  filter(is.finite(deadline), b < 7.9) |>
+  mutate(item_class = factor(item_class, c("hearts", "flowers", "mixed_stay", "mixed_switch")))
+p_items <- ggplot(item_lines, aes(deadline, b, colour = item_class)) +
+  geom_hline(yintercept = theta_by_age$median, colour = "grey75", linetype = "dotted") +
+  geom_line() +
+  geom_point() +
+  scale_x_reverse(breaks = c(3000, 2500, 2000, 1500, 1000),
+                  labels = c("3", "2.5", "2", "1.5", "1")) +
+  coord_cartesian(ylim = c(-5, 5)) +
+  labs(x = "Imposed deadline (s), faster to the right", y = "Item difficulty (released θ scale)",
+       colour = "Item class") +
+  theme(legend.position = "bottom") +
+  guides(colour = guide_legend(nrow = 2))
+p_people <- scored_runs |>
+  filter(form == "v1", !is.na(age)) |>
+  mutate(age = age_band5(age)) |>
+  ggplot(aes(age, theta)) +
+  geom_boxplot(outlier.size = 0.5, fill = "grey90") +
+  coord_cartesian(ylim = c(-5, 5)) +
+  labs(x = "Age band (v1 children)", y = NULL)
+patchwork::wrap_plots(p_items, p_people, widths = c(2, 1)) +
+  patchwork::plot_annotation(
+    title = "Where items sit relative to children (shared θ scale)",
+    subtitle = "Left: item difficulty with a deadline imposed on untimed v1 responses;\ndotted lines mark each age band's median θ. Right: θ by age.")
+```
+
+Read across: at a 3-s deadline (left) every item sits below the median
+child aged 6 and over, and the mixed-block items only rise into the 10–12 and
+12+ range at about 1.5 s or faster.
 
 The counterfactual can be checked against v2, where children really were
 given these windows. Imposing 2000 and 1500 ms on the v2 3-s segment
@@ -664,6 +796,227 @@ decile only a little (SE 1.26 → 1.08 at best, still above 1), because every
 untimed item is too easy there. Only harder items help much there, and in
 this task the only lever the data show is time.
 
+# 10. Scoring alternatives: modelling timeouts, imputing early stops
+
+Two further ideas for getting more out of the v2 data: score each trial with
+three outcomes (correct, wrong side, timeout) in a **nominal** IRT model, so
+that timeouts can carry different information from errors; and treat a run
+that the error-out rule stopped as evidence the child would have kept timing
+out, **imputing** the unreached trials.
+
+All models here are fit to the v2 runs only, as a single group, with item
+parameters held equal within item class × response window, so the models
+differ only in how a trial outcome is coded
+([`_hf_v2_nominal.R`](_hf_v2_nominal.R); run with the system R library,
+because `mirt` can't load in this project's renv). A trial is correct if the
+side is right and RT ≥ 200 ms (no 2000 ms cutoff; v2's windows already bound
+RT). Pure-block timeouts (0.2%) are too rare to model and are coded wrong
+throughout.
+
+| Model | Trial coding |
+|---|---|
+| 2PL, timeout = wrong | correct / not (like the released scoring) |
+| 2PL, timeout = missing | correct / wrong side; timeouts dropped |
+| Nominal | wrong side / timeout / correct, each mixed item with its own category weights |
+
+## How a timeout counts
+
+```{r nominal-weights}
+nr <- readRDS(here("data/hf_v2/nominal_results.rds"))
+nominal_pars <- as.data.frame(nr$params$nominal) |>
+  tibble::rownames_to_column("item") |>
+  mutate(group = sub("_[0-9]+$", "", item)) |>
+  filter(grepl("^mixed", group)) |>
+  group_by(group) |>
+  slice(1) |>
+  ungroup() |>
+  transmute(item_class = sub("_[0-9]+$", "", group),
+            window_ms = as.numeric(sub(".*_", "", group)),
+            slope = a1, timeout_weight = ak1) |>
+  arrange(item_class, desc(window_ms))
+knitr::kable(nominal_pars, digits = 2,
+             caption = "Nominal model, mixed items: category weights are 0 for a wrong-side response and 2 for a correct one; timeout_weight is where a timeout falls on that scale")
+```
+
+The nominal model does find a real distinction. In the 3-s window a timeout
+counts *below* a wrong-side response (weight about −1.1 to −1.5): a child who
+lets 3 s pass is more likely disengaged than slow. In the 1.5-s window a
+timeout counts about the same as an error.
+
+## Imputing early stops: the assumption and the theory
+
+Imputation here fills every trial an error-out run did not reach with a
+timeout (mixed block) or an error (pure blocks); the stay/switch status of an
+unreached mixed trial is drawn at the observed switch share. Two cautions
+apply before looking at any numbers.
+
+First, the stop rule depends only on responses already observed, so the
+unreached trials are *ignorably* missing: the EAP score computed from the
+observed trials is already the correct use of everything known about the
+child. Imputed trials add no information; they are a deterministic function
+of trials already in the score. They can only shift the score (by asserting
+what the child would have done) and inflate apparent precision.
+
+Second, the assumption that a stopped child would have kept timing out can
+be checked on children who came within one error of the rule (six errors in a
+ten-trial window) and kept going:
+
+```{r near-miss}
+nr$near_miss |>
+  summarise(children = n(), median_later_trials = median(next_trials),
+            median_accuracy_after = median(acc_after),
+            median_timeout_rate_after = median(timeout_after)) |>
+  knitr::kable(digits = 2, caption = "Children who reached 6 errors in a 10-trial window but completed the run: their later trials")
+```
+
+Most recovered: median 74% correct on later trials, with 6% timeouts. This
+group is selected on not having stopped, so it overstates recovery somewhat,
+but it is far from the 100% timeouts the imputation assumes.
+
+## Results
+
+```{r scoring-comparison}
+model_labels <- c(
+  timeout_wrong = "2PL, timeout = wrong",
+  nominal = "Nominal",
+  timeout_missing = "2PL, timeout = missing",
+  `timeout_wrong + imputed` = "2PL, timeout = wrong, error-outs imputed",
+  `nominal + imputed` = "Nominal, error-outs imputed")
+
+nr_scores <- bind_rows(nr$scores, nr$imputed_scores) |>
+  filter(model %in% names(model_labels))
+
+other_ef <- readRDS(here("data/scores_latest_v3_17.rds")) |>
+  filter(task_id %in% c("memory-game", "same-different-selection"), !is.na(score)) |>
+  select(user_id, task_id, other_score = score, other_time = time_started)
+nr_meta <- runs |>
+  semi_join(nr$scores, by = "run_id") |>
+  select(run_id, dataset, user_id, age, time_started, stop_reason)
+ef_match <- nr_meta |>
+  inner_join(other_ef, by = "user_id", relationship = "many-to-many") |>
+  mutate(gap = abs(as.numeric(difftime(as.POSIXct(other_time, tz = "UTC"),
+                                       time_started, units = "days")))) |>
+  filter(gap <= 90) |>
+  group_by(run_id, task_id) |>
+  slice_min(gap, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(run_id, task_id, other_score) |>
+  pivot_wider(names_from = task_id, values_from = other_score)
+
+eval_wide <- nr_scores |>
+  select(run_id, model, theta, theta_h0, theta_h1) |>
+  pivot_wider(names_from = model, values_from = c(theta, theta_h0, theta_h1),
+              names_sep = "|") |>
+  inner_join(nr_meta, by = "run_id") |>
+  left_join(ef_match, by = "run_id") |>
+  group_by(dataset) |>
+  filter(n() >= 40) |>
+  ungroup()
+
+partial_r <- \(a, b, z) {
+  ok <- complete.cases(a, b, z)
+  if (sum(ok) < 30) return(NA_real_)
+  r <- cor(cbind(a[ok], b[ok], z[ok]))
+  (r[1, 2] - r[1, 3] * r[2, 3]) / sqrt((1 - r[1, 3]^2) * (1 - r[2, 3]^2))
+}
+metrics <- function(d) {
+  per_ds <- purrr::map_dfr(split(d, d$dataset), \(x) {
+    purrr::map_dfr(names(model_labels), \(m) {
+      sh <- cor(x[[paste0("theta_h0|", m)]], x[[paste0("theta_h1|", m)]],
+                use = "complete.obs")
+      tibble(model = m, n = nrow(x),
+             split_half = 2 * sh / (1 + sh),
+             r_age = cor(x[[paste0("theta|", m)]], x$age, use = "complete.obs"),
+             r_memory = partial_r(x[[paste0("theta|", m)]], x$`memory-game`, x$age),
+             r_same_different = partial_r(x[[paste0("theta|", m)]],
+                                          x$`same-different-selection`, x$age))
+    })
+  })
+  per_ds |>
+    group_by(model) |>
+    summarise(across(c(split_half, r_age, r_memory, r_same_different),
+                     \(v) sum(v * n, na.rm = TRUE) / sum(n[!is.na(v)])),
+              .groups = "drop")
+}
+
+point <- metrics(eval_wide)
+emp_rel <- nr_scores |>
+  inner_join(nr_meta |> select(run_id, dataset), by = "run_id") |>
+  semi_join(eval_wide, by = "dataset") |>
+  group_by(model, dataset) |>
+  summarise(n = n(), rel = var(theta) / (var(theta) + mean(se^2)), .groups = "drop") |>
+  group_by(model) |>
+  summarise(model_reliability = sum(rel * n) / sum(n), .groups = "drop")
+
+point |>
+  left_join(emp_rel, by = "model") |>
+  mutate(model = factor(model_labels[model], model_labels)) |>
+  arrange(model) |>
+  select(model, split_half, model_reliability, everything()) |>
+  knitr::kable(digits = 3, caption = sprintf("Reliability and validity by scoring model, v2 runs (%d runs, %d datasets; n-weighted within-dataset values). Memory and Same & Different: age-partialled correlation with the child's nearest run within 90 days.", nrow(eval_wide), n_distinct(eval_wide$dataset)))
+```
+
+```{r scoring-bootstrap}
+set.seed(20261022)
+idx_by_ds <- split(seq_len(nrow(eval_wide)), eval_wide$dataset)
+boot <- purrr::map_dfr(1:500, \(b) {
+  ii <- unlist(lapply(idx_by_ds, \(i) sample(i, replace = TRUE)))
+  metrics(eval_wide[ii, ]) |> mutate(rep = b)
+})
+boot |>
+  pivot_longer(-c(model, rep), names_to = "metric") |>
+  group_by(rep, metric) |>
+  mutate(diff = value - value[model == "timeout_wrong"]) |>
+  ungroup() |>
+  filter(model != "timeout_wrong") |>
+  group_by(model, metric) |>
+  summarise(ci = sprintf("%+.3f [%+.3f, %+.3f]", median(diff),
+                         quantile(diff, .025), quantile(diff, .975)), .groups = "drop") |>
+  pivot_wider(names_from = metric, values_from = ci) |>
+  mutate(model = factor(model_labels[model], model_labels)) |>
+  arrange(model) |>
+  select(model, split_half, r_age, r_memory, r_same_different) |>
+  knitr::kable(caption = "Difference from the 2PL timeout = wrong model, with 95% bootstrap intervals (500 paired resamples of runs within dataset)")
+```
+
+```{r score-agreement}
+eval_wide |>
+  summarise(`nominal vs 2PL timeout = wrong` = cor(`theta|nominal`, `theta|timeout_wrong`),
+            `2PL timeout = missing vs = wrong` = cor(`theta|timeout_missing`, `theta|timeout_wrong`)) |>
+  knitr::kable(digits = 3, caption = "Correlation of full-data scores between models")
+
+eval_wide |>
+  filter(stop_reason %in% "errorOut") |>
+  summarise(error_out_runs = n(),
+            median_shift = median(`theta|nominal + imputed` - `theta|nominal`),
+            q10_shift = quantile(`theta|nominal + imputed` - `theta|nominal`, .1)) |>
+  knitr::kable(digits = 2, caption = "Effect of imputation on the stopped children's scores (nominal model, logits)")
+```
+
+**The nominal model doesn't help.** Its scores correlate .999 with the
+dichotomous ones, and every difference in reliability or validity is at most
+.004. Because the two sets of scores are nearly identical, the paired
+bootstrap can tell some of these tiny differences from zero, but none is
+large enough to matter. Timeouts are too rare outside the 1.5-s segment for
+their distinct weight to change anyone's score much.
+
+**Timeouts do carry information**: dropping them (timeout = missing) costs
+about .04 split-half reliability, .08 in the age correlation, and .04 in the
+Memory correlation. Scoring them as errors, as the released model does,
+captures that information. The one exception is Same & Different, whose
+correlation rises by .02 when timeouts are dropped; that would fit timeouts
+adding speed-related variance that an untimed task doesn't share.
+
+**Imputation makes the scores look more reliable and makes them less
+valid.** Split-half reliability rises by about .02 and model reliability by
+about .03, because the imputed trials sit in both halves and agree by
+construction. All three external criteria move the other way, by small
+amounts (−.005 to −.012; the intervals for age and Same & Different exclude
+zero). The stopped children's scores drop by about half a logit,
+which is the imputation asserting an answer to a question the data can't
+answer. Don't impute; the observed-trial EAP is already the right score for
+a stopped run.
+
 # Verdict
 
 1. **Variants.** The new form is `taskVersion = 2`, carried by every H&F
@@ -674,9 +1027,11 @@ this task the only lever the data show is time.
 2. **The ding works as feedback** (§7) but compresses the low end of the
    distribution. Keep it if the target construct is efficiency under
    conflict, not rule acquisition.
-3. **The faster segments reduce the ceiling only for the oldest children,
-   and do it through timeouts**, which also drive a large rise in early
-   stops (~25% of v2 runs vs ~8%) via the error-out rule.
+3. **The floor nearly disappears and the ceiling moves rather than
+   falls** (§4): fewer of the oldest children sit near the cap, more 6- to
+   10-year-olds do. The faster segments act through timeouts, which also
+   drive a large rise in early stops (~25% of v2 runs vs ~8%) via the
+   error-out rule.
 4. **No reliability gain**: model-based reliability is about equal, split-half
    is lower, and cross-form retest at Leipzig is poor (.12, confounded with
    gap and age).
@@ -688,6 +1043,10 @@ this task the only lever the data show is time.
    Measuring the top decile with this task means deciding that conflict
    resolution under time pressure is an acceptable construct for older
    children.
+6. **Neither scoring alternative helps** (§10). A nominal model that
+   separates timeouts from errors gives the same scores and the same
+   reliability; imputing timeouts for stopped runs inflates internal
+   consistency while slightly lowering external validity.
 
 Recommendations for the DCC:
 
@@ -711,4 +1070,7 @@ Recommendations for the DCC:
 - **If the top decile must be measured,** offer a ~1.25–1.5 s segment only
   to children who do well at 2 s, rather than to everyone; that adds
   information at the top without the young-child error-outs.
+- **Keep scoring timeouts as errors** in a dichotomous model, and **don't
+  impute early stops**: the score from the observed trials is already
+  correct for a stopped run.
 - **Plan a v2 → v2 retest** before deciding on the redesign's net value.
