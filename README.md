@@ -52,8 +52,10 @@ quarto render && cd . && quarto publish quarto-pub --no-render
 Commit the resulting `_publish.yml` so re-publishes reuse the same URL. Keep the
 clearance note here current after each publish.
 
-**Last published:** 2026-10-22 (commit deb01b4), at Mike Frank's request — Hearts & Flowers
-v2 chapter: floor/ceiling-by-age figures (§4), RT and Wright-map figures (§2, §9), and §10
+**Last published:** 2026-10-25 (commit ab729b6), at Mike Frank's request — Hearts & Flowers
+v2 chapter §11: concurrent refit of both forms on one scale (ceiling falls, range doesn't
+widen); §4 and the verdict now defer to it.
+Earlier: 2026-10-22 (deb01b4), Hearts & Flowers v2 chapter: floor/ceiling-by-age figures (§4), RT and Wright-map figures (§2, §9), and §10
 scoring alternatives (nominal timeout model, imputing error-out runs).
 Earlier: 2026-10-18 (3cf9e3c), second pass on the
 Stories question-type relabels (knowledge-access type; story 10 "Is Brian lying?" back to
