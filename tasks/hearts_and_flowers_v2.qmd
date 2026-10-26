@@ -277,20 +277,20 @@ scored_runs |>
 was slow responding: answers after 2 s are scored as errors (§2), and v1
 children gave many of them.
 
-**The ceiling moves to younger ages rather than falling.** On the released θ
-scale, the oldest children are clearly further from the cap in v2 (within
-half a logit of the cap at 10–12: 18% in v1 vs 4% in v2; at 12+: 25% vs
-9%). But more 6- to 10-year-olds sit exactly at the cap in v2 (4–6% vs about
-1%), and on accuracy the share of complete runs with at least 97% correct is
-higher in v2 below age 10 and only somewhat lower at 10+ (29% vs 34%). In v2 a single error moves a child from
-the cap (θ ≈ 4.1) to about 3.2, the band visible in the first figure.
+**The ceiling can't be judged on released θ.** The released model scores v2
+with item parameters calibrated on untimed v1 trials, so passing a 1.5-s
+switch trial earns the same credit as an untimed pass, and the top of the v2
+distribution is capped by items that are too easy for it. On released θ the
+picture is mixed: fewer of the oldest children sit within half a logit of the
+cap in v2 (10–12: 18% vs 4%; 12+: 25% vs 9%), but more 6- to 10-year-olds
+sit exactly at it (4–6% vs about 1%). §11 refits both forms on one scale,
+with the timed items calibrated separately, and that is the comparison to
+use: **v2 does reduce the ceiling substantially.**
 
-An earlier version of this section said the fast segment cut perfect
-mixed-block performance at 10+ from about one run in five to under one in
-ten. That comparison is confounded: the v2 mixed block is half again as long
-(48 vs 32 trials), so a perfect block is harder to achieve whatever the
-items' difficulty. The θ-scale comparison above accounts for trial count and
-difficulty.
+The accuracy indicators in the table are confounded too: the v2 mixed block
+is half again as long (48 vs 32 trials), so a perfect block is harder to
+achieve whatever the items' difficulty. (An earlier version of this section
+read that as the fast segment cutting the ceiling.)
 
 # 5. Reliability
 
@@ -1017,6 +1017,179 @@ which is the imputation asserting an answer to a question the data can't
 answer. Don't impute; the observed-trial EAP is already the right score for
 a stopped run.
 
+# 11. Refitting both forms on one scale
+
+The released scores can't show whether v2's harder trials stretch the top of
+the distribution, because they score v2 with v1's untimed item parameters.
+This section recalibrates both forms together
+([`_hf_v2_refit.R`](_hf_v2_refit.R), run with `Rscript --vanilla`):
+
+- **One trial coding for both forms:** correct means the right side,
+  answered, and 200 ms ≤ RT ≤ the window. The window is 3 s for all of v1 and
+  for v2's pure blocks, and v2's actual 3 / 2 / 1.5 s in the mixed segments.
+  There is no 2-s recode cutoff.
+- **Anchors:** the pure-block items (hearts, flowers) are shared across forms.
+  Mixed-block items are form-specific: v1 stay and switch, and v2 stay and
+  switch separately for each window.
+- **Model:** multigroup by form, Rasch slopes. The guessing floor is either
+  fixed at 0.5 for every item (as released) or, for v2's timed mixed items,
+  estimated per item group. v1's mean is fixed at 0; both variances and v2's
+  mean are free. All runs are included; early stops are ignorable missing
+  data.
+
+```{r refit-items}
+rf <- readRDS(here("data/hf_v2/refit_results.rds"))
+tibble(model = names(rf$logLik), log_likelihood = rf$logLik, parameters = rf$df) |>
+  knitr::kable(digits = 1, caption = "Fit of the two refits")
+
+rf$group_pars |>
+  filter(model == "g_estimated") |>
+  transmute(form, item_group = group, difficulty = -d, guessing = g) |>
+  distinct(item_group, .keep_all = TRUE) |>
+  arrange(difficulty) |>
+  knitr::kable(digits = 2, caption = "Item difficulty and guessing floor, refit with estimated floors for v2's timed items (pure-block anchors shared across forms)")
+
+rf$group_pars |>
+  distinct(model, form, mean, var) |>
+  mutate(sd = sqrt(var)) |>
+  select(-var) |>
+  knitr::kable(digits = 2, caption = "Ability distribution of each form on the refit scale")
+```
+
+Estimating the floor for the timed items fits clearly better (log-likelihood
+up 48 for 6 parameters). The estimated floors are .25–.41, well below 0.5, as
+expected when a missed window scores zero rather than chance. Results below
+use that model; the fixed-floor model gives the same picture.
+
+The timed items are harder than their untimed counterparts, as intended: a
+1.5-s switch trial sits about 0.6 logits above an untimed v1 switch trial.
+But every item is still easier than the average child: the hardest, at about
+−0.6, is below the median 10-year-old (0.65 in v2, 0.85 in v1).
+
+```{r refit-theta-by-age, fig.height = 4.8}
+refit <- rf$scores |>
+  filter(model == "g_estimated") |>
+  left_join(runs |> select(run_id, dataset, age, time_started, layout), by = "run_id")
+
+refit |>
+  filter(!is.na(age), age >= 4, age < 14) |>
+  group_by(form) |>
+  mutate(at_max = theta >= max(theta) - 0.05) |>
+  ungroup() |>
+  ggplot(aes(age, theta)) +
+  geom_point(aes(colour = at_max), alpha = 0.35, size = 0.9) +
+  geom_quantile(quantiles = c(.1, .5, .9), formula = y ~ splines::ns(x, 3),
+                colour = "black") +
+  facet_wrap(~form) +
+  scale_colour_manual(values = c(`FALSE` = "grey55", `TRUE` = "firebrick"),
+                      labels = c("below the form's maximum", "at the form's maximum"),
+                      name = NULL) +
+  labs(x = "Age (years)", y = "θ (refit, common scale)",
+       title = "θ by age on the refit scale",
+       subtitle = "All runs with trials. Lines: 10th, 50th, 90th percentiles.") +
+  theme(legend.position = "bottom")
+```
+
+```{r refit-tables}
+refit |>
+  filter(!is.na(age)) |>
+  group_by(form, age = age_band5(age)) |>
+  summarise(runs = n(), sd = sd(theta), q10 = quantile(theta, .1),
+            median = median(theta), q90 = quantile(theta, .9), .groups = "drop") |>
+  knitr::kable(digits = 2, caption = "θ by age and form on the refit scale")
+
+refit |>
+  filter(grepl("complete \\(", layout), !is.na(age)) |>
+  group_by(form) |>
+  mutate(form_max = max(theta)) |>
+  group_by(form, age = age_band5(age)) |>
+  summarise(runs = n(), at_max = mean(theta >= form_max - 0.05),
+            within_half_logit = mean(theta >= form_max - 0.5), .groups = "drop") |>
+  pivot_wider(names_from = form, values_from = -c(form, age)) |>
+  knitr::kable(digits = 3, caption = "Share of complete runs at, or within half a logit of, their form's maximum score")
+```
+
+```{r refit-information, fig.height = 4.2}
+rf$info_curves |>
+  filter(model == "g_estimated", theta >= -4, theta <= 5) |>
+  ggplot(aes(theta, info, colour = form)) +
+  geom_line(linewidth = 1) +
+  geom_vline(xintercept = quantile(refit$theta[!is.na(refit$age) & refit$age >= 10], c(.5, .9)),
+             linetype = "dotted") +
+  labs(x = "θ (refit scale)", y = "Test information",
+       colour = "Form", title = "Information of a complete run",
+       subtitle = "Dotted lines: median and 90th percentile of children aged 10 and over (both forms).")
+```
+
+```{r refit-coding}
+hf_test |>
+  filter(form == "v1", !is.na(block), !is.na(age), age >= 10) |>
+  semi_join(complete_runs, by = "run_id") |>
+  group_by(run_id) |>
+  summarise(within_2s = all(correct %in% TRUE & rt_numeric >= 200 & rt_numeric <= 2000),
+            within_3s = all(correct %in% TRUE & rt_numeric >= 200 & rt_numeric <= 3000),
+            untimed = all(correct %in% TRUE & rt_numeric >= 200), .groups = "drop") |>
+  summarise(across(-run_id, mean)) |>
+  knitr::kable(digits = 2, caption = "v1 complete runs, ages 10+: share with every trial correct under three codings")
+```
+
+**The ceiling falls.** In v1, about one in five complete runs from children
+10 and over sit at the form's maximum, and 29–34% within half a logit of
+it. In v2 those shares are 3–6% and 5–10%. This comparison doesn't depend
+on the anchors, since each form is compared with its own maximum. A complete
+v2 run also carries 2–3 times the information of a v1 run at θ = 1–4 (part
+of that is the 16 extra mixed trials; per mixed trial the gain is about 1.5
+times).
+
+v1's ceiling was also worse than the released scores show. Under the 2-s rule
+20% of older v1 children make no errors; if every correct answer counts, 38%
+do. The released scoring hid half the ceiling by counting slow correct answers
+as errors.
+
+**But the range doesn't widen.** v2's spread is narrower than v1's at every
+age (SD 1.1–1.6 vs 1.5–2.1). At the bottom that is the feedback lifting the
+low end (§7). At the top, the v2 90th percentile sits below v1's because v1's
+top is a pile at the cap while v2's is a spread of measured scores, but v2's
+hardest items are still easier than most older children. The top is now
+resolved rather than stretched: older children are measured with more
+precision, within a narrower range.
+
+## Does the anchoring hold?
+
+Using the pure blocks as anchors assumes they are equally difficult in both
+forms. Feedback could break that, since it changes how children recover from
+errors in exactly those blocks (§7). (The variance comparison above doesn't
+depend on the anchors, because in a Rasch model each form's variance is set
+by its own data. It does assume equal slopes across forms.) Three sites ran
+both forms in the same months, so their age-adjusted means should agree if
+the anchoring holds:
+
+```{r anchor-check}
+concurrent <- refit |>
+  filter(time_started >= as.POSIXct("2026-04-20", tz = "UTC"), !is.na(age)) |>
+  group_by(dataset) |>
+  filter(n_distinct(form) == 2, min(table(form)) >= 10) |>
+  ungroup()
+concurrent |>
+  group_by(dataset) |>
+  group_modify(\(x, ...) {
+    m <- summary(lm(theta ~ form + age, data = x))$coefficients
+    tibble(runs_v1 = sum(x$form == "v1"), runs_v2 = sum(x$form == "v2"),
+           mean_age = mean(x$age),
+           v2_minus_v1 = m["formv2", "Estimate"], se = m["formv2", "Std. Error"])
+  }) |>
+  ungroup() |>
+  knitr::kable(digits = 2, caption = "Age-adjusted difference in refit θ (v2 − v1) at sites that ran both forms from April 2026")
+```
+
+At Western (mean age 8.4) the two forms agree almost exactly. At UTDT's young
+sample (mean age 5.5) v2 children score more than a logit higher. MPIB's v2
+sample is too small to say (16 runs; +0.45 ± 0.43). Either the
+anchors work differently for young children, which fits feedback helping them
+most in the pure blocks, or the two samples differ. So the common scale is
+reasonable from about age 7, and cross-form mean comparisons for younger
+children shouldn't be trusted.
+
 # Verdict
 
 1. **Variants.** The new form is `taskVersion = 2`, carried by every H&F
@@ -1027,9 +1200,13 @@ a stopped run.
 2. **The ding works as feedback** (§7) but compresses the low end of the
    distribution. Keep it if the target construct is efficiency under
    conflict, not rule acquisition.
-3. **The floor nearly disappears and the ceiling moves rather than
-   falls** (§4): fewer of the oldest children sit near the cap, more 6- to
-   10-year-olds do. The faster segments act through timeouts, which also
+3. **The floor nearly disappears and the ceiling falls, but the score range
+   doesn't widen** (§4, §11). In a refit with the timed items calibrated
+   separately, older children at their form's maximum drop from about 19% to
+   3–6%, and a complete v2 run gives 2–3 times the information at high
+   ability. But the hardest v2 item is still below the median 10-year-old, so
+   the top is resolved rather than stretched, and v2's spread is narrower than
+   v1's at every age. The faster segments act through timeouts, which also
    drive a large rise in early stops (~25% of v2 runs vs ~8%) via the
    error-out rule.
 4. **No reliability gain**: model-based reliability is about equal, split-half
