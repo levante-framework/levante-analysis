@@ -1,13 +1,16 @@
 # Scoring v2 with timeouts modelled, and imputing error-out runs (sourced by
 # tasks/hearts_and_flowers_v2.qmd, section 10). All models are fit to v2 runs
-# only (heavyInstructions excluded), single group, with item parameters
-# constrained equal within item class x response window, so the only thing
-# that differs between models is how a trial outcome is coded:
+# only (heavyInstructions excluded), single group. Items are the released
+# items (block x stimulus x start/stay/switch), split by response window in
+# the mixed block; parameters are constrained equal across the occurrences
+# of an item, so the only thing that differs between models is how a trial
+# outcome is coded:
 #   timeout_wrong   2PL, timeout = incorrect (like the released scoring)
 #   timeout_missing 2PL, timeout = missing
-#   nominal         nominal model, categories wrong / timeout / correct
-#                   (pure-block timeouts, ~0.2%, are too rare to model and
-#                   are coded wrong in all three)
+#   nominal         nominal model, categories wrong / timeout / correct, for
+#                   mixed items with enough timeouts; other items (pure
+#                   blocks, where timeouts are ~0.2%, and the mixed start
+#                   trials) stay dichotomous with timeouts coded wrong
 # A trial is "correct" if the side is right and RT >= 200 ms (no 2000 ms
 # cutoff: v2's windows already bound RT).
 # Writes data/hf_v2/nominal_results.rds.
@@ -21,7 +24,7 @@ v2_runs <- hf_run_struct |> filter(form == "v2", !grepl("heavy", layout))
 trials <- dl$typed |>
   semi_join(v2_runs, by = "run_id") |>
   arrange(run_id, trial_index) |>
-  mutate(group = if_else(block == "mixed", paste(item_class, window, sep = "_"), block),
+  mutate(group = if_else(block == "mixed", paste(item_class, window, sep = "_"), item_class),
          outcome = case_when(timeout & block == "mixed" ~ "timeout",
                              correct %in% TRUE & !timeout & rt_numeric >= 200 ~ "correct",
                              TRUE ~ "wrong")) |>
@@ -32,16 +35,22 @@ trials <- dl$typed |>
   ungroup() |>
   mutate(item = sprintf("%s_%02d", group, k))
 
-# keep occurrence columns with enough data, and for mixed items enough of
-# every category (mirt silently drops categories an item never shows)
+# keep occurrence columns with enough data. A mixed item is modelled as
+# nominal if it has enough timeouts; its columns then need every category
+# (mirt silently drops categories an item never shows)
 item_ok <- trials |>
   group_by(item, group) |>
   summarise(n = n(), n_timeout = sum(outcome == "timeout"),
             n_wrong = sum(outcome == "wrong"), .groups = "drop") |>
-  filter(n >= 150, n_wrong >= 5, !grepl("^mixed", group) | n_timeout >= 3)
+  filter(n >= 150, n_wrong >= 5) |>
+  group_by(group) |>
+  mutate(nominal = grepl("^heartsflowers", group) & sum(n_timeout) >= 30) |>
+  ungroup() |>
+  filter(!nominal | n_timeout >= 3)
 trials <- trials |> semi_join(item_ok, by = "item")
 items <- sort(item_ok$item)
 groups <- item_ok$group[match(items, item_ok$item)]
+nominal_items <- items[item_ok$nominal[match(items, item_ok$item)]]
 
 code_outcome <- list(
   timeout_wrong   = c(wrong = 0, timeout = 0, correct = 1),
@@ -72,18 +81,22 @@ constrain_within_groups <- function(sv, par_names) {
   cons
 }
 
-# in the nominal model the pure-block items stay dichotomous (2 -> 1)
-pure_to_binary <- function(m) {
-  pure <- !grepl("^mixed", colnames(m))
-  m[, pure][which(m[, pure] == 2)] <- 1
+# in the nominal model, non-nominal items stay dichotomous: timeout (1)
+# becomes wrong (0), correct (2) becomes 1
+to_binary <- function(m) {
+  bin <- !colnames(m) %in% nominal_items
+  x <- m[, bin]
+  x[which(x == 1)] <- 0
+  x[which(x == 2)] <- 1
+  m[, bin] <- x
   m
 }
 
 fit_model <- function(model) {
   y <- wide(trials, code_outcome[[model]])
   if (model == "nominal") {
-    type <- if_else(grepl("^mixed", groups), "nominal", "2PL")
-    y <- pure_to_binary(y)
+    type <- if_else(items %in% nominal_items, "nominal", "2PL")
+    y <- to_binary(y)
   } else {
     type <- rep("2PL", length(items))
   }
@@ -107,7 +120,7 @@ fits <- purrr::map(rlang::set_names(models), fit_model)
 half_matrix <- function(model, h) {
   m <- wide(trials |> mutate(outcome = if_else(half == h, outcome, NA_character_)),
             code_outcome[[model]])
-  if (model == "nominal") pure_to_binary(m) else m
+  if (model == "nominal") to_binary(m) else m
 }
 scores <- purrr::imap_dfr(fits, \(f, model) {
   full <- score_eap(f$fit, f$y)
@@ -118,11 +131,16 @@ scores <- purrr::imap_dfr(fits, \(f, model) {
 })
 
 # --- imputation: unreached trials of error-out runs set to timeout ----------
-# planned v2 sequence is 12 hearts, 16 flowers, 3 x 16 mixed; the stay/switch
-# status of an unreached mixed trial is drawn at the observed switch share
+# planned v2 sequence is 12 hearts, 16 flowers, 3 x 16 mixed. An unreached
+# trial is the block's start trial if the block was never reached; otherwise
+# a pure-block stay trial, or for the mixed block a stimulus x stay/switch
+# combination drawn at its observed frequency
 error_out <- hf_runs |> filter(form == "v2", stop_reason %in% "errorOut") |>
   semi_join(v2_runs, by = "run_id") |> pull(run_id)
-switch_share <- mean(trials$item_class[trials$block == "mixed"] == "mixed_switch")
+mixed_mix <- trials |>
+  filter(block == "mixed", type != "start") |>
+  count(item_class) |>
+  mutate(p = n / sum(n))
 plan <- tibble(block = c(rep("hearts", 12), rep("flowers", 16), rep("mixed", 48)),
                pos = c(1:12, 1:16, 1:48)) |>
   mutate(window = case_when(block != "mixed" ~ 3000, pos <= 16 ~ 3000,
@@ -131,10 +149,15 @@ reached <- dl$typed |> filter(run_id %in% error_out) |> count(run_id, block, nam
 imputed <- tidyr::crossing(run_id = error_out, plan) |>
   left_join(reached, by = c("run_id", "block")) |>
   filter(pos > coalesce(n_done, 0L)) |>
-  mutate(item_class = case_when(block != "mixed" ~ block,
-                                runif(n()) < switch_share ~ "mixed_switch",
-                                TRUE ~ "mixed_stay"),
-         group = if_else(block == "mixed", paste(item_class, window, sep = "_"), block),
+  mutate(item_class = case_when(
+           pos == 1 & block == "hearts" ~ "hearts_heart_start",
+           pos == 1 & block == "flowers" ~ "flowers_flower_start",
+           pos == 1 ~ sample(c("heartsflowers_heart_start", "heartsflowers_flower_start"),
+                             n(), replace = TRUE),
+           block == "hearts" ~ "hearts_heart_stay",
+           block == "flowers" ~ "flowers_flower_stay",
+           TRUE ~ sample(mixed_mix$item_class, n(), replace = TRUE, prob = mixed_mix$p)),
+         group = if_else(block == "mixed", paste(item_class, window, sep = "_"), item_class),
          outcome = if_else(block == "mixed", "timeout", "wrong"))
 trials_imp <- bind_rows(trials |> select(run_id, group, outcome, half),
                         imputed |> select(run_id, group, outcome) |>
@@ -151,7 +174,7 @@ imputed_scores <- purrr::imap_dfr(fits, \(f, model) {
   coding <- code_outcome[[model]]
   mk <- function(tr) {
     m <- wide(tr, coding)
-    if (model == "nominal") pure_to_binary(m) else m
+    if (model == "nominal") to_binary(m) else m
   }
   full <- score_eap(f$fit, mk(trials_imp))
   h0 <- score_eap(f$fit, mk(trials_imp |> mutate(outcome = if_else(half == 0, outcome, NA_character_)))) |>

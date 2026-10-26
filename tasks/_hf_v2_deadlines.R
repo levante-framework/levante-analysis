@@ -13,17 +13,10 @@ scores <- readRDS(here::here("data/scores_latest_v3_17.rds")) |>
   distinct(run_id, .keep_all = TRUE) |>
   select(run_id, theta = score)
 
-# item type as recode_hf() defines it: start / stay / switch within block
+# item_class = the released item (block x stimulus x start/stay/switch,
+# from hf_test's item_uid), e.g. "heartsflowers_heart_switch"
 typed <- hf_test |>
-  filter(!is.na(block)) |>
-  arrange(run_id, trial_index) |>
-  group_by(run_id, block) |>
-  mutate(type = case_when(row_number() == 1 ~ "start",
-                          item == lag(item) ~ "stay",
-                          TRUE ~ "switch")) |>
-  ungroup() |>
-  mutate(item_class = if_else(block == "mixed", paste0("mixed_", type), block),
-         item_class = if_else(item_class == "mixed_start", "mixed_stay", item_class))
+  mutate(item_class = sub("^hf_", "", item_uid))
 
 g <- 0.5
 p_correct <- \(theta, b) g + (1 - g) * plogis(theta - b)

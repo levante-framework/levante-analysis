@@ -19,21 +19,44 @@ hf_runs <- hf_runs_raw |>
 
 block_of <- c("hearts" = "hearts", "flowers" = "flowers",
               "hearts and flowers" = "mixed")
+uid_block <- c(hearts = "hearts", flowers = "flowers", mixed = "heartsflowers")
 
-# test trials only; segment = 16-trial chunk of the mixed block in order
-hf_test <- hf_raw |>
-  filter(!is_practice_trial, assessment_stage == "test_response") |>
+# Two early v1 logging formats need the block recovered another way:
+#  - Bogotá, May-June 2024: corpus_trial_type empty, block in assessment_stage
+#    ("hearts stimulus"), and trial_index missing (order by timestamp)
+#  - Leipzig, Sept 2024: corpus_trial_type "1500" for every block; blocks are
+#    the 1st, 2nd and later runs of test trials between practice trials
+hf_all <- hf_raw |>
   inner_join(hf_runs |> select(run_id, form, age), by = "run_id") |>
-  mutate(block = unname(block_of[corpus_trial_type]),
-         rt_numeric = as.numeric(rt_numeric),
+  arrange(run_id, server_timestamp, trial_index) |>
+  group_by(run_id) |>
+  mutate(is_test = !is_practice_trial &
+           (assessment_stage == "test_response" | grepl(" stimulus$", assessment_stage)),
+         test_run = cumsum(is_test & !lag(is_test, default = FALSE))) |>
+  ungroup() |>
+  mutate(block = case_when(
+    corpus_trial_type %in% names(block_of) ~ unname(block_of[corpus_trial_type]),
+    is.na(corpus_trial_type) ~ unname(block_of[sub(" (stimulus|practice)$", "", assessment_stage)]),
+    corpus_trial_type == "1500" ~ c("hearts", "flowers", rep("mixed", 10))[pmax(test_run, 1)],
+    TRUE ~ NA_character_))
+
+# test trials only, in order; segment = 16-trial chunk of the mixed block.
+# item_uid follows recode_hf(): within each block the first trial is
+# "start", a repeat of the previous stimulus is "stay", a change is "switch"
+hf_test <- hf_all |>
+  filter(is_test, !is.na(block)) |>
+  mutate(rt_numeric = as.numeric(rt_numeric),
          correct = as.logical(correct),
          timeout = validation_msg_trial %in% "rt_missing") |>
   group_by(run_id, block) |>
-  arrange(trial_index, .by_group = TRUE) |>
   mutate(pos = row_number(),
-         segment = if_else(block == "mixed", as.integer(ceiling(pos / 16)), NA_integer_)) |>
+         segment = if_else(block == "mixed", as.integer(ceiling(pos / 16)), NA_integer_),
+         type = case_when(pos == 1 ~ "start",
+                          item == lag(item) ~ "stay",
+                          TRUE ~ "switch")) |>
   ungroup() |>
   mutate(
+    item_uid = paste0("hf_", uid_block[block], "_", item, "_", type),
     # response window (ms) by design; v1 had none
     window = case_when(form == "v1" ~ Inf,
                        block != "mixed" ~ 3000,

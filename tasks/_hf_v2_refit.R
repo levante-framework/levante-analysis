@@ -9,9 +9,10 @@
 #     200 <= RT <= window, with window = 3000 ms for v1 (all blocks) and v2's
 #     pure blocks, and v2's actual 3000 / 2000 / 1500 ms in the mixed segments
 #     (no 2000 ms recode cutoff)
-#   - pure-block items (hearts, flowers) are the anchors, shared across forms;
-#     mixed items are form-specific (v1: untimed stay / switch; v2: stay /
-#     switch by window)
+#   - items are the released items (block x stimulus x start/stay/switch);
+#     the pure-block items (heart and flower, start and stay) are the anchors,
+#     shared across forms; mixed items are form-specific (v1: untimed; v2:
+#     split by window)
 #   - multigroup by form; v1 mean 0, both variances and v2's mean free
 #   - Rasch slopes; guessing fixed at 0.5 ("g_fixed") or, for v2's timed
 #     mixed items, estimated per item group ("g_estimated")
@@ -31,7 +32,7 @@ trials <- dl$typed |>
   mutate(
     win = if_else(form == "v1", 3000, window),
     y = as.integer(correct %in% TRUE & !timeout & rt_numeric >= 200 & rt_numeric <= win),
-    group = case_when(block != "mixed" ~ block,
+    group = case_when(block != "mixed" ~ item_class,
                       form == "v1" ~ paste0("v1_", item_class),
                       TRUE ~ paste0("v2_", item_class, "_", window))) |>
   group_by(run_id, group) |>
@@ -53,7 +54,7 @@ items <- colnames(y)
 groups <- sub("_[0-9]+$", "", items)
 form_of <- runs_meta$form[match(rownames(y), runs_meta$run_id)]
 
-timed_v2 <- grepl("^v2_mixed", groups)
+timed_v2 <- grepl("^v2_heartsflowers", groups)
 
 fit_refit <- function(estimate_g) {
   type <- if_else(timed_v2 & estimate_g, "3PL", "Rasch")
