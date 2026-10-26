@@ -52,8 +52,11 @@ quarto render && cd . && quarto publish quarto-pub --no-render
 Commit the resulting `_publish.yml` so re-publishes reuse the same URL. Keep the
 clearance note here current after each publish.
 
-**Last published:** 2026-10-25 (commit ab729b6), at Mike Frank's request — Hearts & Flowers
-v2 chapter §11: concurrent refit of both forms on one scale (ceiling falls, range doesn't
+**Last published:** 2026-10-26 (commit 153b7e8), at Mike Frank's request — Hearts & Flowers
+v2 chapter revised after Mika's review: all models use the 10 released items (heart and
+flower, start/stay/switch, no longer pooled), and 317 early v1 runs in two old raw formats
+are recovered; numbers updated throughout.
+Earlier: 2026-10-25 (ab729b6), Hearts & Flowers v2 chapter §11: concurrent refit of both forms on one scale (ceiling falls, range doesn't
 widen); §4 and the verdict now defer to it.
 Earlier: 2026-10-22 (deb01b4), Hearts & Flowers v2 chapter: floor/ceiling-by-age figures (§4), RT and Wright-map figures (§2, §9), and §10
 scoring alternatives (nominal timeout model, imputing error-out runs).
