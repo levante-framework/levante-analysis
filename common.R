@@ -275,6 +275,32 @@ load_levante_scores <- function(refresh = FALSE,
   out
 }
 
+#' Load one table of the pinned unified release, with on-disk cache. A pinned
+#' version never changes, so the cache never goes stale; bump
+#' `levante_latest_version` to move every chapter that uses this onto a new
+#' release. Tables carry `redivis_source` (the scoped reference) as provenance.
+levante_latest_version <- "v3_17"
+
+load_levante_latest <- function(table = c("scores", "trials", "participants",
+                                          "items"),
+                                version = levante_latest_version,
+                                refresh = FALSE, cache_dir = here("data")) {
+  table <- match.arg(table)
+  cache_path <- file.path(cache_dir,
+                          glue("levante_data_latest__{version}__{table}.rds"))
+  if (!refresh && file_exists(cache_path)) return(read_rds(cache_path))
+
+  getter <- switch(table,
+                   scores = levante::get_scores,
+                   trials = levante::get_trials,
+                   participants = levante::get_participants,
+                   items = levante::get_items)
+  out <- getter("levante_data_latest:e9pf", version = version)
+  dir_create(cache_dir)
+  write_rds(out, cache_path)
+  out
+}
+
 #' Load trial-level data for one task (or all tasks). Default source is the
 #' per-site processed datasets (2026-08 snapshot); pass version = "v1_2" for
 #' the old unified pull. The unified trials table is ~280 MB so it is cached

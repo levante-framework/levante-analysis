@@ -3,18 +3,15 @@
 #   accuracy: logit GLMM  correct ~ 0 + dataset + (1|run_id) + (1|item_uid)
 #   speed:    LMM     log(rt) ~ 0 + dataset + (1|run_id) + (1|item_uid)
 # Run-level ability = accuracy run RE; speed = -(RT run RE).
+# Data: levante_data_latest (pinned in common.R).
 # Saves run-level estimates to data/sre_sa_estimates.rds.
 
-library(dplyr)
-library(readr)
-library(tidyr)
+source(here::here("common.R"))
 library(lme4)
 
-pilots_data_dir <- here::here("..", "levante-pilots", "01_fetched_data")
-sre <- read_rds(file.path(pilots_data_dir, "task_data_nested.rds")) |>
-  filter(item_task == "sre") |>
-  unnest(data) |>
-  mutate(correct = as.logical(correct), rt_s = rt_numeric / 1000) |>
+sre <- load_levante_latest("trials") |>
+  filter(task_id == "sre") |>
+  mutate(rt_s = rt_numeric / 1000) |>
   filter(rt_s >= 0.25, rt_s <= 30)
 
 message(nrow(sre), " trials, ", n_distinct(sre$run_id), " runs, ",

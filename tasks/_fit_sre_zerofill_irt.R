@@ -1,23 +1,24 @@
 # ROAR-team suggestion: zero-fill unreached items and fit a standard IRT
 # model, so speed enters the score through the block of zeros. One Rasch fit
-# per item bank (es = Bogotá+rural share the Spanish bank; de; en), dense
-# runs x items matrices; items with no variance dropped. Saves run-level EAP
-# scores to data/sre_zerofill_scores.rds.
+# per item bank (es = the Colombian and Argentine sites share the Spanish
+# bank; de; en), dense runs x items matrices; items with no variance dropped.
+# Data: levante_data_latest (pinned in common.R). Saves run-level EAP scores
+# to data/sre_zerofill_scores.rds.
 
-library(dplyr)
-library(readr)
-library(tidyr)
+source(here::here("common.R"))
 
-pilots_data_dir <- here::here("..", "levante-pilots", "01_fetched_data")
-sre <- read_rds(file.path(pilots_data_dir, "task_data_nested.rds")) |>
-  filter(item_task == "sre") |>
-  unnest(data) |>
-  mutate(correct = as.integer(as.logical(correct)))
+sre <- load_levante_latest("trials") |>
+  filter(task_id == "sre") |>
+  mutate(correct = as.integer(correct))
 
+# Canada's 20 runs tagged es-CO are early (v1.15) runs on the English lab/ai
+# corpora, so all of Canada goes in the English bank
 banks <- list(
-  es = c("pilot_uniandes_co_bogota", "pilot_uniandes_co_rural"),
+  es = c("pilot_uniandes_co_bogota", "pilot_uniandes_co_rural",
+         "rfp1_utdt_ar_main"),
   de = "pilot_mpieva_de_main",
-  en = "pilot_western_ca_main"
+  en = c("pilot_western_ca_main", "rfp1_sheffield_gb_main",
+         "pilot_capecoast_gh_main")
 )
 
 models <- list()

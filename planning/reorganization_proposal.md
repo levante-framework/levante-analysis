@@ -564,6 +564,15 @@ above where they conflict.
   host (§1a needs re-scoping).
 - **H&F:** before any fix, audit the redundancy across the H&F chapters
   (the v1 chapter predates most of the v2 work).
+- **Expensive derived outputs** (model fits, simulations) go in an
+  access-controlled Redivis dataset, not in git: the repo is public and the
+  outputs are child-level, embargoed data.
+- **Retest definition:** agree one definition with Mika. The datapage's
+  psychometrics view is a prototype, so the book can propose a better
+  definition and ask for the workflow to change.
+- **QC checks** keep developing here, with a note that some may later be
+  promoted to the psychometrics monitoring workflow.
+- **Re-render cadence:** weekly, not daily.
 
 1. ~~Package home.~~ **Decided:** `levante` for data access, `levantemodels` for
    everything else (§2).
