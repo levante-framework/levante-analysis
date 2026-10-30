@@ -45,9 +45,9 @@ asks:
    alternatives), with a zero-filled IRT model, EZ-diffusion and a
    hierarchical speed–accuracy model fit to the trial data.
 
-Data: `levante_data_latest`, at the version pinned in `common.R`
-(`levante_latest_version`, loaded with `load_levante_latest()`; the exact
-reference is printed with the first table), all datasets with SRE data: SRE
+Data: `levante_data_latest` v3_17 (pinned for this study and loaded with
+`load_levante_latest()`; the exact reference is printed with the first
+table), all datasets with SRE data: SRE
 trials, run metadata (age, start time) and the production scores,
 including the PA/SWR/Vocab/TROG θ used as validity criteria. Only runs that
 production scored without an exclusion have trials, so the analysis is on
@@ -80,8 +80,8 @@ source(here::here("common.R"))
 
 # levante_data_latest, pinned in common.R. Only runs that production scored
 # without an exclusion have trials, so the trial data are the valid runs.
-scores_latest <- load_levante_latest("scores")
-trials_latest <- load_levante_latest("trials")
+scores_latest <- load_levante_latest("scores", version = "v3_17")
+trials_latest <- load_levante_latest("trials", version = "v3_17")
 data_ref <- unique(trials_latest$redivis_source)
 
 # run metadata and the validity criteria (production PA/SWR/Vocab/TROG θ),

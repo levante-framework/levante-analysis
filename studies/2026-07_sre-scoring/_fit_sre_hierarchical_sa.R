@@ -3,13 +3,13 @@
 #   accuracy: logit GLMM  correct ~ 0 + dataset + (1|run_id) + (1|item_uid)
 #   speed:    LMM     log(rt) ~ 0 + dataset + (1|run_id) + (1|item_uid)
 # Run-level ability = accuracy run RE; speed = -(RT run RE).
-# Data: levante_data_latest (pinned in common.R).
+# Data: levante_data_latest v3_17, pinned for this study.
 # Saves run-level estimates to data/sre_sa_estimates.rds.
 
 source(here::here("common.R"))
 library(lme4)
 
-sre <- load_levante_latest("trials") |>
+sre <- load_levante_latest("trials", version = "v3_17") |>
   filter(task_id == "sre") |>
   mutate(rt_s = rt_numeric / 1000) |>
   filter(rt_s >= 0.25, rt_s <= 30)

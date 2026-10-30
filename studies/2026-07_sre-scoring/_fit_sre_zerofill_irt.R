@@ -2,12 +2,12 @@
 # model, so speed enters the score through the block of zeros. One Rasch fit
 # per item bank (es = the Colombian and Argentine sites share the Spanish
 # bank; de; en), dense runs x items matrices; items with no variance dropped.
-# Data: levante_data_latest (pinned in common.R). Saves run-level EAP scores
+# Data: levante_data_latest v3_17, pinned for this study. Saves run-level EAP scores
 # to data/sre_zerofill_scores.rds.
 
 source(here::here("common.R"))
 
-sre <- load_levante_latest("trials") |>
+sre <- load_levante_latest("trials", version = "v3_17") |>
   filter(task_id == "sre") |>
   mutate(correct = as.integer(correct))
 

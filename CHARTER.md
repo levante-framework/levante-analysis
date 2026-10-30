@@ -9,9 +9,12 @@ chapters. Older chapters are brought into line as they are revised.
 ## Data
 
 - **Pinned data only.** Chapters load from a pinned `levante_data_latest`
-  release with `load_levante_latest()` (`common.R`). A study that needs raw
-  per-site data pins those references too. No unpinned `"current"` or
-  `"next"` pulls.
+  release with `load_levante_latest()` (`common.R`). Monitor and task pages
+  use the default release (`levante_latest_version`); it moves on a schedule
+  and only to a release that passes the snapshot checks. Studies pass their
+  `version` explicitly, so moving the default never changes a study. A study
+  that needs raw per-site data pins those references too. No unpinned
+  `"current"` or `"next"` pulls.
 - **A data line at the top.** Every chapter shows the exact reference it ran
   on (e.g. `levante_data_latest:e9pf:v3_17`), computed from the loaded data.
 - **No hardcoded numbers in prose.** Numbers in text, captions and plot
@@ -46,6 +49,11 @@ chapters. Older chapters are brought into line as they are revised.
   revision history.
 - **Uncertainty.** Any number a conclusion rests on carries its n and a CI
   or SE.
+- **Bugs are reported, not documented.** Monitor pages describe the data as
+  it is. When a check turns up a likely bug in the data or the pipeline,
+  report it directly to Mike, Mika or whoever owns that code, and track the
+  fix there. The monitor's checks may show the symptom (e.g. a count of
+  unscored runs), but the chapters don't carry bug narratives.
 
 ## Figures and tables
 
