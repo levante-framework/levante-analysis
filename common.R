@@ -55,27 +55,66 @@ scale_colour_task <- function(...) scale_colour_manual(values = task_pal, ...)
 scale_color_task  <- scale_colour_task
 scale_fill_task   <- function(...) scale_fill_manual(values = task_pal, ...)
 
-# Site palette (solarized for the original six; manual hexes for sites added
-# in the 2026-08 data update) — mapped to internal site codes
-site_pal <- c(
-  solarized_pal()(6) |>
-    rlang::set_names(c("pilot_uniandes_co", "pilot_mpieva_de",
-                       "pilot_western_ca", "partner_mpib_de",
-                       "partner_sparklab_us", "pilot_langcog_us")),
-  rfp1_sheffield_gb        = "#7570b3",
-  rfp1_mpib_intl           = "#e7298a",
-  rfp1_utdt_intl           = "#66a61e",
-  rfp1_utdt_ar             = "#1b9e77",
-  pilot_bostonchildrens_us = "#a6761d",
-  pilot_capecoast_gh       = "#666666"
+# Dataset and site palettes: Paul Tol's qualitative schemes, as on
+# levante-datapage (decided 2026-10-30; the published papers keep their older
+# solarized colors). Colors are fixed per dataset so a dataset looks the same
+# in every chapter: the nine main datasets get Tol Muted, the smaller
+# younger-sibling and downward-extension datasets Tol Vibrant, and the two
+# tiny ones grey. A site takes its main dataset's color. (The datapage assigns
+# Tol Muted by position instead, so its colors don't match these yet.)
+dataset_pal <- c(
+  pilot_uniandes_co_bogota      = "#CC6677",  # Muted rose
+  pilot_uniandes_co_rural       = "#882255",  # Muted wine
+  pilot_mpieva_de_main          = "#332288",  # Muted indigo
+  partner_mpib_de_main          = "#88CCEE",  # Muted cyan
+  rfp1_mpib_de_main             = "#AA4499",  # Muted purple
+  pilot_western_ca_main         = "#DDCC77",  # Muted sand
+  rfp1_sheffield_gb_main        = "#117733",  # Muted green
+  rfp1_utdt_ar_main             = "#44AA99",  # Muted teal
+  pilot_capecoast_gh_main       = "#999933",  # Muted olive
+  rfp1_utdt_intl_ys             = "#EE7733",  # Vibrant orange
+  rfp1_mpib_intl_ys             = "#0077BB",  # Vibrant blue
+  pilot_bostonchildrens_us_main = "#EE3377",  # Vibrant magenta
+  partner_sparklab_us_downex    = "#CC3311",  # Vibrant red
+  pilot_langcog_us_downex       = "#BBBBBB",  # grey
+  pilot_leuphana_de_main        = "#777777"   # dark grey
 )
 
+site_pal <- c(
+  pilot_uniandes_co        = dataset_pal[["pilot_uniandes_co_bogota"]],
+  pilot_mpieva_de          = dataset_pal[["pilot_mpieva_de_main"]],
+  pilot_western_ca         = dataset_pal[["pilot_western_ca_main"]],
+  partner_mpib_de          = dataset_pal[["partner_mpib_de_main"]],
+  partner_sparklab_us      = dataset_pal[["partner_sparklab_us_downex"]],
+  pilot_langcog_us         = dataset_pal[["pilot_langcog_us_downex"]],
+  rfp1_sheffield_gb        = dataset_pal[["rfp1_sheffield_gb_main"]],
+  rfp1_mpib_intl           = dataset_pal[["rfp1_mpib_intl_ys"]],
+  rfp1_mpib_de             = dataset_pal[["rfp1_mpib_de_main"]],
+  rfp1_utdt_intl           = dataset_pal[["rfp1_utdt_intl_ys"]],
+  rfp1_utdt_ar             = dataset_pal[["rfp1_utdt_ar_main"]],
+  pilot_bostonchildrens_us = dataset_pal[["pilot_bostonchildrens_us_main"]],
+  pilot_capecoast_gh       = dataset_pal[["pilot_capecoast_gh_main"]],
+  pilot_leuphana_de        = dataset_pal[["pilot_leuphana_de_main"]]
+)
+
+scale_colour_dataset <- function(...) {
+  scale_colour_manual(values = dataset_pal, labels = dataset_labels_named,
+                      breaks = names(dataset_pal), ...)
+}
+scale_color_dataset <- scale_colour_dataset
+scale_fill_dataset  <- function(...) {
+  scale_fill_manual(values = dataset_pal, labels = dataset_labels_named,
+                    breaks = names(dataset_pal), ...)
+}
+
 scale_colour_site <- function(...) {
-  scale_colour_manual(values = site_pal, labels = site_labels_named, ...)
+  scale_colour_manual(values = site_pal, labels = site_labels_named,
+                      breaks = names(site_pal), ...)
 }
 scale_color_site <- scale_colour_site
 scale_fill_site  <- function(...) {
-  scale_fill_manual(values = site_pal, labels = site_labels_named, ...)
+  scale_fill_manual(values = site_pal, labels = site_labels_named,
+                    breaks = names(site_pal), ...)
 }
 
 # ---- Lookups ----------------------------------------------------------------
@@ -90,10 +129,12 @@ site_labels_named <- c(
   pilot_langcog_us         = "US (LangCog, downext)",
   rfp1_sheffield_gb        = "UK (Sheffield)",
   rfp1_mpib_intl           = "Germany (MPIB, RfP1 YS)",
+  rfp1_mpib_de             = "Germany (MPIB, RfP1 main)",
   rfp1_utdt_intl           = "Argentina (UTDT, RfP1 YS)",
   rfp1_utdt_ar             = "Argentina (UTDT)",
   pilot_bostonchildrens_us = "US (Boston, downext)",
-  pilot_capecoast_gh       = "Ghana (Cape Coast)"
+  pilot_capecoast_gh       = "Ghana (Cape Coast)",
+  pilot_leuphana_de        = "Germany (Leuphana Lüneburg)"
 )
 
 # dataset → finer label (preserves bogota / rural / main distinctions)
@@ -110,7 +151,9 @@ dataset_labels_named <- c(
   rfp1_utdt_intl_ys             = "Argentina — UTDT (RfP1 YS)",
   rfp1_utdt_ar_main             = "Argentina — UTDT (main)",
   pilot_bostonchildrens_us_main = "US — Boston Children's (downext)",
-  pilot_capecoast_gh_main       = "Ghana — Cape Coast"
+  pilot_capecoast_gh_main       = "Ghana — Cape Coast",
+  rfp1_mpib_de_main             = "Germany — MPIB (RfP1 main)",
+  pilot_leuphana_de_main        = "Germany — Lüneburg (Leuphana)"
 )
 
 # task_id → short label + category + display label

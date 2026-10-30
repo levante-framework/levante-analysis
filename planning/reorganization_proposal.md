@@ -573,6 +573,13 @@ above where they conflict.
 - **QC checks** keep developing here, with a note that some may later be
   promoted to the psychometrics monitoring workflow.
 - **Re-render cadence:** weekly, not daily.
+- **One Quarto website, not four projects** (supersedes §1e): a landing page
+  with four large buttons (Monitor, Task reports, Studies, Findings &
+  decisions), each a section of the same site with its own `_metadata.yml`,
+  published to one URL. The Quarto Pub site moves from `levante-longitudinal`
+  to `levante-analysis`.
+- **House style:** `CHARTER.md` (summary first, no coined names, computed
+  numbers, Tol palettes matching the datapage, glossary).
 
 1. ~~Package home.~~ **Decided:** `levante` for data access, `levantemodels` for
    everything else (§2).
