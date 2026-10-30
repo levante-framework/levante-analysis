@@ -287,8 +287,8 @@ Within each dataset: correlations of SRE with age, ROAR-Phoneme (θ), and
 ROAR-Word (θ). Cross-run joins take each child's first run per task.
 
 ```{r validity}
-first_run <- \(df) df |>
-  group_by(dataset, user_id) |>
+first_run <- \(df, ...) df |>
+  group_by(dataset, user_id, ...) |>
   arrange(time_started) |>
   slice(1) |>
   ungroup()
@@ -298,7 +298,7 @@ pa_swr <- registry_scores |>
   left_join(run_data |> select(run_id, user_id, time_started), by = "run_id") |>
   left_join(participants |> select(user_id, dataset), by = "user_id") |>
   filter(!is.na(dataset)) |>
-  first_run() |>
+  first_run(task) |>
   select(dataset, user_id, task, other = ability) |>
   pivot_wider(names_from = task, values_from = other)
 
@@ -906,7 +906,7 @@ crit_wide <- registry_scores |>
   left_join(run_data |> select(run_id, user_id, time_started), by = "run_id") |>
   left_join(participants |> select(user_id, dataset), by = "user_id") |>
   filter(!is.na(dataset)) |>
-  first_run() |>
+  first_run(task) |>
   select(dataset, user_id, task, crit_score = ability) |>
   pivot_wider(names_from = task, values_from = crit_score)
 
