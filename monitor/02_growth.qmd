@@ -1,0 +1,380 @@
+---
+title: "02 — Longitudinal traces and simple growth models"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: false
+    fig-width: 10
+    fig-height: 6
+execute:
+  warning: false
+  message: false
+---
+
+{{< include /_disclaimer.qmd >}}
+
+::: {.callout-note}
+## Now on corrected data (v1.2)
+Re-run on `levante_data_latest` **v1.2**, which fixes the IRT column-order
+scoring bug. The spurious within-child *declines* seen in earlier (v1.0)
+renders are gone: all within-child slopes are now positive (e.g. Math ≈ 0.6
+θ/yr, Vocab/EF/reasoning ≈ 0.1–0.4). Any text below that frames a task as
+"declining" reflects the old buggy data and is superseded by the corrected
+figures.
+:::
+
+::: {.callout-note}
+## 2026-08 data update: rural Colombia's second wave
+The 2026-08 snapshot adds **Caquetá/Boyacá** as a fourth longitudinal dataset
+(~213 repeat kids at a ~9.6-month gap, concentrated in ROAR + Math). Its
+within-child growth is clean and — notably — **almost exactly matches the
+cross-sectional age gradient**: Math 0.45 θ/yr within vs 0.45 across, ROAR-Word
+0.47 vs 0.49, ROAR-Phoneme 0.28 vs 0.28, ROAR-Sentence 0.22 vs 0.23. Math
+repeats are CAT→CAT (no mode transition), making this the cleanest
+within-child growth replication in the project so far.
+
+**2026-08-31:** Leipzig's **third wave** began arriving (39 children re-tested
+on the full battery Aug 29–30, already scored in the draft snapshot) — the
+first ≥3-timepoint children in the project. They appear in the Leipzig
+spaghetti below as three-point trajectories (max within-child span now
+24 months); per-child growth-curve models become identifiable once this wave
+completes.
+:::
+
+# Purpose
+
+00 inventoried what data we have; 01 audited per-(site, task) data integrity
+and produced a verdict table at `data/task_site_verdict.rds`. This notebook
+focuses on the datasets that actually have repeat assessments and asks:
+
+1.  Do individual children show consistent growth in IRT ability scores
+    across waves?
+2.  Are within-individual growth rates broadly consistent with the
+    cross-sectional age gradient in that dataset?
+
+We restrict attention to the four datasets with meaningful longitudinal
+signal as of the 2026-08 per-site snapshot:
+
+- **Germany — Leipzig** (mpieva-de): ~3- and 7-month retest, ~226 kids.
+- **Colombia — Bogotá** (uniandes-co-bogota): ~15-month gap, ~420 kids.
+- **Colombia — Caquetá/Boyacá** (uniandes-co-rural): **new in the 2026-08
+  update** — a ~9.6-month-gap second wave, ~213 repeat kids. Repeats are
+  concentrated in **ROAR (pa/swr/sre) and Math** (~170–210 pairs each; Math is
+  cleanly CAT→CAT); the other core tasks are still cross-sectional here.
+- **Canada — Ontario** (western-ca): ~12-month gap, still only ~10–21 repeat
+  kids per task, so it falls below the ≥ 30-per-task threshold for the mixed
+  models and mainly appears in the spaghetti/cross-sectional views.
+
+```{r setup}
+source(here::here("common.R"))
+library(lme4)
+library(broom.mixed)
+library(ggrepel)
+
+scores_all <- read_rds(here("data", "scores_all_sites.rds"))
+```
+
+# Restrict to longitudinal datasets
+
+```{r long-datasets}
+long_datasets <- c("pilot_mpieva_de_main",
+                   "pilot_uniandes_co_bogota",
+                   "pilot_uniandes_co_rural",
+                   "pilot_western_ca_main")
+
+scores <- scores_all |>
+  filter(dataset %in% long_datasets,
+         !is.na(score), !is.na(age))
+
+scores |>
+  count(dataset_label, task_label) |>
+  pivot_wider(names_from = dataset_label, values_from = n,
+              values_fill = 0L) |>
+  knitr::kable()
+```
+
+# Adaptive vs non-adaptive scores
+
+Pilot data mixes non-adaptive and computer-adaptive (CAT) administrations of
+the same task. Under v1.0's scoring bug this produced large spurious step
+jumps across the mode boundary; on v1.2 (fixed) the residual mode shift is
+small (< 0.75 logits — see 01), attributable to mild ceiling on the easy
+non-adaptive forms plus EAP shrinkage. We still flag the mode split below so
+within-mode vs across-mode comparisons stay visible.
+
+```{r adaptive-mix}
+scores |>
+  group_by(dataset_label, task_label, adaptive) |>
+  summarise(n_runs = n_distinct(run_id), .groups = "drop") |>
+  pivot_wider(names_from = adaptive, values_from = n_runs, values_fill = 0L,
+              names_prefix = "adaptive_") |>
+  knitr::kable()
+```
+
+# Spaghetti plots
+
+Every child with ≥ 2 runs on a given task, one line per child, raw IRT score.
+Children with **≥ 3 timepoints** (new with Leipzig's third wave) are
+highlighted in orange; task panels with fewer than 10 repeat children are
+suppressed.
+
+```{r repeat-data}
+repeats <- scores |>
+  group_by(dataset, user_id, task_id) |>
+  filter(n_distinct(run_id) > 1) |>
+  ungroup() |>
+  arrange(dataset, user_id, task_id, age)
+
+glue("Repeat (dataset, child, task) cells: {n_distinct(paste(repeats$dataset, repeats$user_id, repeats$task_id))}")
+
+spaghetti <- function(ds, title) {
+  d <- repeats |>
+    filter(dataset == ds) |>
+    group_by(task_id) |> filter(n_distinct(user_id) >= 10) |> ungroup() |>
+    group_by(user_id, task_id) |>
+    mutate(waves = if_else(n_distinct(run_id) >= 3, "3+ timepoints", "2 timepoints")) |>
+    ungroup()
+  ggplot(d, aes(x = age, y = score, group = user_id)) +
+    geom_line(data = d |> filter(waves == "2 timepoints"),
+              aes(color = waves), alpha = 0.25, linewidth = 0.35) +
+    geom_line(data = d |> filter(waves == "3+ timepoints"),
+              aes(color = waves), alpha = 0.9, linewidth = 0.6) +
+    facet_wrap(vars(task_category, task_label), scales = "free_y") +
+    scale_color_manual(values = c(`2 timepoints` = "grey45",
+                                  `3+ timepoints` = "#cb4b16"), name = NULL) +
+    guides(color = guide_legend(override.aes = list(alpha = 1, linewidth = 1))) +
+    labs(title = title, x = "Age (years)", y = "IRT ability") +
+    theme(legend.position = "bottom")
+}
+```
+
+```{r spaghetti-de, fig.height=7}
+spaghetti("pilot_mpieva_de_main",
+          "Germany — Leipzig spaghetti (3-wave children in orange)")
+```
+
+```{r spaghetti-co, fig.height=7}
+spaghetti("pilot_uniandes_co_bogota", "Colombia — Bogotá spaghetti")
+```
+
+```{r spaghetti-co-rural, fig.height=7}
+spaghetti("pilot_uniandes_co_rural",
+          "Colombia — Caquetá/Boyacá spaghetti (new in 2026-08; sparse panels suppressed)")
+```
+
+(Rural's few ≥3-run children include **short-gap repeat administrations** —
+the near-vertical orange segments; treat those individual trajectories with
+care. Leipzig's orange three-wave children, by contrast, are the designed
+third wave.)
+
+```{r spaghetti-ca, fig.height=7}
+spaghetti("pilot_western_ca_main", "Canada — Ontario spaghetti")
+```
+
+# Simple growth models per (dataset, task)
+
+For each (dataset, task), fit
+
+`score ~ age_c + (1 | user_id)`
+
+with `age_c` = age − mean(age). With mostly 2 timepoints the random-slope
+variance is unidentifiable, so we read the fixed effect of `age_c` as the
+average within-individual slope. Per-child heterogeneity is examined
+separately below.
+
+Where both adaptive and non-adaptive versions are present we include
+`adaptive` as a fixed effect.
+
+```{r fit-models}
+fit_growth <- function(df) {
+  df <- df |> mutate(age_c = age - mean(age, na.rm = TRUE))
+  has_both_adaptive <- length(unique(na.omit(df$adaptive))) > 1
+  fm <- if (has_both_adaptive) {
+    score ~ age_c + adaptive + (1 | user_id)
+  } else {
+    score ~ age_c + (1 | user_id)
+  }
+  tryCatch(
+    lmer(fm, data = df, REML = TRUE,
+         control = lmerControl(optimizer = "bobyqa",
+                               optCtrl = list(maxfun = 2e5))),
+    error = function(e) {
+      message(glue("  fit failed: {conditionMessage(e)}"))
+      NULL
+    }
+  )
+}
+
+growth_data <- scores |>
+  group_by(dataset, task_id) |>
+  filter(n_distinct(user_id[duplicated(user_id) | duplicated(user_id, fromLast = TRUE)]) >= 30) |>
+  ungroup()
+
+growth_fits <- growth_data |>
+  group_by(dataset, dataset_label, task_id, task_label, task_category) |>
+  nest() |>
+  mutate(fit = map(data, fit_growth)) |>
+  filter(!map_lgl(fit, is.null))
+
+glue("Fitted {nrow(growth_fits)} (dataset, task) growth models.")
+```
+
+```{r extract-coefs}
+within_slopes <- growth_fits |>
+  mutate(coef_tbl = map(fit, \(m) broom.mixed::tidy(m, effects = "fixed",
+                                                    conf.int = TRUE))) |>
+  select(dataset_label, task_label, task_category, coef_tbl) |>
+  unnest(coef_tbl) |>
+  filter(term == "age_c") |>
+  select(dataset_label, task_label, task_category,
+         within_slope = estimate, within_slope_se = std.error,
+         within_ci_lo = conf.low, within_ci_hi = conf.high)
+
+knitr::kable(within_slopes, digits = 3)
+```
+
+# Cross-sectional age gradients for comparison
+
+OLS slope of score on age within each (dataset, task), using each child's
+first observation.
+
+```{r cross-section-slopes}
+cross_slopes <- scores |>
+  group_by(dataset, user_id, task_id) |>
+  arrange(age) |>
+  slice(1) |>
+  ungroup() |>
+  group_by(dataset, dataset_label, task_id, task_label, task_category) |>
+  filter(n() >= 30) |>
+  summarise(
+    cross_slope = coef(lm(score ~ age))[2],
+    cross_n     = n(),
+    .groups = "drop"
+  )
+
+slope_compare <- within_slopes |>
+  inner_join(cross_slopes, by = c("dataset_label", "task_label",
+                                   "task_category"))
+
+knitr::kable(slope_compare, digits = 3)
+```
+
+```{r slope-compare-plot, fig.height=5}
+slope_compare |>
+  ggplot(aes(x = cross_slope, y = within_slope, color = task_category)) +
+  geom_abline(slope = 1, intercept = 0, lty = 3, color = "grey50") +
+  geom_hline(yintercept = 0, lty = 3, color = "grey80") +
+  geom_vline(xintercept = 0, lty = 3, color = "grey80") +
+  geom_errorbar(aes(ymin = within_ci_lo, ymax = within_ci_hi),
+                alpha = 0.5, width = 0) +
+  geom_point(size = 2.5) +
+  geom_text_repel(aes(label = task_label), size = 3,
+                  show.legend = FALSE, max.overlaps = 30) +
+  facet_wrap(~dataset_label) +
+  scale_colour_task() +
+  labs(x = "Cross-sectional slope (per year)",
+       y = "Within-child slope (per year)",
+       title = "Within-child growth vs cross-sectional age gradient",
+       subtitle = "Dotted line = identity",
+       color = NULL) +
+  theme(legend.position = "bottom")
+```
+
+# Fitted trajectories
+
+Population-mean model curves overlaid on raw spaghetti, faceted by task.
+
+```{r fitted-curves, fig.height=10, fig.width=12}
+predict_band <- function(fit, df) {
+  if (is.null(fit)) return(NULL)
+  age_grid <- seq(min(df$age, na.rm = TRUE),
+                  max(df$age, na.rm = TRUE), length.out = 40)
+  age_mean <- mean(df$age, na.rm = TRUE)
+  newd <- tibble(age = age_grid, age_c = age_grid - age_mean)
+  if ("adaptive" %in% all.vars(formula(fit))) newd$adaptive <- FALSE
+  newd$score <- predict(fit, newdata = newd, re.form = NA,
+                        allow.new.levels = TRUE)
+  newd |> select(age, score)
+}
+
+fitted_lines <- growth_fits |>
+  mutate(pred = map2(fit, data, predict_band)) |>
+  select(dataset_label, task_label, task_category, pred) |>
+  unnest(pred)
+
+ggplot() +
+  geom_line(data = repeats,
+            aes(x = age, y = score, group = user_id),
+            alpha = 0.15, color = "grey40") +
+  geom_line(data = fitted_lines,
+            aes(x = age, y = score, color = dataset_label),
+            linewidth = 1) +
+  facet_wrap(vars(task_category, task_label), scales = "free_y") +
+  scale_color_brewer(palette = "Set1", name = NULL) +
+  labs(title = "Fitted growth trajectories on top of raw spaghetti",
+       x = "Age (years)", y = "IRT ability") +
+  theme(legend.position = "bottom")
+```
+
+# Child-level slopes
+
+Per-child OLS slopes for kids with ≥ 2 runs (rise / run when N = 2).
+
+```{r per-child-slopes, fig.height=8}
+child_slopes <- repeats |>
+  group_by(dataset, dataset_label, task_id, task_label, task_category, user_id) |>
+  filter(n_distinct(run_id) >= 2, diff(range(age)) > 0.1) |>
+  summarise(
+    n_runs    = n_distinct(run_id),
+    age_mean  = mean(age),
+    age_span  = diff(range(age)),
+    slope     = coef(lm(score ~ age))[2],
+    .groups = "drop"
+  ) |>
+  filter(is.finite(slope))
+
+child_slopes |>
+  group_by(dataset_label, task_label) |>
+  filter(n() >= 30) |>
+  ungroup() |>
+  ggplot(aes(x = slope, fill = dataset_label)) +
+  geom_histogram(bins = 30, alpha = 0.7, position = "identity") +
+  geom_vline(xintercept = 0, lty = 3) +
+  facet_wrap(vars(task_category, task_label), scales = "free") +
+  scale_fill_brewer(palette = "Set1", name = NULL) +
+  labs(title = "Per-child OLS slopes (per year)",
+       x = "Slope of score on age",
+       y = "Children") +
+  theme(legend.position = "bottom")
+```
+
+```{r slope-summary}
+child_slopes |>
+  group_by(dataset_label, task_label) |>
+  summarise(n = n(), mean_slope = mean(slope), sd_slope = sd(slope),
+            .groups = "drop") |>
+  filter(n >= 30) |>
+  arrange(dataset_label, task_label) |>
+  knitr::kable(digits = 3)
+```
+
+# Save outputs
+
+```{r save}
+write_rds(within_slopes,  here("data", "growth_within_slopes.rds"))
+write_rds(slope_compare,  here("data", "growth_slope_comparison.rds"))
+write_rds(child_slopes,   here("data", "growth_child_slopes.rds"))
+
+glue("Saved within-slope and per-child slope tables to data/.")
+```
+
+# Open questions for 02
+
+- The CO-bog 1-year gap means most kids only have 2 timepoints. That's enough
+  to estimate a slope per child, but the per-individual SE is large. The
+  latent-growth approach in 02 pools across tasks/constructs.
+- mpieva-de's 3- and 7-month gaps give a within-year change estimate that
+  should be small in absolute terms; per-child OLS slopes there are noisy.
+- Tasks with adaptive/non-adaptive mixing (vocab in mpieva-de especially)
+  might bias estimates; flagged again in 02.

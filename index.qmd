@@ -1,88 +1,48 @@
 ---
-title: "Overview"
+title: "LEVANTE analysis"
+toc: false
 ---
 
-{{< include _disclaimer.qmd >}}
+Analyses of the LEVANTE core-task battery by the Data Coordinating Center:
+data quality across the network, the psychometrics of each task, and dated
+investigations of specific questions. Data come from pinned releases of
+`levante_data_latest` on Redivis, and each page states the data it ran on.
 
-# LEVANTE longitudinal analyses
+::: {.section-grid}
 
-An exploratory analysis of the **LEVANTE core-task battery** — a sequence of
-reproducible notebooks that walk from raw data validation through construct
-structure to within-child variability. Data come from the **per-site processed
-datasets** on Redivis (pinned 2026-08 snapshot — the unified
-`levante_data_latest` is still at its June v1.2 release, so the loaders bind
-the per-site datasets directly; see chapter 00) via the `levante` /
-`levantemodels` packages; shared conventions, palettes, and loaders live in
-`common.R`. The 2026-08 update adds **rural Colombia's second wave** (the
-project's third substantial longitudinal cell) and four newly-collecting
-cross-sectional sites.
+::: {.section-card}
+[Monitor](monitor/index.qmd){.stretched-link}
 
-Each chapter computes its results inline from the data, so every number and
-figure is current with the code that produced it.
+What the current data look like across the battery: coverage, data quality,
+growth, construct structure and test–retest.
+:::
 
-## The arc
+::: {.section-card}
+[Task reports](tasks/index.qmd){.stretched-link}
 
-**Longitudinal analyses** walk from raw data validation through construct
-structure to within-child variability and network context.
+Everything about one task: its items, scores, reliability and validity.
+:::
 
-**Data & integrity** — pull and clean the data ([00](00_load_data.qmd)); audit
-per-(site, task) integrity, adaptive/mode artifacts, and extreme scores
-([01](01_data_integrity.qmd)).
+::: {.section-card}
+[Studies](studies/index.qmd){.stretched-link}
 
-**Growth & construct structure** — longitudinal traces and simple growth
-([02](02_growth.qmd)); the g-vs-domains structure and cross-site measurement
-invariance ([03](03_structure_invariance.qmd)); emergent dimensions,
-age-differentiation, and the role of *g* with ROAR + MEFS as real measures
-([04](04_differentiation.qmd)); and how short the battery can be while still
-recovering the factor scores ([05](05_battery_design.qmd)).
+Dated investigations of one question each, with their verdicts and the data
+they were run on.
+:::
 
-**Within-child variability** — a first pass at three consistency indices and
-whether they cohere ([06](06_within_child_variability.qmd)); a deep dive on
-**RT intra-individual variability** — purification, cross-task structure,
-site/age, and longitudinal stability ([07](07_rt_variability.qmd)); and the
-**accuracy** companion using MSSD, and why nothing survives de-confounding
-([08](08_accuracy_variability.qmd)).
+::: {.section-card}
+[Findings & decisions](register/index.qmd){.stretched-link}
 
-**Network context** — enrollment ages and longitudinal coverage across the
-LEVANTE network ([09](09_longitudinal_coverage.qmd)).
+What we have concluded and what was decided, each linked to its evidence.
+:::
 
-## Task deepdives & cross-task analyses
+:::
 
-Per-task psychometric reports, plus cross-task analyses. **Task deepdives**
-cover each core task and the ROAR literacy
-measures: item structure and difficulty, DIF, answer-key forensics, and
-scoring audits — Hearts & Flowers, Memory, Same & Different (IRTree scoring
-models and recode audit), Math (plus item calibration and
-EAP-vs-ML scoring), Shape Rotation, Sentence Understanding (TROG),
-Vocabulary, Stories (ToM; one consolidated analysis on the corrected 2026-09
-data, with the reality-check bug forensics as an appendix), ROAR-Word,
-ROAR-Phoneme/Sentence, and the
-ROAR-Sentence (SRE) scoring deepdive. **Cross-task analyses** collect the
-corrected longitudinal trajectories, the cross-language DIF batch,
-test–retest figures, and the training-vs-development comparison.
+{{< include /_disclaimer.qmd >}}
 
-## A few headline findings
-
-- A **column-order IRT scoring bug** in an earlier data release mis-scored the
-  CAT/guessing-floor items; found, validated, fixed upstream (data re-released as
-  v1.2). With corrected scores, apparent longitudinal declines disappear.
-- The core battery is a **strong general factor** with weakly-separable domains
-  that **differentiate with age**; structure replicates across Germany, Bogotá,
-  and Canada.
-- The battery is **highly compressible** — administration time can be roughly
-  halved while still recovering every construct at ≈ 0.9 determinacy.
-- **Within-child variability** is elusive but not empty: RT variability
-  carries a real, narrow speeded-task signal (cleanest after detrending item
-  difficulty) whose composite reaches **test–retest ≈ 0.63** with the 2026-08
-  rural retest data; accuracy variability, properly de-confounded, is
-  essentially ability in disguise.
-
-## Reproducibility & provenance
-
-The notebooks render from Redivis data (gitignored; access via `levantemodels`).
-`common.R` is sourced by every chapter. This book was assembled with
-[Quarto](https://quarto.org); see the
-[source repository](https://github.com/levante-framework/levante-analysis).
-
-This is **internal, exploratory work of the LEVANTE Data Coordinating Center** —
-please read the two banners above before using anything here.
+The site is being reorganized (October 2026). Some pages still run on the
+2026-08 per-site data snapshot rather than the pinned release; each page's
+data line says which. Release-level reliability, age and test–retest
+summaries are on the [LEVANTE datapage](https://levante-framework.github.io/levante-datapage).
+The house rules for these pages are in the repository's
+[charter](https://github.com/levante-framework/levante-analysis/blob/main/CHARTER.md).

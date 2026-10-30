@@ -1,0 +1,1276 @@
+---
+title: "Hearts & Flowers v2 — feedback sound, faster mixed blocks: did it help?"
+date: 2026-10-26
+date-format: iso
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    fig-width: 9
+    fig-height: 5
+execute:
+  warning: false
+  message: false
+---
+
+{{< include /_disclaimer.qmd >}}
+
+# Question
+
+In spring 2026 Hearts & Flowers got a redesign ("version 2"). Two changes were
+intended: a feedback sound ("ding") and a third mixed block run at different
+speeds. Did the revision help? Specifically: does the ding help or hurt, does
+the new form buy reliability, and does it remove the known ceiling? The two
+changes shipped together, so they are confounded by design; the strategy here
+is to find outcomes that only one of them should move.
+
+Data: `levante_data_latest:e9pf:v3_17` (scores, processed trials) plus the
+**raw** per-site `trials`/`runs`/`variants` tables (13 sites, pulled
+2026-10-15 by [`_prep_hf_v2.R`](_prep_hf_v2.R); derivations in
+[`_hf_v2_common.R`](_hf_v2_common.R)).
+
+```{r setup}
+source(here::here("common.R"))
+source(here::here("studies/2026-10_hf-v2-redesign/_hf_v2_common.R"))
+
+scores <- readRDS(here("data/scores_latest_v3_17.rds")) |>
+  filter(task_id == "hearts-and-flowers", !is.na(score)) |>
+  distinct(run_id, .keep_all = TRUE) |>
+  select(run_id, theta = score, theta_se = score_se)
+
+age_band <- \(a) cut(a, c(0, 6, 8, 10, 20), right = FALSE,
+                     labels = c("<6", "6-8", "8-10", "10+"))
+age_band5 <- \(a) cut(a, c(0, 6, 8, 10, 12, 20), right = FALSE,
+                      labels = c("<6", "6-8", "8-10", "10-12", "12+"))
+
+runs <- hf_run_struct |>
+  left_join(hf_runs |> select(run_id, dataset, user_id, age, time_started,
+                              stop_reason, variant_name, variant_created),
+            by = "run_id") |>
+  left_join(scores, by = "run_id")
+complete_runs <- runs |> filter(grepl("complete \\(", layout))
+scored_runs <- runs |> filter(!grepl("heavy", layout), !is.na(theta))
+```
+
+# 1. What changed, and which variants carry it
+
+The redesign is core-tasks PR #442 (merged 2026-04-21, first shipped in task
+version 1.1.2), gated on the **variant parameter `taskVersion === 2`**. That
+parameter isn't exported to the Redivis `variants` table, but every variant
+created from 2026-04-23 on runs the new form, and every variant created
+2025-07-21 (the legacy `de` / `es-CO` / `English (North America) - Legacy`
+variants) runs the old form, **regardless of code version**: old variants still
+produce the 32-trial mixed block on code 1.3.17.
+
+```{r variant-table}
+runs |>
+  filter(layout != "incomplete") |>
+  count(form, variant_name, variant_created = substr(variant_created, 1, 10), layout) |>
+  pivot_wider(names_from = layout, values_from = n, values_fill = 0) |>
+  arrange(form, variant_created) |>
+  knitr::kable(caption = "H&F variants by intended form (complete runs only; variant names repeat across site datasets)")
+```
+
+What v2 changes, read from the code:
+
+| | v1 (old) | v2 (new) |
+|---|---|---|
+| Response deadline | **none** (configured presentation times were dead code) | pure blocks 3000 ms; mixed 3000 / 2000 / 1500 ms |
+| Mixed block | 32 trials, untimed | 48 trials = 3 segments × 16, "going faster" instructions between |
+| Feedback | none on test trials | **coin sound if correct, fail sound if not, every test trial** |
+| No response | impossible | `response = null`, scored incorrect |
+| Early stop | effectively none (`maxIncorrect` = 100) | **shared rule: stop if > 6 of the last 10 test trials are wrong** |
+| `heavyInstructions` variants | — | mixed block cut to the first 16 trials |
+
+Note that the early-stop rule's code comment says "4 of the last 10" but the
+code tests `> 6`. Timeouts count as errors for it.
+
+Scoring is unchanged across forms: the released `multigroup_dataset` Rasch
+model uses the same item uids (`hf_{block}_{stim}_{start|stay|switch}`) for
+both, and `recode_hf()` still marks every response faster than 200 ms or
+slower than 2000 ms incorrect. (I checked whether processing drops timeouts.
+It does not: all raw no-response trials are in the processed table, scored
+incorrect.)
+
+# 2. Mechanics: the new segments make the task harder only through time
+
+```{r mechanics}
+mech <- hf_test |>
+  semi_join(complete_runs, by = "run_id") |>
+  filter(!is.na(block)) |>
+  group_by(form, block, segment, window) |>
+  summarise(trials = n(),
+            correct_side_if_answered = mean(correct[!timeout] %in% TRUE),
+            timeout = mean(timeout),
+            rt_over_2s = mean(rt_numeric > 2000, na.rm = TRUE),
+            scored_correct = mean(sc_pipeline),
+            median_rt = median(rt_numeric, na.rm = TRUE), .groups = "drop") |>
+  mutate(block = factor(block, c("hearts", "flowers", "mixed"))) |>
+  arrange(form, block, segment)
+
+knitr::kable(mech, digits = 3,
+             caption = "Trial-level mechanics, complete runs. window = response deadline (Inf = untimed v1). scored_correct = as released (timeouts and RT outside 200-2000 ms are errors).")
+```
+
+Within v2 the three mixed segments differ only in their deadline (the
+feedback is constant), so they isolate the timing manipulation. Shortening the
+window from 3 s to 2 s to 1.5 s raises timeouts from 0.6% to 2.9% to 8.3%,
+and that is most of the drop in scored accuracy (.89 → .83); the rest is a
+small decline in accuracy on answered trials. The faster segments add
+difficulty mainly by making children miss the window.
+
+Across forms, the bigger effect is on slow responses. Untimed v1 children
+answered after 2 s on 6–15% of trials, all of which `recode_hf()` scores
+incorrect. Under v2's deadlines and feedback that share falls to 0–2.5%. One
+mismatch follows: in the 3-s windows (pure blocks and mixed segment 1), a
+correct 2–3 s response plays the coin but is scored wrong (0.3–2.5% of those
+trials).
+
+```{r rt-distributions, fig.height = 3.8, fig.width = 11}
+rt_panels <- hf_test |>
+  semi_join(complete_runs, by = "run_id") |>
+  filter(!is.na(block), !timeout, rt_numeric > 0, rt_numeric < 4000) |>
+  mutate(panel = case_when(block != "mixed" ~ "pure blocks",
+                           form == "v1" ~ "v1 mixed",
+                           TRUE ~ paste0("v2 mixed, ", window / 1000, " s")),
+         panel = factor(panel, c("pure blocks", "v1 mixed", "v2 mixed, 3 s",
+                                 "v2 mixed, 2 s", "v2 mixed, 1.5 s")))
+windows <- tibble(panel = factor(c("pure blocks", "v2 mixed, 3 s", "v2 mixed, 2 s",
+                                   "v2 mixed, 1.5 s"), levels(rt_panels$panel)),
+                  window = c(3000, 3000, 2000, 1500))
+ggplot(rt_panels, aes(rt_numeric, fill = form)) +
+  geom_density(alpha = .45, colour = NA, adjust = .8) +
+  geom_vline(xintercept = 2000, linetype = "dashed") +
+  geom_vline(data = windows, aes(xintercept = window), colour = "firebrick") +
+  facet_wrap(~panel, nrow = 1) +
+  scale_x_continuous(breaks = c(0, 1000, 2000, 3000), labels = c("0", "1", "2", "3")) +
+  labs(x = "Response time (s)", y = "Density", fill = "Form",
+       title = "Response times by block: v1's slow tail vs v2's windows",
+       subtitle = "Red: v2 response window. Dashed: the 2000 ms cutoff recode_hf() scores as an error. Answered trials of complete runs.")
+```
+
+The untimed v1 distributions have a long right tail past 2 s, all of which
+is scored as error. v2's windows cut the tail off, and in the 2-s and 1.5-s
+segments the whole distribution shifts left as children speed up.
+
+# 3. Many more v2 runs end early
+
+```{r completion}
+runs |>
+  filter(!grepl("heavy", layout)) |>
+  group_by(dataset) |>
+  filter(n_distinct(form) == 2) |>
+  ungroup() |>
+  group_by(form) |>
+  summarise(runs = n(), incomplete = mean(layout == "incomplete"), .groups = "drop") |>
+  knitr::kable(digits = 3, caption = "Share of runs that end before the last trial, sites that ran both forms")
+
+last_trial <- hf_test |>
+  group_by(run_id) |>
+  slice_max(trial_index, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(run_id, last_block = block, last_segment = segment)
+
+runs |>
+  filter(layout == "incomplete") |>
+  left_join(last_trial, by = "run_id") |>
+  count(form, where_stopped = paste(last_block, coalesce(as.character(last_segment), ""))) |>
+  pivot_wider(names_from = form, values_from = n, values_fill = 0) |>
+  knitr::kable(caption = "Where incomplete runs stop (block and mixed segment)")
+
+runs |>
+  filter(form == "v2", layout == "incomplete") |>
+  count(stop_reason) |>
+  knitr::kable(caption = "stop_reason for incomplete v2 runs (logged from 2026-07-31 only)")
+```
+
+About a quarter of v2 runs stop early (29% at sites that ran both forms),
+against 5% of v1 runs. Most v2 stops (371 of 581) fall in the 2-s and 1.5-s
+segments, and 293 of the 343 stops with a logged reason are `errorOut`. That is the rule working as written: timeouts count as errors, so
+a child who can't keep up with the 1.5-s pace is stopped. The truncation is
+response-dependent, so θ estimates from the observed trials stay valid, but
+these children lose their hardest trials and many leave the task on a run of
+failures.
+
+# 4. Floor and ceiling: the floor nearly disappears, the ceiling moves
+
+```{r theta-by-age, fig.height = 4.8}
+theta_age <- scored_runs |>
+  filter(!is.na(age), age >= 4, age < 14) |>
+  group_by(form) |>
+  mutate(at_cap = theta >= max(theta) - 0.05) |>
+  ungroup()
+ggplot(theta_age, aes(age, theta)) +
+  geom_point(aes(colour = at_cap), alpha = 0.35, size = 0.9) +
+  geom_quantile(quantiles = c(.1, .5, .9), formula = y ~ splines::ns(x, 3),
+                colour = "black") +
+  facet_wrap(~form) +
+  scale_colour_manual(values = c(`FALSE` = "grey55", `TRUE` = "firebrick"),
+                      labels = c("below the score cap", "at the score cap"), name = NULL) +
+  labs(x = "Age (years)", y = "Released θ",
+       title = "Released θ by age",
+       subtitle = "All scored runs. Lines: 10th, 50th, 90th percentiles. The cap is the score of an error-free run.") +
+  theme(legend.position = "bottom")
+```
+
+```{r floor-ceiling-by-age, fig.height = 4.2}
+run_acc <- hf_test |>
+  semi_join(complete_runs, by = "run_id") |>
+  filter(!is.na(block)) |>
+  group_by(run_id) |>
+  summarise(acc = mean(sc_pipeline),
+            acc_mixed = mean(sc_pipeline[block == "mixed"]),
+            perfect_mixed = all(sc_pipeline[block == "mixed"]), .groups = "drop")
+
+ceiling_share <- scored_runs |>
+  filter(!is.na(age), age >= 4, age < 14) |>
+  group_by(form) |>
+  mutate(near_cap = theta >= max(theta) - 0.5) |>
+  group_by(form, age_yr = floor(age)) |>
+  summarise(n = n(), share = mean(near_cap), .groups = "drop") |>
+  mutate(end = "Ceiling: θ within 0.5 logits of the cap (all scored runs)")
+floor_share <- complete_runs |>
+  inner_join(run_acc, by = "run_id") |>
+  filter(!is.na(age), age >= 4, age < 14) |>
+  group_by(form, age_yr = floor(age)) |>
+  summarise(n = n(), share = mean(acc_mixed <= .625), .groups = "drop") |>
+  mutate(end = "Floor: mixed block ≤ 62.5% correct (complete runs)")
+
+bind_rows(ceiling_share, floor_share) |>
+  filter(n >= 15) |>
+  ggplot(aes(age_yr, share, colour = form)) +
+  geom_line() +
+  geom_point(aes(size = n)) +
+  facet_wrap(~end) +
+  scale_size_area(max_size = 4, guide = "none") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = seq(4, 13, 2)) +
+  labs(x = "Age (years)", y = "Share of runs", colour = "Form",
+       title = "Floor and ceiling by age",
+       subtitle = "Age bins with at least 15 runs; point size = runs. 62.5% correct is just above the 50% guessing rate.")
+```
+
+```{r ceiling-table}
+complete_runs |>
+  inner_join(run_acc, by = "run_id") |>
+  filter(!is.na(age)) |>
+  group_by(form, age = age_band(age)) |>
+  summarise(runs = n(), mean_scored_acc = mean(acc),
+            perfect_mixed = mean(perfect_mixed),
+            acc_97_plus = mean(acc >= .97), .groups = "drop") |>
+  pivot_wider(names_from = form, values_from = -c(form, age)) |>
+  knitr::kable(digits = 3, caption = "Accuracy-based ceiling indicators by age band, complete runs. Note the mixed block is 32 trials in v1 and 48 in v2, so a perfect mixed block is harder to achieve in v2 regardless of difficulty.")
+
+scored_runs |>
+  filter(!is.na(age)) |>
+  group_by(form) |>
+  mutate(cap = max(theta)) |>
+  group_by(form, age = age_band5(age)) |>
+  summarise(runs = n(), at_cap = mean(theta >= cap - 0.05),
+            within_half_logit = mean(theta >= cap - 0.5), .groups = "drop") |>
+  pivot_wider(names_from = form, values_from = -c(form, age)) |>
+  knitr::kable(digits = 3, caption = "θ-scale ceiling by age band, all scored runs (cap = 4.0 in v1, 4.13 in v2)")
+```
+
+**The floor nearly disappears.** In v1, half of 5-year-olds and a third of
+6-year-olds scored near chance on the mixed block, as did 17–30% of 7- to
+9-year-olds. In v2 that share is under 5% at every age. Part of v1's floor
+was slow responding: answers after 2 s are scored as errors (§2), and v1
+children gave many of them.
+
+**The ceiling can't be judged on released θ.** The released model scores v2
+with item parameters calibrated on untimed v1 trials, so passing a 1.5-s
+switch trial earns the same credit as an untimed pass, and the top of the v2
+distribution is capped by items that are too easy for it. On released θ the
+picture is mixed: fewer of the oldest children sit within half a logit of the
+cap in v2 (10–12: 18% vs 4%; 12+: 26% vs 9%), but more 6- to 10-year-olds
+sit exactly at it (4–6% vs about 1%). §11 refits both forms on one scale,
+with the timed items calibrated separately, and that is the comparison to
+use: **v2 does reduce the ceiling substantially.**
+
+The accuracy indicators in the table are confounded too: the v2 mixed block
+is half again as long (48 vs 32 trials), so a perfect block is harder to
+achieve whatever the items' difficulty. (An earlier version of this section
+read that as the fast segment cutting the ceiling.)
+
+# 5. Reliability
+
+## Split-half: v1's advantage is partly "slowness"
+
+```{r split-half}
+split_half <- function(trials, var) {
+  halves <- trials |>
+    arrange(run_id, trial_index) |>
+    group_by(run_id) |>
+    mutate(half = row_number() %% 2) |>
+    group_by(run_id, half) |>
+    summarise(x = mean(.data[[var]], na.rm = TRUE), .groups = "drop") |>
+    pivot_wider(names_from = half, values_from = x)
+  r <- cor(halves$`0`, halves$`1`, use = "complete.obs")
+  2 * r / (1 + r)
+}
+
+sh_trials <- hf_test |>
+  semi_join(complete_runs, by = "run_id") |>
+  filter(!is.na(block)) |>
+  mutate(slow = as.numeric(rt_numeric > 2000))
+
+map_dfr(c("v1", "v2"), \(f) {
+  d <- sh_trials |> filter(form == f)
+  tibble(form = f, runs = n_distinct(d$run_id),
+         scored_accuracy = split_half(d, "sc_pipeline"),
+         side_correct_only = split_half(d, "sc_task"),
+         share_slower_than_2s = split_half(d, "slow"))
+}) |>
+  knitr::kable(digits = 3, caption = "Odd/even split-half reliability (Spearman-Brown), complete runs")
+```
+
+On raw split-half, v1 looks more reliable (.96 vs .86). Part of that is a
+stable individual difference v2 suppresses on purpose: in untimed v1, a
+child's share of responses slower than 2 s is almost perfectly consistent
+(.95), and those responses are scored as errors. Under v2's deadlines that
+trait is much less reliable (.68). v1 still leads on side-correctness alone
+(.93 vs .83).
+
+## Model-based reliability of θ (all scored runs)
+
+```{r empirical-rel}
+scored_runs |>
+  group_by(form, dataset) |>
+  filter(n() >= 30) |>
+  summarise(runs = n(), incomplete = mean(layout == "incomplete"),
+            sd_theta = sd(theta), mean_se = mean(theta_se),
+            reliability = var(theta) / (var(theta) + mean(theta_se^2)),
+            .groups = "drop") |>
+  knitr::kable(digits = 3, caption = "Empirical reliability of released θ by dataset and form, all scored runs (incomplete runs included)")
+```
+
+Counting every scored run (including the children stopped early), v2's
+model-based reliability is .85–.91 at most sites, about the same as v1's
+.86–.93. Leipzig's wave 3 is the exception (.73): those children are older,
+and their v2 scores are compressed (SD 1.1 vs 2.6 for v1). Restricting to
+complete runs would understate v2 (it drops its weakest children), so these
+all-runs numbers are the fair comparison. **The new form does not add
+reliability; at best it holds it.**
+
+## Test–retest
+
+```{r retest}
+pairs <- scored_runs |>
+  filter(!is.na(user_id)) |>
+  arrange(user_id, time_started) |>
+  group_by(user_id) |>
+  mutate(theta2 = lead(theta), form2 = lead(form), dataset2 = lead(dataset),
+         age2 = lead(age),
+         gap_days = as.numeric(difftime(lead(time_started), time_started,
+                                        units = "days"))) |>
+  ungroup() |>
+  filter(!is.na(theta2), gap_days >= 14, dataset == dataset2)
+
+pairs |>
+  group_by(dataset, forms = paste(form, form2, sep = " -> ")) |>
+  filter(n() >= 10) |>
+  summarise(pairs = n(), median_gap_days = median(gap_days),
+            age_t2 = mean(age2, na.rm = TRUE), sd_theta_t2 = sd(theta2),
+            r = cor(theta, theta2), .groups = "drop") |>
+  knitr::kable(digits = 2, caption = "Retest correlation of θ by form pair (consecutive runs, >= 14 days apart, n >= 10)")
+```
+
+The only large cross-form sample is Leipzig: wave 1 → wave 2 (both v1)
+retests at **.54**, while wave 2 (v1) → wave 3 (v2) retests at **.12**. Three
+things are confounded in that drop: the form change, a much longer gap (~16
+vs ~4 months), and range restriction in the older wave-3 sample (θ SD 1.1).
+Bogotá's 17 cross-form pairs (~28 months apart) retest at .34, against .49 for
+its 64 v1 → v1 pairs (~16 months). Western's small cross-form sample (n = 11,
+~1 year) retests about like its v1 → v1 pairs (.55 vs .58), while MPIB's 14
+cross-form pairs (~7.5 months, age ~7.5) come out negative (−.63). There is no adequate v2 → v2 retest yet
+(Boston's 11 pairs are three weeks apart, in 4-year-olds).
+**Cross-form continuity is not established, and the Leipzig number is a
+warning for any longitudinal analysis that spans the switch.**
+
+# 6. Age validity
+
+```{r age-validity}
+scored_runs |>
+  filter(!is.na(age)) |>
+  group_by(dataset) |>
+  filter(n_distinct(form) == 2) |>
+  group_by(dataset, form) |>
+  filter(n() >= 30) |>
+  summarise(runs = n(), mean_age = mean(age), sd_age = sd(age),
+            r_theta_age = cor(theta, age),
+            logits_per_year = coef(lm(theta ~ age))[2], .groups = "drop") |>
+  knitr::kable(digits = 2, caption = "θ–age association within sites that ran both forms, all scored runs")
+```
+
+Age associations are weaker under v2 at most sites that ran both forms (the
+exception is rural Colombia). Sample age ranges differ by wave and site, so
+this is suggestive rather than decisive. It fits the compression seen above:
+v2 lifts the low end, so younger children look more like older ones.
+
+# 7. The ding: a clean feedback signature
+
+Feedback should change what happens *after an error*. The pure blocks are the
+best place to look, because the 3-s deadline almost never binds there (<1%
+timeouts) and only the feedback differs.
+
+```{r post-error}
+post_error <- hf_test |>
+  filter(!is.na(block), !timeout, !is.na(age)) |>
+  arrange(run_id, trial_index) |>
+  group_by(run_id, block) |>
+  mutate(prev_error = lag(!(correct %in% TRUE))) |>
+  ungroup() |>
+  filter(!is.na(prev_error)) |>
+  group_by(form, block, age = age_band(age), prev_error) |>
+  summarise(trials = n(), acc = mean(correct %in% TRUE),
+            rt = median(rt_numeric, na.rm = TRUE), .groups = "drop") |>
+  pivot_wider(names_from = prev_error, values_from = c(trials, acc, rt)) |>
+  transmute(form, block = factor(block, c("hearts", "flowers", "mixed")), age,
+            error_trials = trials_TRUE,
+            acc_after_error = acc_TRUE, acc_after_correct = acc_FALSE,
+            post_error_slowing_ms = rt_TRUE - rt_FALSE)
+
+post_error |>
+  arrange(block, age, form) |>
+  knitr::kable(digits = 3, caption = "Post-error behaviour (side-correctness; timeouts excluded)")
+```
+
+```{r post-error-plot, fig.height = 4}
+post_error |>
+  filter(block != "mixed") |>
+  ggplot(aes(x = age, y = acc_after_error, colour = form, group = form)) +
+  geom_line() + geom_point(aes(size = error_trials)) +
+  facet_wrap(~block) +
+  scale_size_area(max_size = 4, guide = "none") +
+  labs(x = "Age band", y = "Accuracy on the trial after an error",
+       title = "With feedback, children recover from errors")
+```
+
+Without feedback (v1), children speed up after an error (negative
+post-error slowing) and are often wrong again: post-error accuracy in the
+flowers block is .38–.64, a signature of being stuck on the wrong rule. With
+the coin/fail sound (v2), post-error slowing turns positive or near zero, and
+post-error accuracy rises sharply in every flowers age band (ages 6–8: .44 →
+.73; 10+: .64 → .90) and in the two younger hearts bands. In the hearts block
+from age 8, where errors are rare (29–88 per cell), it is slightly lower in
+v2.
+Accuracy after a *correct* trial is the same in both forms, so this isn't a
+difference in the samples' baseline ability.
+
+**So the ding does what feedback should**: it breaks perseverative error runs.
+Whether that "helps" depends on what the task should measure. v1's lower range
+was partly children who never grasped or held the flower rule; v2 corrects
+them within a few trials, which makes it more a measure of conflict
+efficiency and less of rule acquisition. That shift accounts for much of the
+low-end compression in sections 4–6.
+
+# 8. Separating the two interventions
+
+| Outcome | Moved by | Evidence |
+|---|---|---|
+| Post-error recovery, pure blocks | feedback | v1 → v2 at matched post-correct accuracy (§7) |
+| Timeouts, early stops in mixed | timing | dose-response across v2's three segments, feedback constant (§2, §3) |
+| Fewer slow (>2 s) responses | both | deadline caps them; feedback also speeds responses in the pure blocks, where the deadline barely binds |
+| Fewer near-cap scores at 10+ | timing (likely) | the 1.5-s segment is the only part of v2 that is hard for older children (§2, §9) |
+| Higher scored accuracy at young ages | both, mostly feedback + fewer slow errors | §4, §7 |
+| Reliability, retest, age validity | not separable | only overall v1 vs v2 contrasts exist |
+
+# 9. Timing, calibration, and the ceiling
+
+The redesign's goal was to remove the ceiling and make the task harder for
+older children while measuring the same constructs. This section asks how
+well the timings serve that goal: where items of each timing sit relative to
+children's abilities at each age, and whether shorter windows add
+information about inhibition and switching or about something else.
+
+## Where the released items sit
+
+The released model is a Rasch model with a fixed guessing floor of 0.5,
+calibrated on 1,671 runs (registry v2_3, August 2026), essentially all of
+them untimed v1.
+
+```{r released-items}
+released <- readRDS(here("data/hf_v2/item_parameters_released.rds")) |>
+  group_by(item_uid) |>
+  summarise(b = mean(difficulty), guessing = first(guessing), .groups = "drop") |>
+  arrange(b)
+knitr::kable(released, digits = 2, caption = "Released H&F item difficulties (Rasch, guessing 0.5)")
+
+theta_by_age <- scored_runs |>
+  filter(form == "v1", !is.na(age)) |>
+  group_by(age = age_band5(age)) |>
+  summarise(runs = n(), q10 = quantile(theta, .1), median = median(theta),
+            q90 = quantile(theta, .9), .groups = "drop")
+knitr::kable(theta_by_age, digits = 2, caption = "Released θ by age, v1 runs")
+
+# "top decile" below = 90th percentile of v1 children aged 10 and over
+top_decile <- unname(quantile(scored_runs$theta[scored_runs$form == "v1" &
+                                                  scored_runs$age >= 10], .9, na.rm = TRUE))
+```
+
+The hardest released item (a mixed-block switch trial) sits at about +0.6,
+while median ability is above 1.7 from age 10 on and the top decile of
+children aged 10 and over sits near 3.9, close to the highest score the
+model gives. With a 0.5 guessing floor an
+item is most informative about half a logit above its difficulty, and its
+information can never exceed 0.09 per trial (a 2AFC item carries at most a
+quarter of the information of an item with no guessing floor).
+
+```{r item-info}
+info_3pl <- \(theta, b, g = 0.5) {
+  p <- g + (1 - g) * plogis(theta - b)
+  ((p - g) / (1 - g))^2 * (1 - p) / p
+}
+b_of <- \(uid) released$b[released$item_uid == uid]
+at <- theta_by_age |> select(age, theta = median) |>
+  bind_rows(tibble(age = "top decile, ages 10+", theta = top_decile))
+info_tab <- released |> select(item_uid, b)
+for (i in seq_len(nrow(at))) info_tab[[at$age[i]]] <- info_3pl(at$theta[i], info_tab$b)
+knitr::kable(info_tab, digits = 3, caption = sprintf("Fisher information per trial of each released item at the median θ of each age band and at the top decile of children 10+ (θ = %.1f); maximum possible 0.09", top_decile))
+```
+
+At the median 10- to 12-year-old, mixed-block switch trials are still fairly
+informative (about three-quarters of the maximum). The pure-block heart trials
+carry little information from age 8 (under a third of the maximum) and the
+flower trials from age 10 (about a quarter), and every untimed item gives at
+most a fifth of the maximum in the top decile. That top decile is the ceiling.
+
+## Deadline items on the released scale
+
+v1 was untimed, so any deadline D can be imposed after the fact: score a
+response correct only if it is on the right side **and** 200 ms ≤ RT ≤ D, then
+estimate each released item's difficulty with the children's released θ held
+fixed. This puts every hypothetical deadline on the released scale
+([`_hf_v2_deadlines.R`](_hf_v2_deadlines.R)).
+
+```{r deadline-items}
+dl_file <- here("data/hf_v2/deadline_items.rds")
+if (!file.exists(dl_file)) source(here("studies/2026-10_hf-v2-redesign/_hf_v2_deadlines.R"))
+dl <- readRDS(dl_file)
+
+item_order <- c("hearts_heart_start", "hearts_heart_stay", "flowers_flower_start",
+                "flowers_flower_stay", "heartsflowers_heart_start", "heartsflowers_flower_start",
+                "heartsflowers_heart_stay", "heartsflowers_flower_stay",
+                "heartsflowers_heart_switch", "heartsflowers_flower_switch")
+dl$v1_items |>
+  mutate(b = if_else(b > 7.9, NA_real_, b),
+         deadline = if_else(is.finite(deadline), paste0(deadline, " ms"), "untimed"),
+         item = factor(paste0("hf_", item_class), paste0("hf_", item_order))) |>
+  select(item, deadline, b) |>
+  pivot_wider(names_from = deadline, values_from = b) |>
+  arrange(item) |>
+  knitr::kable(digits = 2, caption = "Difficulty of each released item (released scale) when a deadline D is imposed on untimed v1 responses. Blank = accuracy below the 0.5 guessing floor, which the model cannot fit.")
+```
+
+At D = 2000 ms (the cutoff `recode_hf()` applies today) the counterfactual
+difficulties reproduce the released ones, within 0.13 logits for every
+item. Tightening to 1500 ms moves
+the mixed items to about b = 1.1–2.2, right at the older children's median
+ability; 1250 ms moves them to about 2.5–3.9, the top decile.
+Below about 1250 ms accuracy falls under 50%. A model with a 0.5 guessing
+floor cannot represent that: a child who misses the window scores 0, not
+chance.
+
+```{r wright-map, fig.height = 5.2}
+item_lines <- dl$v1_items |>
+  filter(is.finite(deadline), b < 7.9) |>
+  mutate(block = if_else(grepl("^heartsflowers", item_class), "mixed block", "pure blocks"),
+         item = sub("^(heartsflowers|hearts|flowers)_", "", item_class),
+         item = sub("_", " ", item))
+p_items <- ggplot(item_lines, aes(deadline, b, colour = item)) +
+  geom_hline(yintercept = theta_by_age$median, colour = "grey75", linetype = "dotted") +
+  geom_line() +
+  geom_point() +
+  scale_x_reverse(breaks = c(3000, 2500, 2000, 1500, 1000),
+                  labels = c("3", "2.5", "2", "1.5", "1")) +
+  coord_cartesian(ylim = c(-5, 5)) +
+  facet_wrap(~block) +
+  labs(x = "Imposed deadline (s), faster to the right", y = "Item difficulty (released θ scale)",
+       colour = "Item") +
+  theme(legend.position = "bottom") +
+  guides(colour = guide_legend(nrow = 2))
+p_people <- scored_runs |>
+  filter(form == "v1", !is.na(age)) |>
+  mutate(age = age_band5(age)) |>
+  ggplot(aes(age, theta)) +
+  geom_boxplot(outlier.size = 0.5, fill = "grey90") +
+  coord_cartesian(ylim = c(-5, 5)) +
+  labs(x = "Age band (v1 children)", y = NULL)
+patchwork::wrap_plots(p_items, p_people, widths = c(3, 1)) +
+  patchwork::plot_annotation(
+    title = "Where items sit relative to children (shared θ scale)",
+    subtitle = "Left: item difficulty with a deadline imposed on untimed v1 responses;\ndotted lines mark each age band's median θ. Right: θ by age.")
+```
+
+Read across: at a 3-s deadline (left) every item sits below the median
+child aged 6 and over, and the mixed-block items only rise into the 10–12 and
+12+ range at about 1.5 s or faster.
+
+The counterfactual can be checked against v2, where children really were
+given these windows. Imposing 2000 and 1500 ms on the v2 3-s segment
+predicts what the same children did in the 2-s and 1.5-s segments:
+
+```{r deadline-validation}
+dl$validation |>
+  summarise(across(everything(), \(x) x[!is.na(x)][1])) |>
+  knitr::kable(digits = 3, caption = "Counterfactual vs actual accuracy, v2 runs with all three mixed segments")
+```
+
+It matches closely at 2000 ms (.877 vs .875) and slightly underestimates at
+1500 ms (.770 vs .801): children speed up a little when the deadline is
+real, so the counterfactual is conservative.
+
+```{r deadline-by-age}
+typed <- dl$typed
+deadline_acc <- \(d) typed |>
+  filter(form == "v1", !is.na(age), block == "mixed", type == "switch") |>
+  group_by(age = age_band5(age)) |>
+  summarise(D = d, accuracy = mean(correct %in% TRUE & rt_numeric >= 200 &
+                                     rt_numeric <= d), .groups = "drop")
+
+purrr::map_dfr(c(Inf, 2000, 1750, 1500, 1250, 1000), deadline_acc) |>
+  pivot_wider(names_from = D, values_from = accuracy, names_prefix = "D = ") |>
+  knitr::kable(digits = 2, caption = "Counterfactual accuracy on mixed-block switch trials (heart and flower together) by age and imposed deadline (v1 children)")
+
+typed |>
+  filter(form == "v2", !is.na(age), block == "mixed", type == "switch") |>
+  group_by(age = age_band5(age), window) |>
+  summarise(accuracy = mean(correct %in% TRUE & !timeout), .groups = "drop") |>
+  pivot_wider(names_from = window, values_from = accuracy, names_prefix = "window ") |>
+  knitr::kable(digits = 2, caption = "Actual accuracy on mixed-block switch trials (heart and flower together) by age and window (v2 children)")
+```
+
+In real data the 1.5-s window puts 10–12-year-olds at 83% correct on switch
+trials, close to the accuracy at which a 2AFC item with a 0.5 floor is most
+informative (about 81%). So that window is well targeted for the median
+older child. The 12+ group (88%) and the top decile need something faster:
+near 1.25 s in the counterfactual.
+
+## Do shorter windows still measure inhibition and switching?
+
+If a deadline makes items harder on construct, the deadline score should keep
+tracking children's switching skill (their untimed mixed-block accuracy), and
+the switch-vs-stay contrast should grow. If it only adds speed, the score
+should track plain response speed instead, measured here by the median RT on
+the easy same-side hearts trials.
+
+```{r construct-check}
+partial_r <- \(a, b, z) {
+  ok <- complete.cases(a, b, z)
+  cor(resid(lm(a[ok] ~ z[ok])), resid(lm(b[ok] ~ z[ok])))
+}
+
+v1_base <- typed |>
+  filter(form == "v1", !is.na(age)) |>
+  group_by(run_id, age) |>
+  summarise(untimed_mixed = mean(correct[block == "mixed"] %in% TRUE),
+            hearts_rt = median(rt_numeric[block == "hearts"], na.rm = TRUE),
+            n_mixed = sum(block == "mixed"), .groups = "drop") |>
+  filter(n_mixed == 32)
+
+purrr::map_dfr(c(2000, 1500, 1250, 1000), \(d) {
+  sd_ <- typed |>
+    filter(form == "v1", block == "mixed") |>
+    group_by(run_id) |>
+    summarise(score = mean(correct %in% TRUE & rt_numeric >= 200 &
+                             rt_numeric <= d), .groups = "drop") |>
+    inner_join(v1_base, by = "run_id")
+  tibble(deadline = d,
+         r_with_untimed_switching = partial_r(sd_$score, sd_$untimed_mixed, sd_$age),
+         r_with_plain_speed = partial_r(sd_$score, sd_$hearts_rt, sd_$age))
+}) |>
+  knitr::kable(digits = 2, caption = "Counterfactual (v1): age-partialled correlation of the mixed-block deadline score with untimed switching accuracy and with hearts-block median RT")
+
+typed |>
+  filter(form == "v2", block == "mixed", type != "start") |>
+  group_by(window, stimulus = item, type) |>
+  summarise(accuracy = mean(correct %in% TRUE & !timeout), .groups = "drop") |>
+  pivot_wider(names_from = type, values_from = accuracy) |>
+  mutate(switch_cost = stay - switch) |>
+  arrange(stimulus, desc(window)) |>
+  knitr::kable(digits = 3, caption = "Actual (v2): stay vs switch accuracy by stimulus and window")
+```
+
+In the counterfactual, the deadline score's link to switching skill
+collapses as the window shortens (.49 at 2000 ms, .20 at 1500, .03 at 1250)
+while its link to plain speed stays around −.5 to −.6: a short fixed
+deadline turns the mixed block into a speed test. Real deadlines change
+behaviour, so the v2 data are the stronger test, and they point the same way
+by a different route: **the switch cost barely changes as the window
+tightens** (flower trials .064 at 3 s, .044 at 2 s, .053 at 1.5 s; heart
+trials .074, .073, .082). The deadline adds about the same difficulty to stay
+and switch trials rather than sharpening the inhibition and switching
+contrast.
+
+Two natural alternatives also fail:
+
+```{r alternatives}
+hearts_rt_correct <- typed |>
+  filter(form == "v1", block == "hearts", correct %in% TRUE) |>
+  group_by(run_id) |>
+  summarise(hrt = median(rt_numeric, na.rm = TRUE), .groups = "drop")
+indiv <- purrr::map_dfr(c(1.5, 2, 2.5), \(k) {
+  sk <- typed |>
+    filter(form == "v1", block == "mixed") |>
+    inner_join(hearts_rt_correct, by = "run_id") |>
+    group_by(run_id) |>
+    summarise(score = mean(correct %in% TRUE & rt_numeric <= k * hrt), .groups = "drop") |>
+    inner_join(v1_base |> select(run_id, age, untimed_mixed), by = "run_id") |>
+    inner_join(hearts_rt_correct, by = "run_id")
+  tibble(window = paste0(k, " × own hearts RT"), mean_accuracy = mean(sk$score),
+         r_with_untimed_switching = partial_r(sk$score, sk$untimed_mixed, sk$age),
+         r_with_plain_speed = partial_r(sk$score, sk$hrt, sk$age))
+})
+knitr::kable(indiv, digits = 2, caption = "Counterfactual individualized windows (v1)")
+
+rt_halves <- typed |>
+  filter(form == "v1", block == "mixed", correct %in% TRUE) |>
+  arrange(run_id, trial_index) |>
+  group_by(run_id) |>
+  mutate(half = row_number() %% 2) |>
+  group_by(run_id, half) |>
+  summarise(switch_cost = median(rt_numeric[type == "switch"]) -
+              median(rt_numeric[type == "stay"]),
+            mixed_rt = median(rt_numeric), .groups = "drop")
+sb_halves <- \(v) {
+  h <- rt_halves |> select(run_id, half, x = all_of(v)) |>
+    pivot_wider(names_from = half, values_from = x)
+  r <- cor(h$`0`, h$`1`, use = "complete.obs")
+  2 * r / (1 + r)
+}
+tibble(measure = c("RT switch cost (switch − stay median RT)", "mixed-block median RT"),
+       split_half = c(sb_halves("switch_cost"), sb_halves("mixed_rt"))) |>
+  knitr::kable(digits = 2, caption = "Split-half reliability of RT measures, untimed v1 mixed block")
+```
+
+A window scaled to each child's own hearts-block speed overcorrects: slower
+children end up scoring *higher* (positive correlation with hearts RT). And
+the classic ceiling-free alternative, the RT switch cost, is unreliable (a
+split-half near zero); mixed-block RT itself is highly reliable but measures
+general speed.
+
+## The stop rule is mostly triggered by timeouts
+
+```{r stop-rule-replay}
+fires <- function(err) {
+  for (i in seq_along(err)) if (sum(err[max(1, i - 9):i]) > 6) return(TRUE)
+  FALSE
+}
+error_out_runs <- runs |> filter(stop_reason %in% "errorOut") |> pull(run_id)
+replay <- typed |>
+  filter(run_id %in% error_out_runs) |>
+  arrange(run_id, trial_index) |>
+  group_by(run_id) |>
+  summarise(fires_as_deployed = fires(!(correct %in% TRUE) | timeout),
+            fires_without_timeouts = fires(!(correct %in% TRUE) & !timeout),
+            timeout_share_last_10 = mean(tail(timeout, 10)),
+            age = first(age), .groups = "drop")
+replay |>
+  summarise(error_out_runs = n(), rule_reproduced = mean(fires_as_deployed),
+            would_still_fire_without_timeouts = mean(fires_without_timeouts),
+            timeout_share_last_10 = mean(timeout_share_last_10),
+            median_age = median(age, na.rm = TRUE)) |>
+  knitr::kable(digits = 3, caption = "Replaying the error-out rule on the v2 runs it stopped")
+```
+
+The rule reproduces exactly from the saved trials, and **72% of the stops
+would not have happened if timeouts did not count**. Timeouts are 30% of
+these children's last ten trials, and their median age is 6.3: the fast
+segments mostly cut off young children.
+
+## What reallocating trials would buy
+
+```{r reallocation}
+# mixed trials split evenly between heart and flower; start trials ignored
+both <- \(theta, type) mean(c(info_3pl(theta, b_of(paste0("hf_heartsflowers_heart_", type))),
+                              info_3pl(theta, b_of(paste0("hf_heartsflowers_flower_", type)))))
+mix_info <- \(theta, p_switch) p_switch * both(theta, "switch") +
+  (1 - p_switch) * both(theta, "stay")
+test_info <- \(theta, n_hearts, n_flowers, n_mixed, p_switch)
+  n_hearts * info_3pl(theta, b_of("hf_hearts_heart_stay")) +
+  n_flowers * info_3pl(theta, b_of("hf_flowers_flower_stay")) +
+  n_mixed * mix_info(theta, p_switch)
+
+designs <- tribble(
+  ~design, ~n_hearts, ~n_flowers, ~n_mixed, ~p_switch,
+  "v2 as deployed (12 + 16 + 48)", 12, 16, 48, 0.62,
+  "shorter pure blocks (6 + 8 + 62)", 6, 8, 62, 0.62,
+  "shorter pure blocks, 80% switch", 6, 8, 62, 0.80)
+targets <- c(`median, 10-12` = theta_by_age$median[theta_by_age$age == "10-12"],
+             `top decile, ages 10+` = top_decile)
+designs |>
+  mutate(purrr::map_dfc(targets, \(t) 1 / sqrt(test_info(t, n_hearts, n_flowers, n_mixed, p_switch)))) |>
+  select(design, names(targets)) |>
+  knitr::kable(digits = 2, caption = "Expected standard error of θ at a given ability, by trial allocation (released untimed difficulties, mixed trials split evenly between heart and flower, same total length; switch share of 62% as observed)")
+```
+
+Moving trials from the pure blocks into the mixed block, and raising the
+share of switch trials, makes the median older child's score somewhat more
+precise at the same test length (SE about 0.54 → 0.48). It helps the top
+decile only a little (SE 1.32 → 1.14 at best, still above 1), because every
+untimed item is too easy there. Only harder items help much there, and in
+this task the only lever the data show is time.
+
+# 10. Scoring alternatives: modelling timeouts, imputing early stops
+
+Two further ideas for getting more out of the v2 data: score each trial with
+three outcomes (correct, wrong side, timeout) in a **nominal** IRT model, so
+that timeouts can carry different information from errors; and treat a run
+that the error-out rule stopped as evidence the child would have kept timing
+out, **imputing** the unreached trials.
+
+All models here are fit to the v2 runs only, as a single group. The items are
+the released items (block × stimulus × start / stay / switch, e.g.
+`hf_heartsflowers_heart_switch`), split by response window in the mixed
+block, with parameters held equal across an item's occurrences, so the models
+differ only in how a trial outcome is coded
+([`_hf_v2_nominal.R`](_hf_v2_nominal.R); run with the system R library,
+because `mirt` can't load in this project's renv). A trial is correct if the
+side is right and RT ≥ 200 ms (no 2000 ms cutoff; v2's windows already bound
+RT). Pure-block timeouts (0.2%) are too rare to model and are coded wrong
+throughout.
+
+| Model | Trial coding |
+|---|---|
+| 2PL, timeout = wrong | correct / not (like the released scoring) |
+| 2PL, timeout = missing | correct / wrong side; timeouts dropped |
+| Nominal | wrong side / timeout / correct, each mixed item with its own category weights |
+
+## How a timeout counts
+
+```{r nominal-weights}
+nr <- readRDS(here("data/hf_v2/nominal_results.rds"))
+nominal_pars <- as.data.frame(nr$params$nominal) |>
+  tibble::rownames_to_column("item") |>
+  mutate(group = sub("_[0-9]+$", "", item)) |>
+  filter(grepl("^heartsflowers", group), !is.na(ak1)) |>
+  group_by(group) |>
+  slice(1) |>
+  ungroup() |>
+  transmute(item = paste0("hf_", sub("_[0-9]+$", "", group)),
+            window_ms = as.numeric(sub(".*_", "", group)),
+            slope = a1, timeout_weight = ak1) |>
+  arrange(item, desc(window_ms))
+knitr::kable(nominal_pars, digits = 2,
+             caption = "Nominal model, mixed items: category weights are 0 for a wrong-side response and 2 for a correct one; timeout_weight is where a timeout falls on that scale")
+```
+
+The nominal model does find a real distinction. In the 3-s window a timeout
+counts *below* a wrong-side response (weights −0.7 to −1.9): a child who lets
+3 s pass is more likely disengaged than slow. In the 1.5-s window a timeout
+counts about the same as an error (−0.2 to +0.5).
+
+## Imputing early stops: the assumption and the theory
+
+Imputation here fills every trial an error-out run did not reach with a
+timeout (mixed block) or an error (pure blocks); the stay/switch status of an
+unreached mixed trial is drawn at the observed switch share. Two cautions
+apply before looking at any numbers.
+
+First, the stop rule depends only on responses already observed, so the
+unreached trials are *ignorably* missing: the EAP score computed from the
+observed trials is already the correct use of everything known about the
+child. Imputed trials add no information; they are a deterministic function
+of trials already in the score. They can only shift the score (by asserting
+what the child would have done) and inflate apparent precision.
+
+Second, the assumption that a stopped child would have kept timing out can
+be checked on children who came within one error of the rule (six errors in a
+ten-trial window) and kept going:
+
+```{r near-miss}
+nr$near_miss |>
+  summarise(children = n(), median_later_trials = median(next_trials),
+            median_accuracy_after = median(acc_after),
+            median_timeout_rate_after = median(timeout_after)) |>
+  knitr::kable(digits = 2, caption = "Children who reached 6 errors in a 10-trial window but completed the run: their later trials")
+```
+
+Most recovered: median 74% correct on later trials, with 6% timeouts. This
+group is selected on not having stopped, so it overstates recovery somewhat,
+but it is far from the 100% timeouts the imputation assumes.
+
+## Results
+
+```{r scoring-comparison}
+model_labels <- c(
+  timeout_wrong = "2PL, timeout = wrong",
+  nominal = "Nominal",
+  timeout_missing = "2PL, timeout = missing",
+  `timeout_wrong + imputed` = "2PL, timeout = wrong, error-outs imputed",
+  `nominal + imputed` = "Nominal, error-outs imputed")
+
+nr_scores <- bind_rows(nr$scores, nr$imputed_scores) |>
+  filter(model %in% names(model_labels))
+
+other_ef <- readRDS(here("data/scores_latest_v3_17.rds")) |>
+  filter(task_id %in% c("memory-game", "same-different-selection"), !is.na(score)) |>
+  select(user_id, task_id, other_score = score, other_time = time_started)
+nr_meta <- runs |>
+  semi_join(nr$scores, by = "run_id") |>
+  select(run_id, dataset, user_id, age, time_started, stop_reason)
+ef_match <- nr_meta |>
+  inner_join(other_ef, by = "user_id", relationship = "many-to-many") |>
+  mutate(gap = abs(as.numeric(difftime(as.POSIXct(other_time, tz = "UTC"),
+                                       time_started, units = "days")))) |>
+  filter(gap <= 90) |>
+  group_by(run_id, task_id) |>
+  slice_min(gap, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(run_id, task_id, other_score) |>
+  pivot_wider(names_from = task_id, values_from = other_score)
+
+eval_wide <- nr_scores |>
+  select(run_id, model, theta, theta_h0, theta_h1) |>
+  pivot_wider(names_from = model, values_from = c(theta, theta_h0, theta_h1),
+              names_sep = "|") |>
+  inner_join(nr_meta, by = "run_id") |>
+  left_join(ef_match, by = "run_id") |>
+  group_by(dataset) |>
+  filter(n() >= 40) |>
+  ungroup()
+
+partial_r <- \(a, b, z) {
+  ok <- complete.cases(a, b, z)
+  if (sum(ok) < 30) return(NA_real_)
+  r <- cor(cbind(a[ok], b[ok], z[ok]))
+  (r[1, 2] - r[1, 3] * r[2, 3]) / sqrt((1 - r[1, 3]^2) * (1 - r[2, 3]^2))
+}
+metrics <- function(d) {
+  per_ds <- purrr::map_dfr(split(d, d$dataset), \(x) {
+    purrr::map_dfr(names(model_labels), \(m) {
+      sh <- cor(x[[paste0("theta_h0|", m)]], x[[paste0("theta_h1|", m)]],
+                use = "complete.obs")
+      tibble(model = m, n = nrow(x),
+             split_half = 2 * sh / (1 + sh),
+             r_age = cor(x[[paste0("theta|", m)]], x$age, use = "complete.obs"),
+             r_memory = partial_r(x[[paste0("theta|", m)]], x$`memory-game`, x$age),
+             r_same_different = partial_r(x[[paste0("theta|", m)]],
+                                          x$`same-different-selection`, x$age))
+    })
+  })
+  per_ds |>
+    group_by(model) |>
+    summarise(across(c(split_half, r_age, r_memory, r_same_different),
+                     \(v) sum(v * n, na.rm = TRUE) / sum(n[!is.na(v)])),
+              .groups = "drop")
+}
+
+point <- metrics(eval_wide)
+emp_rel <- nr_scores |>
+  inner_join(nr_meta |> select(run_id, dataset), by = "run_id") |>
+  semi_join(eval_wide, by = "dataset") |>
+  group_by(model, dataset) |>
+  summarise(n = n(), rel = var(theta) / (var(theta) + mean(se^2)), .groups = "drop") |>
+  group_by(model) |>
+  summarise(model_reliability = sum(rel * n) / sum(n), .groups = "drop")
+
+point |>
+  left_join(emp_rel, by = "model") |>
+  mutate(model = factor(model_labels[model], model_labels)) |>
+  arrange(model) |>
+  select(model, split_half, model_reliability, everything()) |>
+  knitr::kable(digits = 3, caption = sprintf("Reliability and validity by scoring model, v2 runs (%d runs, %d datasets; n-weighted within-dataset values). Memory and Same & Different: age-partialled correlation with the child's nearest run within 90 days.", nrow(eval_wide), n_distinct(eval_wide$dataset)))
+```
+
+```{r scoring-bootstrap}
+set.seed(20261022)
+idx_by_ds <- split(seq_len(nrow(eval_wide)), eval_wide$dataset)
+boot <- purrr::map_dfr(1:500, \(b) {
+  ii <- unlist(lapply(idx_by_ds, \(i) sample(i, replace = TRUE)))
+  metrics(eval_wide[ii, ]) |> mutate(rep = b)
+})
+boot |>
+  pivot_longer(-c(model, rep), names_to = "metric") |>
+  group_by(rep, metric) |>
+  mutate(diff = value - value[model == "timeout_wrong"]) |>
+  ungroup() |>
+  filter(model != "timeout_wrong") |>
+  group_by(model, metric) |>
+  summarise(ci = sprintf("%+.3f [%+.3f, %+.3f]", median(diff),
+                         quantile(diff, .025), quantile(diff, .975)), .groups = "drop") |>
+  pivot_wider(names_from = metric, values_from = ci) |>
+  mutate(model = factor(model_labels[model], model_labels)) |>
+  arrange(model) |>
+  select(model, split_half, r_age, r_memory, r_same_different) |>
+  knitr::kable(caption = "Difference from the 2PL timeout = wrong model, with 95% bootstrap intervals (500 paired resamples of runs within dataset)")
+```
+
+```{r score-agreement}
+eval_wide |>
+  summarise(`nominal vs 2PL timeout = wrong` = cor(`theta|nominal`, `theta|timeout_wrong`),
+            `2PL timeout = missing vs = wrong` = cor(`theta|timeout_missing`, `theta|timeout_wrong`)) |>
+  knitr::kable(digits = 3, caption = "Correlation of full-data scores between models")
+
+eval_wide |>
+  filter(stop_reason %in% "errorOut") |>
+  summarise(error_out_runs = n(),
+            median_shift = median(`theta|nominal + imputed` - `theta|nominal`),
+            q10_shift = quantile(`theta|nominal + imputed` - `theta|nominal`, .1)) |>
+  knitr::kable(digits = 2, caption = "Effect of imputation on the stopped children's scores (nominal model, logits)")
+```
+
+**The nominal model doesn't help.** Its scores correlate .999 with the
+dichotomous ones, and every difference in reliability or validity is at most
+.004. Because the two sets of scores are nearly identical, the paired
+bootstrap can tell some of these tiny differences from zero, but none is
+large enough to matter. Timeouts are too rare outside the 1.5-s segment for
+their distinct weight to change anyone's score much.
+
+**Timeouts do carry information**: dropping them (timeout = missing) costs
+about .04 split-half reliability, .08 in the age correlation, and .04 in the
+Memory correlation. Scoring them as errors, as the released model does,
+captures that information. The one exception is Same & Different, whose
+correlation rises by .02 when timeouts are dropped; that would fit timeouts
+adding speed-related variance that an untimed task doesn't share.
+
+**Imputation makes the scores look more reliable and makes them less
+valid.** Split-half and model reliability both rise by .02–.03, because the
+imputed trials sit in both halves and agree by construction. All three
+external criteria move the other way, by small amounts (−.005 to −.013; the
+intervals for age and Same & Different exclude zero). The stopped children's scores drop by about half a logit,
+which is the imputation asserting an answer to a question the data can't
+answer. Don't impute; the observed-trial EAP is already the right score for
+a stopped run.
+
+# 11. Refitting both forms on one scale
+
+The released scores can't show whether v2's harder trials stretch the top of
+the distribution, because they score v2 with v1's untimed item parameters.
+This section recalibrates both forms together
+([`_hf_v2_refit.R`](_hf_v2_refit.R), run with `Rscript --vanilla`):
+
+- **One trial coding for both forms:** correct means the right side,
+  answered, and 200 ms ≤ RT ≤ the window. The window is 3 s for all of v1 and
+  for v2's pure blocks, and v2's actual 3 / 2 / 1.5 s in the mixed segments.
+  There is no 2-s recode cutoff.
+- **Items:** the released items (block × stimulus × start / stay / switch).
+  The four pure-block items (heart and flower, start and stay) are the
+  anchors, shared across forms. The six mixed-block items are form-specific:
+  v1's untimed, and v2's split by window (start trials occur only in the 3-s
+  segment).
+- **Model:** multigroup by form, Rasch slopes. The guessing floor is either
+  fixed at 0.5 for every item (as released) or, for v2's timed mixed items,
+  estimated per item group. v1's mean is fixed at 0; both variances and v2's
+  mean are free. All runs are included; early stops are ignorable missing
+  data.
+
+```{r refit-items}
+rf <- readRDS(here("data/hf_v2/refit_results.rds"))
+tibble(model = names(rf$logLik), log_likelihood = rf$logLik, parameters = rf$df) |>
+  knitr::kable(digits = 1, caption = "Fit of the two refits")
+
+rf$group_pars |>
+  filter(model == "g_estimated") |>
+  transmute(form, item_group = group, difficulty = -d, guessing = g) |>
+  distinct(item_group, .keep_all = TRUE) |>
+  arrange(difficulty) |>
+  knitr::kable(digits = 2, caption = "Item difficulty and guessing floor, refit with estimated floors for v2's timed items (pure-block anchors shared across forms)")
+
+rf$group_pars |>
+  distinct(model, form, mean, var) |>
+  mutate(sd = sqrt(var)) |>
+  select(-var) |>
+  knitr::kable(digits = 2, caption = "Ability distribution of each form on the refit scale")
+```
+
+Estimating the floor for the timed items fits clearly better (log-likelihood
+up 56 for 14 parameters). The estimated floors are mostly .3–.45 (range
+.15–.55), below 0.5 on the whole, as expected when a missed window scores
+zero rather than chance. Results below
+use that model; the fixed-floor model gives the same picture.
+
+The timed items are harder than their untimed counterparts, as intended: a
+1.5-s switch trial sits about 0.5–0.6 logits above the same untimed v1 switch
+trial. But every item is still easier than the average child: the hardest, a
+1.5-s heart switch at −0.47, is below the median 10-year-old (0.71 in v2,
+0.96 in v1).
+
+```{r refit-theta-by-age, fig.height = 4.8}
+refit <- rf$scores |>
+  filter(model == "g_estimated") |>
+  left_join(runs |> select(run_id, dataset, age, time_started, layout), by = "run_id")
+
+refit |>
+  filter(!is.na(age), age >= 4, age < 14) |>
+  group_by(form) |>
+  mutate(at_max = theta >= max(theta) - 0.05) |>
+  ungroup() |>
+  ggplot(aes(age, theta)) +
+  geom_point(aes(colour = at_max), alpha = 0.35, size = 0.9) +
+  geom_quantile(quantiles = c(.1, .5, .9), formula = y ~ splines::ns(x, 3),
+                colour = "black") +
+  facet_wrap(~form) +
+  scale_colour_manual(values = c(`FALSE` = "grey55", `TRUE` = "firebrick"),
+                      labels = c("below the form's maximum", "at the form's maximum"),
+                      name = NULL) +
+  labs(x = "Age (years)", y = "θ (refit, common scale)",
+       title = "θ by age on the refit scale",
+       subtitle = "All runs with trials. Lines: 10th, 50th, 90th percentiles.") +
+  theme(legend.position = "bottom")
+```
+
+```{r refit-tables}
+refit |>
+  filter(!is.na(age)) |>
+  group_by(form, age = age_band5(age)) |>
+  summarise(runs = n(), sd = sd(theta), q10 = quantile(theta, .1),
+            median = median(theta), q90 = quantile(theta, .9), .groups = "drop") |>
+  knitr::kable(digits = 2, caption = "θ by age and form on the refit scale")
+
+refit |>
+  filter(grepl("complete \\(", layout), !is.na(age)) |>
+  group_by(form) |>
+  mutate(form_max = max(theta)) |>
+  group_by(form, age = age_band5(age)) |>
+  summarise(runs = n(), at_max = mean(theta >= form_max - 0.05),
+            within_half_logit = mean(theta >= form_max - 0.5), .groups = "drop") |>
+  pivot_wider(names_from = form, values_from = -c(form, age)) |>
+  knitr::kable(digits = 3, caption = "Share of complete runs at, or within half a logit of, their form's maximum score")
+```
+
+```{r refit-information, fig.height = 4.2}
+rf$info_curves |>
+  filter(model == "g_estimated", theta >= -4, theta <= 5) |>
+  ggplot(aes(theta, info, colour = form)) +
+  geom_line(linewidth = 1) +
+  geom_vline(xintercept = quantile(refit$theta[!is.na(refit$age) & refit$age >= 10], c(.5, .9)),
+             linetype = "dotted") +
+  labs(x = "θ (refit scale)", y = "Test information",
+       colour = "Form", title = "Information of a complete run",
+       subtitle = "Dotted lines: median and 90th percentile of children aged 10 and over (both forms).")
+```
+
+```{r refit-coding}
+hf_test |>
+  filter(form == "v1", !is.na(block), !is.na(age), age >= 10) |>
+  semi_join(complete_runs, by = "run_id") |>
+  group_by(run_id) |>
+  summarise(within_2s = all(correct %in% TRUE & rt_numeric >= 200 & rt_numeric <= 2000),
+            within_3s = all(correct %in% TRUE & rt_numeric >= 200 & rt_numeric <= 3000),
+            untimed = all(correct %in% TRUE & rt_numeric >= 200), .groups = "drop") |>
+  summarise(across(-run_id, mean)) |>
+  knitr::kable(digits = 2, caption = "v1 complete runs, ages 10+: share with every trial correct under three codings")
+```
+
+**The ceiling falls.** In v1, 12–17% of complete runs from children 10 and
+over sit at the form's maximum, and 29–35% within half a logit of it. In v2
+those shares are 1–3% and 5–10%. This comparison doesn't depend on the
+anchors, since each form is compared with its own maximum. A complete v2 run
+also carries about twice the information of a v1 run at θ = 1–4 (part of
+that is the 16 extra mixed trials; per mixed trial the gain is about 1.4
+times).
+
+v1's ceiling was also worse than the released scores show. Under the 2-s rule
+20% of older v1 children make no errors; if every correct answer counts, 39%
+do. The released scoring hid half the ceiling by counting slow correct answers
+as errors.
+
+**But the range doesn't widen.** v2's spread is narrower than v1's at every
+age (SD 1.1–1.6 vs 1.5–2.2). At the bottom that is the feedback lifting the
+low end (§7). At the top, the v2 90th percentile sits below v1's because v1's
+top is a pile at the cap while v2's is a spread of measured scores, but v2's
+hardest items are still easier than most older children. The top is now
+resolved rather than stretched: older children are measured with more
+precision, within a narrower range.
+
+## Does the anchoring hold?
+
+Using the pure blocks as anchors assumes they are equally difficult in both
+forms. Feedback could break that, since it changes how children recover from
+errors in exactly those blocks (§7). (The variance comparison above doesn't
+depend on the anchors, because in a Rasch model each form's variance is set
+by its own data. It does assume equal slopes across forms.) Three sites ran
+both forms in the same months, so their age-adjusted means should agree if
+the anchoring holds:
+
+```{r anchor-check}
+concurrent <- refit |>
+  filter(time_started >= as.POSIXct("2026-04-20", tz = "UTC"), !is.na(age)) |>
+  group_by(dataset) |>
+  filter(n_distinct(form) == 2, min(table(form)) >= 10) |>
+  ungroup()
+concurrent |>
+  group_by(dataset) |>
+  group_modify(\(x, ...) {
+    m <- summary(lm(theta ~ form + age, data = x))$coefficients
+    tibble(runs_v1 = sum(x$form == "v1"), runs_v2 = sum(x$form == "v2"),
+           mean_age = mean(x$age),
+           v2_minus_v1 = m["formv2", "Estimate"], se = m["formv2", "Std. Error"])
+  }) |>
+  ungroup() |>
+  knitr::kable(digits = 2, caption = "Age-adjusted difference in refit θ (v2 − v1) at sites that ran both forms from April 2026")
+```
+
+At Western (mean age 8.4) the two forms agree almost exactly. At UTDT's young
+sample (mean age 5.5) v2 children score more than a logit higher. MPIB's v2
+sample is too small to say (16 runs; +0.40 ± 0.44). Either the
+anchors work differently for young children, which fits feedback helping them
+most in the pure blocks, or the two samples differ. So the common scale is
+reasonable from about age 7, and cross-form mean comparisons for younger
+children shouldn't be trusted.
+
+# Verdict
+
+1. **Variants.** The new form is `taskVersion = 2`, carried by every H&F
+   variant created from 2026-04-23 (`English (North America)`, `es-AR`,
+   `English (United Kingdom)`, `German (Germany)`, `Spanish (Colombia)`); the
+   2025-07-21 variants are v1. Form follows the variant, not the code
+   version, and several sites ran both concurrently.
+2. **The ding works as feedback** (§7) but compresses the low end of the
+   distribution. Keep it if the target construct is efficiency under
+   conflict, not rule acquisition.
+3. **The floor nearly disappears and the ceiling falls, but the score range
+   doesn't widen** (§4, §11). In a refit with the timed items calibrated
+   separately, older children at their form's maximum drop from 12–17% to
+   1–3%, and a complete v2 run gives about twice the information at high
+   ability. But the hardest v2 item is still below the median 10-year-old, so
+   the top is resolved rather than stretched, and v2's spread is narrower than
+   v1's at every age. The faster segments act through timeouts, which also
+   drive a large rise in early stops (~25% of v2 runs vs 5%) via the
+   error-out rule.
+4. **No reliability gain**: model-based reliability is about equal, split-half
+   is lower, and cross-form retest at Leipzig is poor (.12, confounded with
+   gap and age).
+5. **Shorter fixed windows won't remove the ceiling on construct** (§9).
+   They do move items to the older children's abilities (about 1.5 s for the
+   median 10–12-year-old, about 1.25 s for the top decile), but the added
+   difficulty is generic: the switch cost doesn't grow, and in the
+   counterfactual the score drifts from switching skill to plain speed.
+   Measuring the top decile with this task means deciding that conflict
+   resolution under time pressure is an acceptable construct for older
+   children.
+6. **Neither scoring alternative helps** (§10). A nominal model that
+   separates timeouts from errors gives the same scores and the same
+   reliability; imputing timeouts for stopped runs inflates internal
+   consistency while slightly lowering external validity.
+
+Recommendations for the DCC:
+
+- **Score v1 and v2 as different forms.** Same item uids are scored with one
+  set of parameters, although v2 items differ in difficulty (deadlines,
+  feedback). At minimum, add form-specific (or segment-specific) item uids
+  and recalibrate; until then, don't interpret θ change across the v1 → v2
+  boundary (e.g. Leipzig wave 3) as growth.
+- **Align `recode_hf()` with the v2 windows.** A 2000 ms cutoff inside a
+  3000 ms window scores coin-rewarded responses as errors. Either cut at the
+  window or set the windows to 2 s.
+- **Exempt timeouts from the error-out rule** (or turn it off for H&F). That
+  alone would have prevented 72% of v2's early stops, mostly of young
+  children. The rule's comment and code also disagree (4 vs > 6 of 10).
+- **Don't use a 0.5 guessing floor for timed items.** A missed window scores
+  0, not chance; calibrate each window separately with a lower or estimated
+  floor, which also recovers information from trials already given.
+- **Spend trials where the information is:** shorten the pure blocks (they
+  carry little information from about age 8 for hearts and 10 for flowers, but
+  are useful as practice) and give
+  the trials to mixed switch trials.
+- **If the top decile must be measured,** offer a ~1.25–1.5 s segment only
+  to children who do well at 2 s, rather than to everyone; that adds
+  information at the top without the young-child error-outs.
+- **Keep scoring timeouts as errors** in a dichotomous model, and **don't
+  impute early stops**: the score from the observed trials is already
+  correct for a stopped run.
+- **Plan a v2 → v2 retest** before deciding on the redesign's net value.

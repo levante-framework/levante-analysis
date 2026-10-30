@@ -1,0 +1,499 @@
+---
+title: "06 — Within-child variability: do consistency measures cohere, and change with age?"
+date: 2026-07-13
+date-format: iso
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    fig-width: 9
+    fig-height: 5.5
+execute:
+  warning: false
+  message: false
+---
+
+{{< include /_disclaimer.qmd >}}
+
+# The question
+
+A central LEVANTE aim is to extract information about **variability within
+children**, not just their average ability. A child's *consistency* —
+moment-to-moment, response-to-response, wave-to-wave — may itself be a stable,
+meaningful individual difference (and is theorized to index attentional /
+executive control and developmental stability).
+
+This notebook is an exploratory first pass. We extract three naive per-child,
+per-task variability indices, then ask:
+
+1. **Do the variability measures hang together within a child?** (Is a child who
+   is variable on one task / one index variable on others — a general "trait"?)
+2. **Do they change with age?**
+
+The three indices:
+
+| Index | What it captures | Naive estimator |
+|---|---|---|
+| **RT-IIV** | moment-to-moment inconsistency | SD of log reaction time across (correct) trials |
+| **Person-misfit** | "surprising" responses given ability | IRT **infit** (info-weighted squared standardized residuals) |
+| **Growth deviation** | atypical developmental change | \|individual 2-wave slope − task mean slope\| |
+
+Following the brief, we start with **naive** estimators and treat their
+**reliability** as a first-class result — if a naive index is too noisy, that is
+the signal to move to model-based estimation.
+
+```{r setup}
+source(here::here("common.R"))
+sc <- read_rds(here("data/scores_all_sites.rds"))
+sites4 <- c("pilot_mpieva_de_main","pilot_uniandes_co_bogota",
+            "pilot_uniandes_co_rural","pilot_western_ca_main")
+core <- tibble(
+  task_id = c("egma-math","matrix-reasoning","mental-rotation","trog","vocab",
+              "same-different-selection","hearts-and-flowers","theory-of-mind","memory-game"),
+  short   = c("math","matrix","mrot","trog","vocab","sds","hf","tom","mg"))
+adap    <- c("egma-math","matrix-reasoning","mental-rotation","same-different-selection","trog","vocab")
+bylang  <- c("vocab","theory-of-mind")               # by-language calibration → join params within language
+ip <- load_item_parameters()
+
+# one analysis run per child×task (first obs, newest/adaptive version), with final ability θ̂
+runs <- sc |> filter(dataset %in% sites4, task_id %in% core$task_id, !is.na(score)) |>
+  filter(!(task_id %in% adap) | adaptive) |>
+  group_by(user_id, task_id) |> arrange(age) |> slice(1) |> ungroup() |>
+  select(run_id, user_id, task_id, short, theta = score, age, language)  # sc already carries `short`
+```
+
+# 1. Extracting the indices (and their reliability)
+
+For each task we load trial data once and compute, per run: RT-IIV (SD of
+log-RT on correct trials), and **infit** person-misfit using the published item
+parameters (Rasch/2PL; joined within language for the by-language tasks) and the
+child's final ability θ̂. Split-half reliabilities (odd/even trials,
+Spearman-Brown) tell us whether each naive index is stable enough to interpret.
+
+```{r extract, cache=TRUE}
+sb <- function(a, b){ r <- cor(a, b, use = "complete.obs"); 2*r/(1+r) }
+extract_task <- function(tid){
+  rn <- runs |> filter(task_id == tid)
+  tr <- load_levante_trials(task_ids = tid) |>
+    filter(run_id %in% rn$run_id, !is.na(correct)) |>
+    left_join(rn |> select(run_id, theta, language), by = "run_id")
+  # join item parameters (within language for by-language tasks)
+  ipx <- ip |> filter(task_id == tid)
+  if (tid %in% bylang) {
+    tr <- tr |> inner_join(ipx |> transmute(language = subset, item_uid, b = difficulty, a = discrimination),
+                           by = c("item_uid","language"))
+  } else {
+    tr <- tr |> inner_join(ipx |> transmute(item_uid, b = difficulty, a = discrimination) |>
+                             distinct(item_uid, .keep_all = TRUE), by = "item_uid")
+  }
+  # IRF must match the scoring model: the fitted mirt models carry a FIXED
+  # guessing asymptote at each item's chance level (g = chance, est=FALSE), so
+  # the person-fit response function is P = c + (1-c)·logistic, not plain logistic.
+  tr <- tr |> mutate(c = ifelse(is.na(chance), 0, chance),
+                     irf = 1/(1+exp(-a*(theta-b))),
+                     P = pmin(pmax(c + (1-c)*irf, .001), .999),
+                     w = P*(1-P), r2 = (correct - P)^2)
+  # run-level indices
+  iiv <- tr |> filter(!is.na(rt_numeric), rt_numeric > 200, rt_numeric < 30000, correct == 1) |>
+    group_by(run_id) |> filter(n() >= 10) |>
+    summarise(iiv = sd(log(rt_numeric)), meanlrt = mean(log(rt_numeric)), .groups = "drop")
+  infit <- tr |> group_by(run_id) |> filter(n() >= 10) |>
+    summarise(infit = sum(r2)/sum(w), .groups = "drop")
+  idx <- rn |> select(run_id, user_id, short, theta, age) |>
+    left_join(iiv, by = "run_id") |> left_join(infit, by = "run_id")
+  # split-half reliability
+  sh_iiv <- tr |> filter(!is.na(rt_numeric), rt_numeric > 200, rt_numeric < 30000, correct == 1) |>
+    group_by(run_id) |> filter(n() >= 12) |> mutate(h = row_number() %% 2) |>
+    group_by(run_id, h) |> summarise(v = sd(log(rt_numeric)), .groups = "drop") |>
+    pivot_wider(names_from = h, values_from = v, names_prefix = "h")
+  sh_inf <- tr |> group_by(run_id) |> filter(n() >= 12) |> mutate(h = row_number() %% 2) |>
+    group_by(run_id, h) |> summarise(v = sum(r2)/sum(w), .groups = "drop") |>
+    pivot_wider(names_from = h, values_from = v, names_prefix = "h")
+  list(idx = idx,
+       rel = tibble(short = core$short[core$task_id == tid],
+                    n = nrow(idx),
+                    iiv_rel   = if (nrow(sh_iiv) > 3) sb(sh_iiv$h0, sh_iiv$h1) else NA,
+                    infit_rel = if (nrow(sh_inf) > 3) sb(sh_inf$h0, sh_inf$h1) else NA))
+}
+ex <- map(core$task_id, extract_task)
+index_runs <- map_dfr(ex, "idx")
+rel_tab    <- map_dfr(ex, "rel")
+```
+
+```{r rel-table}
+rel_tab |> arrange(desc(iiv_rel)) |> mutate(across(where(is.numeric), \(x) round(x, 2))) |>
+  knitr::kable(caption = "Split-half reliability of the naive indices (NA = no RT, i.e. memory-game)")
+```
+
+**Reliability is the headline.** RT-IIV is reliable enough to use on most tasks
+(≈ 0.45–0.85, highest where trials are many — H&F, vocab). Person-misfit (infit),
+computed with the **scoring-matched response function** (a fixed guessing
+asymptote at each item's chance level — see §4), is **≈ 0 on every task** (the
+best, H&F, reaches only 0.36; the rest are indistinguishable from zero).
+Correctly specified, person-fit simply has very little reliable between-child
+variance to measure. RT-IIV clears a 0.4 bar; person-misfit does not.
+
+## Two caveats baked in
+
+```{r misfit-caveats}
+# infit mean by task (well-calibrated ≈ 1) and its confound with ability
+index_runs |> group_by(short) |>
+  summarise(infit_mean = mean(infit, na.rm = TRUE),
+            `infit vs |θ|` = cor(infit, abs(theta), use = "complete.obs"), .groups = "drop") |>
+  arrange(desc(infit_mean)) |> mutate(across(where(is.numeric), \(x) round(x, 2))) |>
+  knitr::kable(caption = "Person-misfit: calibration (mean infit ≈ 1 = good) and the ability confound")
+```
+
+With the scoring-matched IRF, person-misfit is **well-calibrated on every task**
+(mean infit ≈ 0.93, matrix included — its earlier blow-up was a mis-specified
+response function, not the data), and the **ability-extremity confound largely
+disappears** (infit vs |θ| now |r| ≤ ~0.2, versus 0.1–0.7 under the plain-logistic
+IRF that ignored guessing). The problem is neither calibration nor confound — it
+is that, correctly specified, per-task misfit has **≈ 0 reliability** (table
+above). We therefore report it below for completeness, but it cannot support
+individual-difference claims.
+
+# 2. Do the variability measures hang together?
+
+We keep indices on tasks where they are at least modestly reliable
+(reliability ≥ 0.4), z-score each within task, and ask two questions.
+
+```{r keep-reliable}
+iiv_ok   <- rel_tab |> filter(iiv_rel   >= 0.4) |> pull(short)
+# person-misfit is now scoring-matched (guessing-aware) on every task, incl. matrix;
+# its reliabilities (above) are ≈0, so we include all tasks here only to show it
+# carries no cross-task signal either.
+infit_ok <- rel_tab |> filter(!is.na(infit_rel)) |> pull(short)
+zt <- function(x) as.numeric(scale(x))
+zi <- index_runs |> group_by(short) |> mutate(iiv_z = zt(iiv), infit_z = zt(infit),
+                                              theta_z = zt(theta)) |> ungroup()
+```
+
+## (a) Generality across tasks (within an index)
+
+If RT-IIV is a trait, a child variable on one task should be variable on
+others. We correlate each index across tasks and summarise the average
+off-diagonal correlation (a child-level "g of variability").
+
+```{r generality}
+cross_task_r <- function(df, var, tasks){
+  w <- df |> filter(short %in% tasks) |> select(user_id, short, val = all_of(var)) |>
+    pivot_wider(names_from = short, values_from = val)
+  cm <- cor(w |> select(-user_id), use = "pairwise")
+  mean(cm[upper.tri(cm)], na.rm = TRUE)
+}
+tibble(index = c("RT-IIV","Person-misfit (infit)"),
+       tasks = c(paste(iiv_ok, collapse=","), paste(infit_ok, collapse=",")),
+       mean_cross_task_r = c(cross_task_r(zi, "iiv_z", iiv_ok),
+                             cross_task_r(zi, "infit_z", infit_ok))) |>
+  mutate(mean_cross_task_r = round(mean_cross_task_r, 3)) |>
+  knitr::kable(caption = "Average cross-task correlation of each variability index (within child)")
+```
+
+Cross-task generality is **near zero** for both indices (RT-IIV ≈ 0.05;
+person-misfit ≈ 0.11, though on a ≈ 0-reliability measure so not interpretable
+anyway). A child who is RT-variable on math is essentially *no more likely* to be
+RT-variable on vocabulary. Even allowing for attenuation, this is far too low to
+support a general "variability trait" — within-task variability is overwhelmingly
+**task-specific**.
+
+## (b) Do the different indices correlate, beyond ability?
+
+We aggregate each index to the child level (mean of within-task z-scores), add a
+crude ability composite (mean within-task z-θ̂) and the naive growth-deviation
+index (built next), and correlate — first raw, then partialling ability.
+
+```{r growth, cache=TRUE}
+gr <- sc |> filter(dataset %in% sites4, task_id %in% core$task_id, !is.na(score)) |>
+  group_by(user_id, short) |> arrange(age) |> mutate(w = row_number()) |>
+  filter(w <= 2, max(w) >= 2) |> ungroup()
+gw <- gr |> select(user_id, short, w, score, score_se, age) |>
+  pivot_wider(names_from = w, values_from = c(score, score_se, age)) |>
+  mutate(dage = age_2 - age_1, slope = (score_2 - score_1)/dage) |>
+  filter(is.finite(slope), dage > 0.1)
+# difference-score reliability per task: 1 - error var / observed var
+grel <- gw |> group_by(short) |>
+  summarise(growth_rel = 1 - mean((score_se_1^2 + score_se_2^2)/dage^2) / var(slope),
+            n = n(), .groups = "drop")
+gw <- gw |> group_by(short) |>
+  mutate(growth_dev = abs(slope - mean(slope)), growth_dev_z = as.numeric(scale(growth_dev))) |> ungroup()
+grel |> arrange(desc(growth_rel)) |> mutate(growth_rel = round(growth_rel, 2)) |>
+  knitr::kable(caption = "Reliability of the naive 2-wave growth-deviation index")
+```
+
+The naive 2-wave growth-deviation index is **moderately reliable for the
+fast-growing, well-measured tasks** (H&F 0.77, math 0.59, vocab 0.48, mental
+rotation 0.40) but **unreliable for the rest** (memory & Same-&-Different low;
+TROG & ToM negative) — wherever true between-child slope variance is small
+relative to the θ̂ measurement error carried by a two-point difference. So it is
+usable on a few tasks but fragile overall; more waves and error-aware shrinkage
+would stabilise it. (But §4.2 shows even this is optimistic: it credits the EAP
+posterior SE as the *only* source of error — a proper random-slope model that
+lets occasion variance compete finds individual growth differences are not yet
+identifiable from two waves.)
+
+```{r child-level}
+child <- zi |> group_by(user_id) |>
+  summarise(iiv_g   = mean(iiv_z[short %in% iiv_ok], na.rm = TRUE),
+            misfit_g = mean(infit_z[short %in% infit_ok], na.rm = TRUE),
+            ability  = mean(theta_z, na.rm = TRUE), .groups = "drop") |>
+  left_join(gw |> group_by(user_id) |> summarise(growth_g = mean(growth_dev_z, na.rm = TRUE), .groups = "drop"),
+            by = "user_id")
+M <- child |> select(iiv_g, misfit_g, growth_g, ability)
+cmat <- cor(M, use = "pairwise")
+# ability-partialled correlations among the 3 variability indices
+pr <- function(a, b, c){ d <- na.omit(child[, c(a, b, c)]); resid_a <- resid(lm(d[[a]] ~ d[[c]]))
+  resid_b <- resid(lm(d[[b]] ~ d[[c]])); cor(resid_a, resid_b) }
+bind_rows(
+  tibble(pair = "IIV — misfit",  raw = cmat["iiv_g","misfit_g"],   partial_ability = pr("iiv_g","misfit_g","ability")),
+  tibble(pair = "IIV — growth",  raw = cmat["iiv_g","growth_g"],   partial_ability = pr("iiv_g","growth_g","ability")),
+  tibble(pair = "misfit — growth", raw = cmat["misfit_g","growth_g"], partial_ability = pr("misfit_g","growth_g","ability"))
+) |> mutate(across(where(is.numeric), \(x) round(x, 3))) |>
+  knitr::kable(caption = "Do the variability indices correlate at the child level? (raw and ability-partialled)")
+```
+
+```{r ability-link}
+tibble(index = c("RT-IIV","Person-misfit","Growth deviation"),
+       r_with_ability = c(cmat["iiv_g","ability"], cmat["misfit_g","ability"], cmat["growth_g","ability"])) |>
+  mutate(r_with_ability = round(r_with_ability, 3)) |>
+  knitr::kable(caption = "Is 'variability' just (low) ability? Correlation of each index with the ability composite")
+```
+
+Two things stand out. First, the three indices are **mutually uncorrelated**
+(all |r| < 0.1, raw or ability-partialled) — they do not converge on a common
+"variability" dimension. Second, RT-IIV and growth-deviation are essentially
+**unrelated to ability** (r ≈ ±0.05, so they are *not* just low-ability in
+disguise). Person-misfit still shows a moderate negative tie to ability
+(r ≈ −0.52) even with the scoring-matched IRF: the *extremity* confound is gone
+(§1), but the small amount of stable misfit variance that survives aggregation
+across tasks is largely **lower-ability children responding less predictably**.
+Since per-task misfit is ≈ 0-reliable, the safe reading is that there is no
+usable misfit signal here beyond ability.
+
+For each (reliable) index we regress on age — pooled across tasks with a task
+random effect — and plot the per-task trends.
+
+```{r age-trends, fig.height=4.8}
+library(lme4)
+age_fit <- function(df, var, tasks){
+  d <- df |> filter(short %in% tasks, !is.na(.data[[var]]))
+  m <- lmer(reformulate(c("age","(1|short)"), response = var), data = d)
+  fixef(m)["age"]
+}
+slopes <- tibble(
+  index = c("RT-IIV","Person-misfit"),
+  per_year = c(age_fit(zi |> rename(v = iiv),   "v", iiv_ok),
+               age_fit(zi |> rename(v = infit), "v", infit_ok)))
+slopes |> mutate(per_year = round(per_year, 3)) |>
+  knitr::kable(caption = "Age slope of each index (pooled, task random intercept; z-units & raw infit/IIV)")
+
+bind_rows(
+  zi |> filter(short %in% iiv_ok)   |> transmute(short, age, value = iiv,   index = "RT-IIV (SD log RT)"),
+  zi |> filter(short %in% infit_ok) |> transmute(short, age, value = infit, index = "Person-misfit (infit)")
+) |>
+  ggplot(aes(age, value, color = short)) +
+  geom_smooth(method = "loess", se = FALSE, linewidth = 0.8) +
+  facet_wrap(~index, scales = "free_y") +
+  scale_color_viridis_d(name = NULL) +
+  labs(x = "Age (years)", y = "Index value",
+       title = "Neither variability index changes much with age",
+       subtitle = "Both RT-IIV and (scoring-matched) person-misfit are essentially flat across childhood")
+```
+
+With the scoring-matched IRF, **neither index changes appreciably with age**:
+RT-IIV is flat (pooled slope ≈ 0) and person-misfit nearly so (≈ −0.02/yr). The
+steep misfit-with-age decline seen under the mis-specified IRF was, again, an
+artifact of ignoring guessing — older/higher-ability children produced fewer
+"surprising" lucky guesses *under the wrong model*; once the model accounts for
+guessing, that age trend largely evaporates.
+
+# Synthesis — naive (first-order) indices
+
+```{r save}
+write_rds(list(rel = rel_tab, growth_rel = grel, child = child, cor = cmat, age_slopes = slopes),
+          here::here("data/within_child_variability_06.rds"))
+```
+
+A first, honest pass — and the headline is a **null on coherence**:
+
+- **The variability indices do not hang together.** Within an index, cross-task
+  generality is ≈ 0 (a child variable on math is no more variable on vocab);
+  across indices, the three are mutually uncorrelated (|r| < 0.1). With naive
+  estimators there is **no general "variability trait"** — within-task
+  variability is overwhelmingly task-specific.
+- **RT-IIV is the cleanest index but not (yet) a trait.** It is reliably measured
+  on most tasks (≈ 0.45–0.85) and is **not** an ability proxy (r ≈ −0.05) — but
+  it is task-specific and **flat with age**. So it is a sound per-task measure
+  whose cross-situational meaning is unclear here. (Followed up in depth in
+  `studies/2026-08_within-child-variability/07_rt_variability.qmd`: purifying the RT signal and accounting for trial count
+  surfaces a narrow speeded-task RT-IIV factor.)
+- **Person-misfit, correctly specified, carries almost no usable signal.** Once
+  the response function matches the scoring model (fixed guessing at chance),
+  infit is well-calibrated on every task (matrix included) and the
+  ability-extremity confound disappears — but per-task reliability is ≈ 0, and
+  the small surviving aggregate signal is still mostly inverse ability (r ≈ −0.52).
+  It is not a usable individual-difference index here. (The earlier impression of
+  reliable, age-declining misfit was an artifact of a mis-specified IRF — see §4.1.)
+- **Growth-deviation is salvageable on some tasks.** Two-wave reliability is
+  moderate where growth is fast and well-measured (H&F 0.77, math 0.59, vocab
+  0.48) but poor elsewhere — usable in places, fragile overall.
+
+**How to read this:** the null on coherence is partly substantive (these may
+genuinely be distinct, task-bound phenomena) and partly methodological — naive
+estimators are noisy and, for misfit, badly confounded, so any true common
+signal would be heavily attenuated. That is exactly the contingency the brief
+anticipated, and it motivates a **model-based second pass**: (1) replace naive
+infit with a guessing-aware person-fit statistic from the scoring model;
+(2) estimate individual growth as shrunken, error-propagating random slopes
+(and revisit as more waves arrive); (3) model RT-IIV with an explicit
+person×task variance-components model rather than per-run SDs; then re-ask
+whether — disattenuated — the indices cohere into a within-child variability
+construct.
+
+# 4. Model-based upgrades
+
+We keep the naive analyses above (we will always want those first-order views)
+and add the model-based versions here.
+
+**A note on guessing (corrected).** The fitted scoring models **do** incorporate
+guessing: every item carries a **fixed lower asymptote at its chance level**
+(g = chance, *not* estimated) inside the `mirt` model — confirmed by reading the
+model records directly (matrix g = 0.25, mental-rotation 0.5, math per-item
+0–0.5). `score_irt` passes the full `mod2values()` table — g rows included —
+into `mirt(pars = …)`, so the released θ̂ already account for guessing. This was
+not obvious because the curated `item_parameters` table exports only difficulty
+and discrimination and **silently omits g** — a documentation gap worth flagging
+to the DCC, since anyone reconstructing the IRF from that table (as we first did)
+will get it wrong. The person-fit in §1 already uses the matching response
+function, P = c + (1 − c)·IRF; the check below shows why that is essential.
+
+## 4.1 Why the person-fit response function must match the scoring model
+
+```{r upg-misfit, cache=TRUE}
+upg_mf <- map_dfr(core$task_id, function(tid){
+  rn <- runs |> filter(task_id == tid)
+  tr <- load_levante_trials(task_ids = tid) |> filter(run_id %in% rn$run_id, !is.na(correct)) |>
+    left_join(rn |> select(run_id, theta, language), by = "run_id")
+  ipx <- ip |> filter(task_id == tid)
+  if (tid %in% bylang) tr <- tr |> inner_join(ipx |> transmute(language = subset, item_uid, b = difficulty, a = discrimination), by = c("item_uid","language"))
+  else tr <- tr |> inner_join(ipx |> transmute(item_uid, b = difficulty, a = discrimination) |> distinct(item_uid, .keep_all = TRUE), by = "item_uid")
+  tr <- tr |> mutate(c = ifelse(is.na(chance), 0, chance), irf = 1/(1+exp(-a*(theta-b))),
+                     Pn = pmin(pmax(irf, .001), .999), Pg = pmin(pmax(c + (1-c)*irf, .001), .999))
+  agg <- tr |> group_by(run_id) |> filter(n() >= 10) |>
+    summarise(naive = sum((correct-Pn)^2)/sum(Pn*(1-Pn)),
+              guess = sum((correct-Pg)^2)/sum(Pg*(1-Pg)), .groups = "drop") |>
+    left_join(rn |> select(run_id, theta), by = "run_id")
+  sh <- tr |> group_by(run_id) |> filter(n() >= 12) |> mutate(h = row_number() %% 2) |>
+    group_by(run_id, h) |> summarise(v = sum((correct-Pg)^2)/sum(Pg*(1-Pg)), .groups = "drop") |>
+    pivot_wider(names_from = h, values_from = v, names_prefix = "h")
+  r <- cor(sh$h0, sh$h1, use = "complete.obs")
+  tibble(short = core$short[core$task_id == tid],
+         `naive infit` = mean(agg$naive), `guess-aware infit` = mean(agg$guess),
+         `naive vs θ` = cor(agg$naive, agg$theta, use = "complete.obs"),
+         `guess-aware vs θ` = cor(agg$guess, agg$theta, use = "complete.obs"),
+         `guess-aware reliability` = 2*r/(1+r))
+})
+upg_mf |> mutate(across(where(is.numeric), \(x) round(x, 2))) |>
+  knitr::kable(caption = "Plain-logistic (wrong) vs scoring-matched person-fit: calibration, ability link, reliability")
+```
+
+The comparison is a cautionary tale. The **scoring-matched** IRF (the one used
+in §1, with the fixed guessing asymptote) is well-calibrated — every infit mean
+near 1, matrix included. If instead you forget the fixed guessing and use a
+plain logistic — the "naive" column — infit **inflates badly** (matrix 4.2) and
+acquires a strong, spurious ability correlation, *and* a misleadingly high
+split-half "reliability" on the inflated tasks: the systematic guessing misfit
+is shared across both split-halves (lucky guesses cluster at low ability), so it
+looks like reliable between-child variance when it is really model
+mis-specification. Score "surprise" with the **same** response function the
+scores were fit under, and that apparent signal collapses — the scoring-matched
+misfit has ≈ 0 reliability. The lesson: person-fit is only meaningful against the
+exact IRF used to estimate θ̂. Done correctly, there is little real between-child
+variance in person-fit to measure here.
+
+## 4.2 Model-based growth (shrunken random slopes)
+
+```{r upg-growth, cache=TRUE}
+grl <- sc |> filter(dataset %in% sites4, task_id %in% core$task_id, !is.na(score)) |>
+  group_by(user_id, short) |> filter(n() >= 2) |> ungroup() |> mutate(age_c = age - 8)
+upg_growth <- map_dfr(sort(unique(grl$short)), function(s){
+  d <- grl |> filter(short == s)
+  m <- tryCatch(suppressMessages(suppressWarnings(
+    lme4::lmer(score ~ age_c + (age_c | user_id), data = d,
+               control = lme4::lmerControl(check.conv.singular = "ignore")))), error = function(e) NULL)
+  if (is.null(m)) return(tibble(short = s, slope_sd = NA, resid_sd = NA, slope_reliability = NA))
+  vc <- as.data.frame(lme4::VarCorr(m))
+  ss <- vc$sdcor[vc$grp == "user_id" & vc$var1 == "age_c" & is.na(vc$var2)]
+  rs <- vc$sdcor[vc$grp == "Residual"]
+  tibble(short = s, slope_sd = ss, resid_sd = rs, slope_reliability = ss^2/(ss^2 + rs^2))
+})
+upg_growth |> arrange(desc(slope_reliability)) |> mutate(across(where(is.numeric), \(x) round(x, 3))) |>
+  knitr::kable(caption = "Random-slope LMM per task: reliable between-child slope variance is negligible")
+```
+
+With only two waves the random-slope models are **near-singular** and recover
+**negligible reliable between-child slope variance** (slope reliability ≈ 0–0.06).
+This *revises* the optimistic naive 2-wave reliabilities above: those credited
+the EAP posterior SE as the only error term, but a model that lets
+occasion-to-occasion variance compete finds individual growth differences are
+**not yet identifiable** from two points. Growth-based variability needs **≥ 3
+waves** before it can be estimated per child.
+
+## 4.3 RT-IIV as a variance-components model
+
+Rather than a per-run SD, we model log RT-variability across all
+person×task runs and ask what share is a **stable cross-task person property**.
+
+```{r upg-iiv, cache=TRUE}
+iiv_run <- map_dfr(setdiff(core$task_id, "memory-game"), function(tid){
+  rn <- runs |> filter(task_id == tid)
+  load_levante_trials(task_ids = tid) |>
+    filter(run_id %in% rn$run_id, !is.na(rt_numeric), rt_numeric > 200, rt_numeric < 30000, correct == 1) |>
+    group_by(run_id, user_id, short) |> filter(n() >= 10) |>
+    summarise(logvar = log(var(log(rt_numeric))), .groups = "drop")
+})
+vcm <- suppressMessages(lme4::lmer(logvar ~ 1 + (1 | user_id) + (1 | short), data = iiv_run))
+vc <- as.data.frame(lme4::VarCorr(vcm)); tot <- sum(vc$vcov)
+tibble(component = c("person (stable trait)","task","residual (person×task + noise)"),
+       variance_share = c(vc$vcov[vc$grp=="user_id"], vc$vcov[vc$grp=="short"], vc$vcov[vc$grp=="Residual"])/tot) |>
+  mutate(variance_share = round(variance_share, 3)) |>
+  knitr::kable(caption = glue::glue("Variance decomposition of RT-variability ({nrow(iiv_run)} runs, {n_distinct(iiv_run$user_id)} children)"))
+```
+
+Only **~4% of RT-variability is a stable cross-task person property**; the bulk
+is task differences (~58%) and within-person/residual (~38%, which still
+includes measurement noise, so 4% is if anything an upper-ish bound on the
+trait share). The near-zero cross-task correlation in the naive analysis was
+therefore **not merely attenuation** — RT variability genuinely is
+task-specific, not a general trait, at these ages.
+
+```{r upg-save}
+write_rds(list(misfit = upg_mf, growth = upg_growth,
+               iiv_var = as.data.frame(lme4::VarCorr(vcm))),
+          here::here("data/within_child_variability_06_upgrades.rds"))
+```
+
+## Synthesis — model-based upgrades
+
+The model-based pass sharpens, and in one place corrects, the naive picture —
+and the verdict is a **robust null** on a general within-child variability trait:
+
+- **Person-fit** (scored against the model's actual IRF — the fixed guessing
+  asymptote the scoring already uses, *not* a new 3PL): well-calibrated on every
+  task and free of the extremity confound, but ≈ 0 reliability — there is little
+  real between-child variance to measure. The earlier "reliable, age-declining"
+  misfit was an artifact of using the wrong (plain-logistic) response function.
+- **Model-based growth**: two waves cannot identify individual growth
+  differences (slope reliability ≈ 0; models near-singular). The naive
+  reliabilities were optimistic. Revisit at ≥ 3 waves.
+- **RT-IIV variance components**: a person×task model puts the stable-person
+  share at ~4% — overwhelmingly task-specific.
+
+**Implication for LEVANTE.** Measuring within-child variability *as a coherent
+individual-difference construct* will need richer designs, not better summaries
+of the current single-session scores: more longitudinal waves for growth, and
+within-task manipulations purpose-built to elicit and reliably capture
+variability (e.g., conditions that provoke lapses, speed–accuracy trade-offs).
+RT-IIV remains a clean, reliable **per-task** measure — it is simply not, on
+this evidence, a cross-task trait.

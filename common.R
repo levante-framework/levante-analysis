@@ -479,12 +479,12 @@ load_item_parameters <- function(version = "v1_14", refresh = FALSE,
 
 # ---- Cleaning helpers -------------------------------------------------------
 #
-# These encode the decisions documented in 01_data_integrity, reports/, and
-# tasks/. They are applied once in 00_load_data; downstream notebooks read
+# These encode the decisions documented in monitor/01_data_integrity, handoffs/, and
+# the studies. They are applied once in monitor/00_load_data; downstream notebooks read
 # the cleaned tibble.
 
 #' Backfill `adaptive` = FALSE for the 196 documented NA rows.
-#' See `reports/adaptive_missingness.html` for the diagnosis: all NA rows are
+#' See `studies/2026-06_adaptive-missingness/adaptive_missingness.html` for the diagnosis: all NA rows are
 #' in early beta task_versions of Bogotá Memory and Leipzig/Western Math, and
 #' trial-level theta_estimate is entirely absent → non-adaptive administration.
 backfill_adaptive_na <- function(scores) {
@@ -493,7 +493,7 @@ backfill_adaptive_na <- function(scores) {
 
 #' Return run_ids that should be dropped from ROAR-Word due to non-engagement.
 #' Rule: trial-level accuracy < 0.4 OR median RT < 500 ms. See
-#' `tasks/roar_word.html`.
+#' `studies/2026-07_roar-word-engagement/roar_word.html`.
 roar_word_engagement_drops <- function(trials,
                                        min_accuracy = 0.4,
                                        min_rt_ms = 500) {

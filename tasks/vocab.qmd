@@ -12,7 +12,7 @@ execute:
   message: false
 ---
 
-{{< include ../_disclaimer.qmd >}}
+{{< include /_disclaimer.qmd >}}
 
 # Purpose
 
@@ -27,8 +27,8 @@ at Leipzig (DE). Two hypotheses were on the table:
     the ceiling story doesn't obviously explain.
 
 This notebook investigates both at the item level, and applies the
-column-order-fixed rescoring (see `tasks/math_eap_vs_ml.qmd` and
-`reports/rlevante_handoff.md` for the bug) to see how much of the apparent
+column-order-fixed rescoring (see `studies/2026-06_irt-column-order-bug/math_eap_vs_ml.qmd` and
+`handoffs/rlevante_handoff.md` for the bug) to see how much of the apparent
 decline is real.
 
 The column-order bug was fixed upstream in `levantemodels::score_irt` by
@@ -121,7 +121,7 @@ sections show, it is not the main driver of the apparent T1→T2 decline.
 
 # 2. The scoring bug hits vocab — hard (especially DE)
 
-Same column-order bug as math (`reports/rlevante_handoff.md`): validate the
+Same column-order bug as math (`handoffs/rlevante_handoff.md`): validate the
 corrected scoring against each model's calibration-time stored scores
 (`@scores`, the ground truth).
 
@@ -331,7 +331,7 @@ de_eap_full |>
   longitudinal vocab analysis, unless `levante_data_latest` has already been
   rescored since the fix (same fix as math; merged upstream in
   [PR #9](https://github.com/levante-framework/levantemodels/pull/9); see
-  also `reports/rlevante_handoff.md`).
+  also `handoffs/rlevante_handoff.md`).
 - For 02 / 03, use corrected vocab scores. The DE vocab LGC and any
   language-factor growth model should be re-fit; the construct-level decline
   was an artifact.

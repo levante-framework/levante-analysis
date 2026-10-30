@@ -1,0 +1,18 @@
+---
+title: "Findings & decisions"
+---
+
+What the analyses here have concluded, and what was decided as a result.
+Each entry is dated, says which data it rests on, and links to the page
+with the evidence. When a finding is overturned, its entry stays and its
+status changes.
+
+The register is being seeded. Findings from earlier studies are added as
+each study is reviewed.
+
+| Date | Finding | Status | Data | Evidence |
+|---|---|---|---|---|
+| 2026-10-30 | ROAR-Sentence: production now scores a rate (net correct per second of wall-clock time). It reproduces exactly from the trials, and among five scoring methods it is the best overall primary score. | Adopted | `levante_data_latest` v3_17 | [ROAR-Sentence scoring](../studies/2026-07_sre-scoring/sre.qmd) |
+| 2026-10-30 | ROAR-Sentence: runs that end well before the 180-s window, common in Argentina, lower the rate score's validity. Flag or exclude them. | Recommended to the DCC | `levante_data_latest` v3_17 | [ROAR-Sentence scoring](../studies/2026-07_sre-scoring/sre.qmd) |
+| 2026-10-30 | ROAR-Sentence in Ghana: accuracy is near chance even on slower responses, and scores are unrelated to age. | Open | `levante_data_latest` v3_17 | [ROAR-Sentence scoring](../studies/2026-07_sre-scoring/sre.qmd) |
+| 2026-10-30 | Hearts & Flowers: the June conclusion that a 2PL model fits better than Rasch is not supported (the fit used one trial per item type per run and had no guessing floor). Production uses Rasch with a .5 guessing floor. | Retracted | per-site data, June 2026 | [H&F v2 redesign, section 11](../studies/2026-10_hf-v2-redesign/hearts_and_flowers_v2.qmd) |

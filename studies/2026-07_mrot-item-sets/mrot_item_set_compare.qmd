@@ -1,0 +1,434 @@
+---
+title: "Mental rotation: item-set x model-type comparison"
+date: 2026-07-20
+date-format: iso
+---
+
+Cross the three item-collapsing dimensions (angle vs. angle_full, stimulus vs.
+stimulus_code, chirality in/out) to get 8 item sets ranging from maximally
+collapsed (current `item_uid`) to maximally fine-grained (current
+`item_original`). For each item set, fit the full `models_multigroup` set
+(Rasch/2PL x configural/metric/scalar) and compare BIC, marginal reliability,
+empirical reliability, score-age correlation, and test-retest reliability.
+
+Note: polygon items (`polygon1`/`polygon2`) are excluded throughout. Their
+`item_original` codes share a `stimulus_code` ("p") and use the `chirality`
+character ("1"/"2") to distinguish the two shapes rather than encode true
+mirror chirality, so any item set that collapses over chirality without using
+`stimulus` would otherwise silently merge the two polygons together.
+
+## Summary of findings
+
+- **Model type matters far more than item granularity, but BIC support for
+  2PL is mixed, not decisive.** The 2PL scalar model wins BIC in 6 of 8 item
+  sets, by modest margins (roughly 1-150 BIC points over the next-best
+  model) -- it actually loses to Rasch scalar in the two item sets that
+  collapse `angle_full` with `chirality` retained (by 16.5 and 132 BIC
+  points). The stronger case for 2PL is its much higher marginal reliability
+  than Rasch (~0.7-0.8 vs. ~0.43), which holds consistently across all 8 item
+  sets regardless of which model wins BIC.
+- **Aggregate differences across the 8 item-collapsing schemes are modest.**
+  For 2PL scalar models, marginal reliability ranges 0.71-0.79, empirical
+  reliability is essentially flat (~0.84), and person-level ability scores are
+  nearly identical regardless of item set.
+- **A per-dataset breakdown reveals a real pattern masked by the aggregate.**
+  At three of four sites (CO-Bogota, Western-CA, CO-Rural), marginal
+  reliability declines consistently as items are split more finely --
+  collapsing over `chirality` costs the most, then `angle` granularity, then
+  `stimulus` granularity. DE stays flat (~0.85-0.88) regardless of item set.
+  CO-Rural is the lowest-reliability site throughout, but moves in the same
+  direction as the others rather than diverging from them.
+- **Score-age correlation and test-retest reliability are essentially
+  unaffected by item-set choice** within any given site; the variation seen
+  in these metrics across sites reflects site differences, not the
+  granularity decision (note CO-Rural has no retest data, and the Western-CA
+  retest sample is small, n = 30).
+- **Bottom line:** the current collapsed `item_uid` scheme loses little
+  relative to the maximally fine-grained `item_original` -- if anything, it
+  shows the highest reliability among the 8 options tested.
+
+```{r}
+#| cache: false
+
+library(tidyverse)
+library(here)
+library(glue)
+library(mirt)
+library(levantemodels)
+
+source(here::here("common.R"))
+```
+
+## Load data + build item sets
+
+```{r}
+pilots_data_dir <- here("..", "levante-pilots", "01_fetched_data")
+task_data_nested <- read_rds(file.path(pilots_data_dir, "task_data_nested.rds"))
+run_data <- read_rds(file.path(pilots_data_dir, "run_data.rds"))
+
+task_data_mrot <- task_data_nested |> filter(item_task == "mrot")
+
+# at least for this task, NA responses seem to be incorrectly coded as incorrect
+task_data <- task_data_mrot |>
+  unnest(data) |>
+  filter(!is.na(response)) |>
+  left_join(run_data |> select(run_id, age))
+```
+
+Code item features from `item_original`, excluding polygon stimuli. 3D items
+embed an extra exemplar number between the chirality character and the angle
+(e.g. `an11240` = code `a` + chirality `n` + exemplar `11` + angle `240`) that
+isn't one of the three dimensions we're crossing but has to be preserved for
+`stimulus_code` to be well defined -- otherwise items with the same code,
+chirality, and angle but different exemplars would be silently merged. We fold
+it into `stimulus_code` (2D items have no exemplar digits, so this is a no-op
+for them).
+
+```{r}
+items_coded <- task_data |>
+  select(contains("item")) |> distinct() |>
+  separate(item, into = c("stimulus", "angle")) |>
+  mutate(angle = as.numeric(angle)) |>
+  rename(item = item_original) |>
+  mutate(angle_full = item |> str_sub(str_length(item) - 2, str_length(item)) |> as.numeric(),
+         stimulus_code = item |> str_sub(1, 1),
+         chirality = item |> str_sub(2, 2),
+         exemplar = item |> str_sub(3, str_length(item) - 3),
+         stimulus_code = paste0(stimulus_code, exemplar)) |>
+  filter(!stimulus %in% c("polygon1", "polygon2")) |>
+  rename(item_original = item) |>
+  select(item_task, item_group, item_original, stimulus, stimulus_code, chirality, angle, angle_full)
+```
+
+Cross the three dimensions into 8 item sets and build an `item_original` ->
+`item_uid` map for each.
+
+```{r}
+make_item_uid_map <- function(angle_var, stimulus_var, use_chirality) {
+  items_coded |>
+    mutate(angle_str = sprintf("%03d", .data[[angle_var]]),
+           stim_val = .data[[stimulus_var]]) |>
+    mutate(item_uid_new = if (use_chirality) {
+      paste("mrot", item_group, stim_val, chirality, angle_str, sep = "_")
+    } else {
+      paste("mrot", item_group, stim_val, angle_str, sep = "_")
+    }) |>
+    select(item_original, item_uid_new)
+}
+
+item_set_specs <- expand_grid(
+  angle_var = c("angle", "angle_full"),
+  stimulus_var = c("stimulus", "stimulus_code"),
+  chirality = c(FALSE, TRUE)
+) |>
+  mutate(item_set = paste(angle_var, stimulus_var,
+                           if_else(chirality, "chir", "nochir"), sep = "_"),
+         item_uid_map = pmap(list(angle_var, stimulus_var, chirality), make_item_uid_map),
+         n_items = map_dbl(item_uid_map, ~ n_distinct(.x$item_uid_new)))
+
+item_set_specs |> select(item_set, angle_var, stimulus_var, chirality, n_items)
+```
+
+`angle_stimulus_nochir` is the current `item_uid` (most collapsed);
+`angle_full_stimulus_code_chir` is equivalent to the current `item_original`
+(most fine-grained, 71 items = distinct `item_original` values after
+excluding polygons).
+
+```{r}
+build_task_data_x <- function(item_uid_map) {
+  task_data |>
+    inner_join(item_uid_map, by = "item_original") |>
+    select(-item_uid) |>
+    rename(item_uid = item_uid_new) |>
+    nest(data = -c(dataset, item_task, language))
+}
+
+item_set_specs <- item_set_specs |>
+  mutate(task_data_x = map(item_uid_map, build_task_data_x))
+```
+
+## Fit models
+
+Full multigroup model set (Rasch/2PL x configural/metric/scalar), fit
+separately for each of the 8 item sets. This fits 8 x 5 = 40 multigroup
+models and will take a while.
+
+```{r}
+models_multigroup <- tribble(
+  ~nfact, ~itemtype, ~invariance,
+  1,   "Rasch", "configural",
+  1,   "Rasch", "scalar",
+  1,     "2PL", "configural",
+  1,     "2PL", "metric",
+  1,     "2PL", "scalar",
+)
+
+priors <- list(d = c("norm", 0, 3), a1 = c("norm", 1, 0.3))
+
+# scalar 2PL all_items is the last file fit_task_models_multigroup writes per
+# item set, so its presence marks that item set as already fit -- lets
+# re-renders skip refitting all 40 models from scratch
+is_item_set_done <- \(item_set) {
+  file.exists(file.path("models/item_sets", item_set, "mrot",
+                         "multigroup_dataset", "all_items", "mrot_2pl_f1_scalar.rds"))
+}
+
+walk2(item_set_specs$item_set, item_set_specs$task_data_x, \(item_set, task_data_x) {
+  if (is_item_set_done(item_set)) return(invisible())
+  fit_task_models_multigroup(task_data = task_data_x,
+                              models = models_multigroup,
+                              priors = priors,
+                              task = "mrot",
+                              group = dataset,
+                              registry_dir = file.path("models/item_sets", item_set))
+})
+```
+
+## Load fitted models
+
+```{r}
+registry_root <- "models/item_sets"
+
+list_item_set_models <- \() {
+  mod_files <- list.files(registry_root, recursive = TRUE)
+  mod_files |>
+    str_split("/", simplify = TRUE) |>
+    as_tibble(.name_repair = "minimal") |>
+    set_names(c("item_set", "task", "model_set", "subset", "filename")) |>
+    bind_cols(path = mod_files)
+}
+
+code_item_set_models <- \(mod_df) {
+  mod_df |>
+    mutate(file = str_remove(filename, "\\.rds$")) |>
+    separate_wider_delim(file, names = c("task_dup", "itemtype", "nfact", "invariance"),
+                          delim = "_", cols_remove = FALSE, too_few = "align_start") |>
+    select(-task_dup) |>
+    mutate(invariance = invariance |> replace_na(""))
+}
+
+mods <- list_item_set_models() |>
+  mutate(mod_rec = map(path, \(p) read_rds(file.path(registry_root, p)))) |>
+  code_item_set_models() |>
+  mutate(BIC = map_dbl(mod_rec, \(rec) rec@fit$BIC))
+```
+
+## Compute comparison metrics
+
+**BIC**: configural models are only fit on `overlap_items` (all-items models
+aren't fit for configural invariance, since there's nothing to constrain
+across groups), so BIC comparison across all 5 model types uses
+`overlap_items` for every model, matching the convention used in
+`02_score_data/02_extract_irt/02_compare_models.qmd`.
+
+**Marginal/empirical reliability**: `mirt::extract.group()` only works for
+scalar-invariance multigroup fits (metric/configural have cross-group equality
+constraints that break it), so these are computed only for the scalar models,
+using the `all_items` fit.
+
+**Score-age correlation and test-retest**: computed per dataset (not pooled
+across sites, since cross-site mean/scale comparisons are not interpretable)
+from each `ModelRecord`'s stored calibration-time EAP scores
+(`mod_rec@scores`), which are available for every model type/invariance. For
+configural models this uses `overlap_items` scores (the only ones available);
+for metric/scalar it uses `all_items` scores.
+
+```{r}
+run_meta <- task_data |> distinct(dataset, run_id, user_id, age)
+
+extract.mirt_groups <- \(mod) {
+  extract.mirt(mod, "groupNames") |> set_names() |> map(\(gr) extract.group(mod, gr))
+}
+
+# marginal + empirical reliability, scalar models only, all_items
+mods_scalar <- mods |>
+  filter(subset == "all_items", invariance == "scalar")
+
+mods_scalar_rxx <- mods_scalar |>
+  mutate(mod = map(mod_rec, model_from_record),
+         group_mod = map(mod, extract.mirt_groups)) |>
+  select(item_set, itemtype, invariance, group_mod) |>
+  unnest_longer(group_mod, indices_to = "group") |>
+  mutate(marginal_rxx = map_dbl(group_mod, marginal_rxx),
+         scores = map(group_mod, \(m) fscores(m, method = "EAP", full.scores.SE = TRUE)),
+         empirical_rxx = map_dbl(scores, empirical_rxx)) |>
+  select(item_set, itemtype, invariance, group, marginal_rxx, empirical_rxx)
+
+# score-age correlation + test-retest, all model types, per dataset
+mods_scores <- mods |>
+  filter(subset %in% c("all_items", "overlap_items")) |>
+  # prefer all_items when both exist for a given item_set x itemtype x invariance
+  arrange(item_set, itemtype, invariance, desc(subset == "all_items")) |>
+  distinct(item_set, itemtype, invariance, .keep_all = TRUE) |>
+  mutate(scores = map(mod_rec, \(rec) rec@scores |> left_join(run_meta, by = "run_id")))
+
+age_cor <- mods_scores |>
+  select(item_set, itemtype, invariance, subset, scores) |>
+  unnest(scores) |>
+  group_by(item_set, itemtype, invariance, subset, dataset) |>
+  summarise(age_r = cor(ability, age, use = "complete.obs"), n = n(), .groups = "drop")
+
+test_retest <- mods_scores |>
+  select(item_set, itemtype, invariance, subset, scores) |>
+  unnest(scores) |>
+  group_by(item_set, itemtype, invariance, subset, user_id, dataset) |>
+  filter(n() > 1) |>
+  arrange(age) |>
+  mutate(run_number = row_number(), age_gap = max(age) - min(age)) |>
+  filter(age_gap > 0.05, run_number <= 2) |>
+  ungroup() |>
+  select(item_set, itemtype, invariance, subset, dataset, user_id, run_number, ability) |>
+  pivot_wider(names_from = run_number, values_from = ability, names_prefix = "run_") |>
+  group_by(item_set, itemtype, invariance, subset, dataset) |>
+  summarise(retest_r = cor(run_1, run_2, use = "complete.obs"), n_retest = n(), .groups = "drop")
+```
+
+## Summary table
+
+```{r}
+model_comparison <- mods |>
+  filter(subset == "overlap_items") |>
+  select(item_set, itemtype, nfact, invariance, BIC) |>
+  left_join(mods_scalar_rxx |>
+              group_by(item_set, itemtype, invariance) |>
+              summarise(marginal_rxx = mean(marginal_rxx),
+                        empirical_rxx = mean(empirical_rxx), .groups = "drop")) |>
+  left_join(age_cor |>
+              group_by(item_set, itemtype, invariance) |>
+              summarise(age_r = mean(age_r, na.rm = TRUE), .groups = "drop")) |>
+  left_join(test_retest |>
+              group_by(item_set, itemtype, invariance) |>
+              summarise(retest_r = mean(retest_r, na.rm = TRUE), .groups = "drop")) |>
+  left_join(item_set_specs |> select(item_set, angle_var, stimulus_var, chirality, n_items)) |>
+  arrange(item_set, itemtype, invariance)
+
+model_comparison
+```
+
+```{r}
+model_comparison |>
+  filter(itemtype == "2pl", invariance == "scalar") |>
+  select(item_set, where(is.numeric)) |>
+  select(-BIC) |>
+  arrange(desc(marginal_rxx)) |>
+  mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+Reliability, age-correlation, and test-retest values above are averaged across
+groups/datasets for a compact overview; per-dataset values are in
+`mods_scalar_rxx`, `age_cor`, and `test_retest`.
+
+```{r}
+#| fig-width: 10
+#| fig-height: 6
+
+ggplot(model_comparison |> group_by(item_set) |> mutate(delta_bic = BIC - min(BIC)),
+       aes(x = delta_bic, y = paste(itemtype, invariance))) +
+  facet_wrap(vars(item_set), scales = "free_x") +
+  geom_vline(xintercept = 0, colour = "grey") +
+  geom_crossbar(aes(xmin = delta_bic, xmax = delta_bic, colour = itemtype), width = 0.7,
+                linewidth = 0.5) +
+  scale_colour_brewer(palette = "Set1", guide = "none") +
+  labs(x = "BIC difference from lowest (within item set)", y = "Model")
+# ggsave("bic_by_item_set.png", width = 10, height = 6)
+```
+
+```{r}
+#| fig-width: 8
+#| fig-height: 6
+
+ggplot(model_comparison |> filter(invariance == "scalar"),
+       aes(x = item_set, y = marginal_rxx, colour = itemtype)) +
+  geom_point(size = 2) +
+  geom_line(aes(group = itemtype)) +
+  scale_colour_brewer(palette = "Set1") +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Item set", y = "Marginal reliability (scalar models)", colour = "Item type")
+# ggsave("rxx_by_item_set.png", width = 7, height = 4)
+```
+
+## Item difficulty comparison across item sets
+
+Compare item difficulties from the finest item set (`item_original`-
+equivalent) against the collapsed difficulty for each of the other 7 item
+sets, using the scalar 2PL model.
+
+```{r}
+finest_set <- "angle_full_stimulus_code_chir"
+
+coefs <- mods |>
+  filter(subset == "all_items", itemtype == "2pl", invariance == "scalar") |>
+  mutate(coef = map(mod_rec, mod_coefs)) |>
+  select(item_set, coef) |>
+  unnest(coef) |>
+  filter(n_responses > 30) |>
+  select(item_set, item, group, a1, difficulty) |>
+  distinct()
+
+finest_coef <- coefs |> filter(item_set == finest_set) |>
+  select(item_original_uid = item, difficulty_fine = difficulty) |> distinct()
+
+# map each finest item_uid back to its item_original, then to every other
+# item set's item_uid, to compare difficulties at different granularities
+finest_item_map <- item_set_specs |> filter(item_set == finest_set) |>
+  pull(item_uid_map) |> pluck(1) |>
+  rename(item_original_uid = item_uid_new)
+
+coef_comp <- coefs |>
+  filter(item_set != finest_set) |>
+  rename(item_uid_new = item) |>
+  left_join(item_set_specs |> select(item_set, item_uid_map) |>
+              unnest(item_uid_map), by = c("item_set", "item_uid_new")) |>
+  left_join(finest_item_map, by = "item_original") |>
+  left_join(finest_coef, by = "item_original_uid") |>
+  left_join(items_coded, by = "item_original")
+```
+
+```{r}
+#| fig-width: 10
+#| fig-height: 8
+
+ggplot(coef_comp, aes(x = difficulty_fine, y = difficulty)) +
+  facet_wrap(vars(item_set)) +
+  coord_fixed() +
+  geom_abline(colour = "lightgrey") +
+  geom_point(aes(colour = stimulus), size = 1, alpha = 0.6) +
+  scale_colour_brewer(palette = "Set2") +
+  labs(x = "Item difficulty (finest item set)", y = "Item difficulty (this item set)")
+# ggsave("mrot_difficulty_by_item_set.png", width = 9, height = 6)
+```
+
+## Score comparison across item sets
+
+Compare person scores (EAP ability) from the finest item set against every
+other item set, using the scalar 2PL model.
+
+```{r}
+scores_by_set <- mods |>
+  filter(subset == "all_items", itemtype == "2pl", invariance == "scalar") |>
+  mutate(scores = map(mod_rec, \(rec) rec@scores |> select(run_id, ability))) |>
+  select(item_set, scores) |>
+  unnest(scores)
+
+scores_wide <- scores_by_set |>
+  pivot_wider(names_from = item_set, values_from = ability) |>
+  left_join(run_meta, by = "run_id")
+
+score_comp <- scores_wide |>
+  select(-run_id, -user_id) |>
+  pivot_longer(-c(dataset, age, all_of(finest_set)), names_to = "item_set", values_to = "ability") |>
+  rename(ability_fine = all_of(finest_set))
+```
+
+```{r}
+#| fig-width: 10
+#| fig-height: 8
+
+ggplot(score_comp, aes(x = ability_fine, y = ability)) +
+  facet_wrap(vars(item_set)) +
+  coord_fixed() +
+  geom_abline(colour = "lightgrey") +
+  geom_point(size = 0.5, alpha = 0.3) +
+  labs(x = "Score (finest item set)", y = "Score (this item set)")
+# ggsave("mrot_scores_by_item_set.png", width = 9, height = 6)
+```

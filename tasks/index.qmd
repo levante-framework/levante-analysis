@@ -1,0 +1,18 @@
+---
+title: "Task reports"
+listing:
+  contents:
+    - "*.qmd"
+  type: table
+  fields: [title]
+  sort: title
+  sort-ui: false
+  filter-ui: false
+---
+
+One page per task. These pages predate the planned standard task report,
+which will give every task the same sections: forms and deployment,
+coverage, the item bank, item health, scores, reliability and validity,
+efficiency, and open issues. Until then, analyses of Hearts & Flowers, Math,
+Same & Different, Stories, ROAR-Word and ROAR-Sentence are in
+[Studies](../studies/index.qmd).

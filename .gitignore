@@ -65,6 +65,7 @@ rsconnect/
 
 # Quarto book
 _book/
+_site/
 .quarto/
 _freeze/
 /_publish.yml.local
@@ -73,4 +74,4 @@ _freeze/
 **/*.quarto_ipynb
 
 # Sherlock DDM bundle: data-derived JSONs stay local (trial-level data)
-tasks/sherlock_sre_ddm/*.json
+studies/2026-07_sre-scoring/sherlock_sre_ddm/*.json

@@ -1,77 +1,99 @@
 project:
-  type: book
-  output-dir: _book
-  # Numbered chapters, landing page, and per-task deepdives in tasks/ are all
-  # part of the main book now. reports/, old/ stay standalone.
+  type: website
+  output-dir: _site
+  # One site, four sections. archive/, handoffs/ and planning/ are not
+  # rendered, nor are two studies whose inputs no longer exist (the mrot item
+  # sets and adaptive-flag missingness) until they are ported.
   render:
     - index.qmd
-    - "0[0-9]_*.qmd"
-    - "1[0-9]_*.qmd"
-    - "tasks/*.qmd"
+    - monitor/*.qmd
+    - tasks/*.qmd
+    - studies/index.qmd
+    - studies/*/*.qmd
+    - "!studies/2026-07_mrot-item-sets/"
+    - "!studies/2026-06_adaptive-missingness/"
+    - register/*.qmd
 
-book:
-  title: "LEVANTE Longitudinal Analyses"
-  subtitle: "Exploratory psychometrics of the core-task battery"
-  author: "Michael C. Frank & the LEVANTE Data Coordinating Center"
-  date: today
-  search: true
+website:
+  title: "LEVANTE analysis"
   repo-url: https://github.com/levante-framework/levante-analysis
+  search: true
+  page-navigation: true
+  navbar:
+    left:
+      - text: Monitor
+        href: monitor/index.qmd
+      - text: Task reports
+        href: tasks/index.qmd
+      - text: Studies
+        href: studies/index.qmd
+      - text: Findings & decisions
+        href: register/index.qmd
   sidebar:
-    style: docked
-  chapters:
-    - index.qmd
-    - part: "Longitudinal analyses"
-      chapters:
-        - 00_load_data.qmd
-        - 01_data_integrity.qmd
-        - 02_growth.qmd
-        - 03_structure_invariance.qmd
-        - 04_differentiation.qmd
-        - 05_battery_design.qmd
-        - 06_within_child_variability.qmd
-        - 07_rt_variability.qmd
-        - 08_accuracy_variability.qmd
-        - 09_longitudinal_coverage.qmd
-        - 10_downward_extension.qmd
-    - part: "Task deepdives"
-      chapters:
-        - tasks/hearts_and_flowers.qmd
-        - tasks/hearts_and_flowers_v2.qmd
+    - title: "Monitor"
+      style: docked
+      contents:
+        - monitor/index.qmd
+        - monitor/00_load_data.qmd
+        - monitor/01_data_integrity.qmd
+        - monitor/02_growth.qmd
+        - monitor/03_structure_invariance.qmd
+        - monitor/04_differentiation.qmd
+        - monitor/05_battery_design.qmd
+        - monitor/09_longitudinal_coverage.qmd
+        - monitor/10_downward_extension.qmd
+        - monitor/test_retest_figures.qmd
+        - monitor/crosslang_dif_batch.qmd
+    - title: "Task reports"
+      contents:
+        - tasks/index.qmd
         - tasks/memory.qmd
-        - tasks/memory_length.qmd
-        - tasks/same_different.qmd
-        - tasks/math.qmd
-        - tasks/math_item_calibration.qmd
-        - tasks/math_eap_vs_ml.qmd
         - tasks/shape_rotation.qmd
         - tasks/sentence_understanding.qmd
-        - tasks/trog_skin_tone.qmd
         - tasks/vocab.qmd
-        - tasks/stories.qmd
-        - tasks/tom_reality_check_bug.qmd
-        - tasks/roar_word.qmd
         - tasks/roar_literacy.qmd
-        # mrot_item_set_compare needs un-versioned inputs (levante-pilots
-        # 01_fetched_data/run_data.rds + the tasks/mrot/models/item_sets registry
-        # built by fit_item_sets.R) that aren't present locally, and it has no
-        # freeze — so it can't build here. Re-enable once those exist.
-        # - tasks/mrot/mrot_item_set_compare.qmd
-        - tasks/sre.qmd
-    - part: "Cross-task analyses"
-      chapters:
-        - tasks/corrected_trajectories.qmd
-        - tasks/crosslang_dif_batch.qmd
-        - tasks/test_retest_figures.qmd
-        - tasks/training_vs_development.qmd
+    - title: "Studies"
+      contents:
+        - studies/index.qmd
+        - section: "2026-10 · H&F v2 redesign"
+          contents: studies/2026-10_hf-v2-redesign/hearts_and_flowers_v2.qmd
+        - section: "2026-09 · Stories (ToM)"
+          contents: studies/2026-09_stories/stories.qmd
+        - section: "2026-09 · TROG skin tone"
+          contents: studies/2026-09_trog-skin-tone/trog_skin_tone.qmd
+        - section: "2026-08 · Memory length"
+          contents: studies/2026-08_memory-length/memory_length.qmd
+        - section: "2026-08 · Within-child variability"
+          contents:
+            - studies/2026-08_within-child-variability/06_within_child_variability.qmd
+            - studies/2026-08_within-child-variability/07_rt_variability.qmd
+            - studies/2026-08_within-child-variability/08_accuracy_variability.qmd
+        - section: "2026-07 · ROAR-Sentence scoring"
+          contents: studies/2026-07_sre-scoring/sre.qmd
+        - section: "2026-07 · Same & Different scoring"
+          contents: studies/2026-07_sds-scoring/same_different.qmd
+        - section: "2026-07 · ROAR-Word engagement"
+          contents: studies/2026-07_roar-word-engagement/roar_word.qmd
+        - section: "2026-07 · Training vs development"
+          contents: studies/2026-07_training-vs-development/training_vs_development.qmd
+        - section: "2026-06 · ToM reality-check forensics"
+          contents: studies/2026-06_tom-reality-check/tom_reality_check_bug.qmd
+        - section: "2026-06 · IRT column-order bug"
+          contents:
+            - studies/2026-06_irt-column-order-bug/math_eap_vs_ml.qmd
+            - studies/2026-06_irt-column-order-bug/corrected_trajectories.qmd
+    - title: "Findings & decisions"
+      contents:
+        - register/index.qmd
 
 format:
   html:
     theme: cosmo
+    css: styles.css
     toc: true
     toc-depth: 3
     code-fold: true
     df-print: paged
-    number-sections: false          # chapter titles already carry 00–09
     fig-width: 9
     fig-height: 5.5
 
@@ -79,7 +101,7 @@ execute:
   # freeze: true = a global `quarto render` / `quarto publish` reuses the frozen
   # code outputs in _freeze/ and never re-executes chapters (prose still
   # re-renders). Refresh a chapter's outputs by rendering it individually:
-  # `quarto render 04_differentiation.qmd`. Set to `auto` to re-execute any
+  # `quarto render monitor/04_differentiation.qmd`. Set to `auto` to re-execute any
   # chapter whose source changed on a global render — but note that needs all
   # the data caches + Redivis access on the publishing machine.
   freeze: true
