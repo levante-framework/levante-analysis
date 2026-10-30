@@ -1,0 +1,304 @@
+---
+title: "Growth and stability"
+order: 3
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    fig-width: 8
+    fig-height: 6
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| code-summary: "Setup: waves, pairs and models"
+source(here::here("common.R"))
+library(lme4)
+
+scores_all <- load_levante_latest("scores")
+trials <- load_levante_latest("trials")
+scores <- clean_levante_latest(scores_all, trials) |> add_waves()
+data_ref <- unique(scores_all$redivis_source)
+
+# each child's first run in each wave of a task
+by_wave <- scores |>
+  group_by(dataset, user_id, task_id, wave) |>
+  slice_min(time_started, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(dataset, user_id, task_id, task_label, task_category, wave, score,
+         score_se, age, adaptive, time_started)
+
+# all pairs of a child's waves of a task; within a gap bin a child and task
+# contribute their earliest pair only
+gap_breaks <- c(3, 9, 15, 21, 30)
+gap_labels <- c("3–9", "9–15", "15–21", "21–30")
+pairs <- by_wave |>
+  inner_join(by_wave, by = c("dataset", "user_id", "task_id", "task_label",
+                             "task_category"),
+             suffix = c("1", "2"), relationship = "many-to-many") |>
+  filter(wave2 > wave1) |>
+  mutate(gap_months = as.numeric(difftime(time_started2, time_started1,
+                                          units = "days")) / 30.4,
+         gap_bin = cut(gap_months, gap_breaks, labels = gap_labels),
+         same_mode = adaptive1 == adaptive2)
+first_pairs <- pairs |> filter(wave1 == 1, wave2 == 2)
+
+# empirical reliability of EAP scores in each dataset and task:
+# var(EAP) / (var(EAP) + mean(SE^2)), from first-wave runs
+reliability <- by_wave |>
+  filter(wave == 1, !is.na(score_se)) |>
+  group_by(dataset, task_label) |>
+  summarise(rel = var(score) / (var(score) + mean(score_se^2)), .groups = "drop")
+
+# pool within-dataset correlations with Fisher z, weighted by n - 3
+pool_r <- function(df) {
+  df |>
+    summarise(z = weighted.mean(atanh(r), n - 3), w = sum(n - 3), n = sum(n),
+              .groups = "drop") |>
+    mutate(r = tanh(z), lo = tanh(z - 1.96 / sqrt(w)),
+           hi = tanh(z + 1.96 / sqrt(w))) |>
+    select(-z, -w)
+}
+
+# stability by gap bin, within dataset (20+ pairs), then pooled
+stab_gap <- pairs |>
+  filter(!is.na(gap_bin)) |>
+  group_by(dataset, task_label, gap_bin, user_id) |>
+  slice_min(wave1, n = 1, with_ties = FALSE) |>
+  group_by(dataset, task_label, gap_bin) |>
+  filter(n() >= 20) |>
+  reframe(cor_ci(score1, score2))
+stab_gap_pooled <- stab_gap |> group_by(task_label, gap_bin) |> pool_r()
+
+# stability between the first two waves, observed and corrected for
+# measurement error
+stab_first <- first_pairs |>
+  group_by(dataset, task_label) |>
+  filter(n() >= 20) |>
+  reframe(cor_ci(score1, score2)) |>
+  left_join(reliability, by = c("dataset", "task_label")) |>
+  mutate(r_corrected = pmin(r / rel, 1))
+stab_first_pooled <- stab_first |>
+  group_by(task_label) |>
+  pool_r() |>
+  left_join(stab_first |>
+              filter(!is.na(r_corrected)) |>
+              group_by(task_label) |>
+              summarise(r_corrected = tanh(weighted.mean(atanh(pmin(r_corrected, .999)), n - 3)),
+                        .groups = "drop"),
+            by = "task_label") |>
+  arrange(r)
+
+# growth: within-child slope (age deviation from the child's mean age, so
+# only change within children counts) with the child's mean age and, where
+# both forms occur, adaptive vs fixed form as covariates
+growth_data <- by_wave |>
+  filter(!is.na(age)) |>
+  group_by(dataset, user_id, task_id) |>
+  mutate(age_child = mean(age), age_within = age - age_child,
+         n_waves = n()) |>
+  group_by(dataset, task_id) |>
+  filter(n_distinct(user_id[n_waves >= 2]) >= 30) |>
+  ungroup()
+
+fit_growth <- function(df) {
+  f <- if (n_distinct(df$adaptive) > 1) {
+    score ~ age_within + age_child + adaptive + (1 | user_id)
+  } else {
+    score ~ age_within + age_child + (1 | user_id)
+  }
+  m <- lmer(f, data = df, control = lmerControl(optimizer = "bobyqa"))
+  est <- fixef(m)[["age_within"]]
+  se <- sqrt(vcov(m)["age_within", "age_within"])
+  tibble(within = est, within_lo = est - 1.96 * se, within_hi = est + 1.96 * se)
+}
+
+cross <- by_wave |>
+  filter(wave == 1, !is.na(age)) |>
+  group_by(dataset, task_id) |>
+  summarise(cross = coef(lm(score ~ age))[["age"]], .groups = "drop")
+
+slopes <- growth_data |>
+  group_by(dataset, task_id, task_label, task_category) |>
+  group_modify(\(df, key) fit_growth(df)) |>
+  ungroup() |>
+  left_join(cross, by = c("dataset", "task_id"))
+
+long_ds <- first_pairs |>
+  group_by(dataset) |>
+  summarise(children = n_distinct(user_id), gap = median(gap_months),
+            .groups = "drop") |>
+  filter(children >= 20) |>
+  arrange(desc(children))
+```
+
+::: {.callout-note appearance="simple"}
+## Summary
+
+**Data:** `r data_ref`. A child's runs of a task count as separate waves
+when they are at least 90 days apart.
+
+- `r fmt_n(n_distinct(first_pairs$user_id))` children have a task in two or
+  more waves, in `r nrow(long_ds)` datasets with 20 or more such children.
+  The median gap between the first two waves ranges from
+  `r round(min(long_ds$gap))` to `r round(max(long_ds$gap))` months.
+- Children's scores rise between waves: the within-child slope is positive
+  in `r sum(slopes$within > 0)` of `r nrow(slopes)` dataset × task cells,
+  and larger than the cross-sectional age gradient in
+  `r sum(slopes$within > slopes$cross)` of them.
+- Stability between the first two waves, pooled within datasets, is highest
+  for `r stab_first_pooled$task_label[nrow(stab_first_pooled)]`
+  (r = `r f2(max(stab_first_pooled$r))`) and lowest for
+  `r stab_first_pooled$task_label[1]` (r = `r f2(min(stab_first_pooled$r))`).
+  For most tasks it falls as the gap between waves grows.
+- `r fmt_pct(mean(!first_pairs$same_mode, na.rm = TRUE))` of first-to-second
+  wave pairs switch between the adaptive and fixed forms of a task.
+:::
+
+# Who has repeat data
+
+```{r repeat-data, fig.height=4.5}
+repeat_cells <- first_pairs |>
+  count(dataset, task_label, name = "children") |>
+  mutate(dataset_label = factor(dataset_labels_named[dataset],
+                                levels = rev(dataset_labels_named[long_ds$dataset]))) |>
+  filter(dataset %in% long_ds$dataset)
+
+ggplot(repeat_cells, aes(x = task_label, y = dataset_label, fill = children)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = fmt_n(children), colour = children > 60), size = 3.4) +
+  scale_colour_manual(values = c(`TRUE` = "black", `FALSE` = "white"), guide = "none") +
+  scale_fill_viridis_c(guide = "none") +
+  labs(x = NULL, y = NULL) +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))
+```
+
+Each cell is the number of children with a task in two waves. The first two
+waves are a median of
+`r paste0(round(long_ds$gap), " months apart in ", dataset_labels_named[long_ds$dataset], collapse = ", ")`.
+
+# Growth
+
+Each child's scores across waves, by task:
+
+```{r trajectories, fig.height=8, fig.width=9}
+traj <- by_wave |>
+  filter(!is.na(age)) |>
+  semi_join(first_pairs, by = c("dataset", "user_id", "task_label")) |>
+  filter(dataset %in% long_ds$dataset)
+
+ggplot(traj, aes(x = age, y = score, group = interaction(dataset, user_id),
+                 colour = dataset)) +
+  geom_line(alpha = 0.25, linewidth = 0.3) +
+  facet_wrap(vars(task_label), scales = "free_y") +
+  scale_colour_dataset(name = NULL) +
+  guides(colour = guide_legend(override.aes = list(alpha = 1, linewidth = 1))) +
+  labs(x = "Age (years)", y = "Score") +
+  theme(legend.position = "bottom")
+```
+
+Within-child growth against the cross-sectional age gradient, for each
+dataset and task with 30 or more children in two waves. The within-child
+slope comes from a mixed model that separates each child's change from
+their mean age, with adaptive vs fixed form as a covariate where both
+occur; bars are 95% CIs. The dotted line is equality.
+
+```{r slopes, fig.height=5.5}
+slopes |>
+  mutate(dataset_label = factor(dataset_labels_named[dataset],
+                                levels = dataset_labels_named[long_ds$dataset])) |>
+  ggplot(aes(x = cross, y = within, colour = task_category)) +
+  geom_abline(lty = 3, colour = "grey50") +
+  geom_hline(yintercept = 0, colour = "grey85") +
+  geom_errorbar(aes(ymin = within_lo, ymax = within_hi), width = 0, alpha = 0.6) +
+  geom_point(size = 2.5) +
+  ggrepel::geom_text_repel(aes(label = task_label), size = 3, show.legend = FALSE,
+                           max.overlaps = 30) +
+  facet_wrap(vars(dataset_label)) +
+  scale_colour_task(name = NULL) +
+  labs(x = "Cross-sectional slope (score per year of age)",
+       y = "Within-child slope (score per year)") +
+  theme(legend.position = "bottom")
+```
+
+The within-child slope is larger than the cross-sectional gradient in
+`r sum(slopes$within > slopes$cross)` of `r nrow(slopes)` cells. Within-child
+change includes any practice effect from taking the task again, so it is not
+a pure estimate of development. The slopes below zero are
+`r with(filter(slopes, within < 0), paste0(task_label, " in ", dataset_labels_named[dataset], " (", f2(within), ", 95% CI ", f2(within_lo), " to ", f2(within_hi), ")", collapse = "; "))`.
+
+# Stability
+
+How strongly a child's score in one wave predicts their score in the next,
+computed within each dataset. For the first two waves: observed (filled)
+and corrected for measurement error using each task's empirical reliability
+in that dataset (open). Pooled across datasets with Fisher's z; bars are
+95% CIs.
+
+```{r stability-first, fig.height=4.5}
+stab_first_pooled |>
+  mutate(task_label = factor(task_label, task_label)) |>
+  ggplot(aes(y = task_label)) +
+  geom_errorbar(aes(xmin = lo, xmax = hi), width = 0, colour = "grey40") +
+  geom_point(aes(x = r), size = 2.5) +
+  geom_point(aes(x = r_corrected), shape = 1, size = 2.5) +
+  scale_x_continuous(limits = c(NA, 1)) +
+  labs(x = "Correlation between the first two waves", y = NULL)
+```
+
+ROAR-Sentence has no standard error, so it has no corrected value. The
+correction uses empirical reliabilities of
+`r f2(min(stab_first$rel, na.rm = TRUE))`–`r f2(max(stab_first$rel, na.rm = TRUE))`
+across these datasets and tasks.
+
+By gap between waves, using all pairs of a child's waves (each dataset's
+correlation in colour, pooled in black):
+
+```{r stability-gap, fig.height=7, fig.width=9}
+ggplot(mapping = aes(x = gap_bin, y = r)) +
+  geom_hline(yintercept = 0, colour = "grey85") +
+  geom_point(data = stab_gap, aes(colour = dataset),
+             position = position_jitter(width = 0.12, height = 0, seed = 1),
+             alpha = 0.7) +
+  geom_pointrange(data = stab_gap_pooled, aes(ymin = lo, ymax = hi), size = 0.3) +
+  geom_line(data = stab_gap_pooled, aes(group = 1)) +
+  facet_wrap(vars(task_label)) +
+  scale_colour_dataset(name = NULL) +
+  labs(x = "Months between waves", y = "Correlation") +
+  theme(legend.position = "bottom")
+```
+
+```{r gap-trend}
+gap_trend <- stab_gap_pooled |>
+  group_by(task_label) |>
+  filter(n() >= 2) |>
+  summarise(first = r[which.min(as.integer(gap_bin))],
+            last = r[which.max(as.integer(gap_bin))], .groups = "drop")
+```
+
+Pooled stability is lower at the longest gap than at the shortest for
+`r sum(gap_trend$last < gap_trend$first)` of the `r nrow(gap_trend)` tasks
+measured at more than one gap.
+
+# Notes
+
+- **Waves and pairs.** A run at least 90 days after a child's previous run
+  of the same task starts a new wave; each wave is represented by its first
+  run. Repeat runs within 90 days (re-administrations) are ignored here.
+- **Adaptive and fixed forms.** Pairs that switch form are included. The
+  growth models adjust for form; the stability correlations do not.
+- **Measurement error.** The corrected correlations divide by each task's
+  empirical reliability for EAP scores, var(EAP) / (var(EAP) + mean SE²),
+  in that dataset; they assume the same reliability in both waves.
+
+# Revision history
+
+- **2026-10-30.** Rewritten on the pinned release, merging "02 —
+  Longitudinal traces and simple growth models" and "Test–retest figures"
+  (both on the 2026-08 per-site snapshot). Growth now uses a within-child
+  slope that is separated from children's mean age, and stability is
+  computed within dataset by gap between waves, with a correction for
+  measurement error. Both old pages are in `archive/`.

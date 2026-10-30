@@ -36,8 +36,7 @@ website:
         - monitor/index.qmd
         - monitor/network.qmd
         - monitor/snapshot.qmd
-        - monitor/02_growth.qmd
-        - monitor/test_retest_figures.qmd
+        - monitor/growth.qmd
         - monitor/03_structure_invariance.qmd
         - monitor/04_differentiation.qmd
         - monitor/05_battery_design.qmd
