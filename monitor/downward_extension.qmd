@@ -138,6 +138,33 @@ lost_age2 <- runs |>
   count(status, sort = TRUE) |>
   mutate(share = n / sum(runs$age >= 2 & runs$age < 3, na.rm = TRUE))
 
+# official scores by age: English-speaking school-age children (Canada, UK)
+# as a reference band, by half-year of age
+reference_ds <- c("pilot_western_ca_main", "rfp1_sheffield_gb_main")
+reference <- scores_all |>
+  filter(dataset %in% reference_ds, is.na(exclusion), !is.na(score), age < 9) |>
+  left_join(task_lookup |> select(task_id, task_label), by = "task_id") |>
+  filter(task_label %in% run_acc$task_label) |>
+  mutate(age = floor(age * 2) / 2 + 0.25) |>
+  group_by(task_label, age) |>
+  filter(n() >= 20) |>
+  summarise(median = median(score), q25 = quantile(score, .25),
+            q75 = quantile(score, .75), .groups = "drop")
+score_age <- run_acc |>
+  filter(status == "scored", !is.na(age)) |>
+  group_by(task_label) |>
+  filter(n() >= 20) |>
+  reframe(cor_ci(score, age))
+
+# Sparklab's repeat runs
+sparklab_repeats <- runs |>
+  filter(dataset == "partner_sparklab_us_downex") |>
+  arrange(user_id, time_started) |>
+  group_by(user_id) |>
+  summarise(runs = n(), span_days = as.numeric(difftime(max(time_started),
+                                                        min(time_started), units = "days")),
+            .groups = "drop")
+
 # LangCog checks
 lc_runs <- runs |> filter(dataset == "pilot_langcog_us_downex")
 lc_trials_v5 <- load_levante_latest("trials") |>
@@ -171,8 +198,8 @@ langcog <- tibble(
 ::: {.callout-note appearance="simple"}
 ## Summary
 
-**Data:** the raw datasets `r paste0("\x60", raw_refs, "\x60", collapse = ", ")`
-for runs and trials, and `r data_ref` for official scores.
+**Data:** the four raw datasets, pinned to their releases of 2026-10-22
+(see Notes), for runs and trials; `r data_ref` for official scores.
 
 - `r fmt_n(n_kids)` children aged
   `r round(min(runs$age, na.rm = TRUE), 1)`–`r round(max(runs$age, na.rm = TRUE), 1)`
@@ -190,7 +217,9 @@ for runs and trials, and `r data_ref` for official scores.
 - Under age 3.5, accuracy rises with age on
   `r paste(liftoff$task_label[liftoff$lo > 0], collapse = ", ")`; it shows no
   reliable rise on `r paste(liftoff$task_label[liftoff$lo <= 0], collapse = ", ")`.
-- Official scores track hand-scored accuracy: r =
+- Official scores rise with age in `r sum(score_age$lo > 0)` of the
+  `r nrow(score_age)` tasks with 20 or more scored runs, and track
+  hand-scored accuracy: r =
   `r f2(min(score_vs_hand$r))`–`r f2(max(score_vs_hand$r))` in each dataset
   and task with 20 or more scored runs.
 - LangCog's runs, from early beta versions of the tasks, need no rescoring:
@@ -207,6 +236,8 @@ for runs and trials, and `r data_ref` for official scores.
 # Who and what
 
 ```{r children, fig.height=4}
+#| label: fig-children
+#| fig-cap: "Children by age at their first run, by dataset."
 kid_age |>
   mutate(dataset_label = dataset_labels_named[dataset]) |>
   ggplot(aes(x = age, fill = dataset)) +
@@ -218,6 +249,8 @@ kid_age |>
 ```
 
 ```{r coverage, fig.height=4}
+#| label: fig-coverage
+#| fig-cap: "Runs of each task in each dataset."
 runs |>
   count(dataset, task_label, name = "runs") |>
   mutate(dataset_label = factor(dataset_labels_named[dataset],
@@ -231,11 +264,19 @@ runs |>
   theme(axis.text.x = element_text(angle = 35, hjust = 1))
 ```
 
-Each cell is the number of runs of a task. Sparklab ran Math only.
+Sparklab ran Math only, and it is not longitudinal:
+`r fmt_n(sum(sparklab_repeats$runs == 1))` of its
+`r fmt_n(nrow(sparklab_repeats))` children have a single run, and repeat
+runs are mostly re-administrations in the same session (median
+`r round(median(sparklab_repeats$span_days[sparklab_repeats$runs > 1]) * 24 * 60)`
+minutes between a child's first and last run; longest
+`r round(max(sparklab_repeats$span_days))` days).
 
 ## What production scores
 
 ```{r status, fig.height=4}
+#| label: fig-status
+#| fig-cap: "What production did with each run, by age."
 runs |>
   mutate(band = age_band(age)) |>
   filter(!is.na(band)) |>
@@ -259,6 +300,8 @@ more runs of the task. The dashed line is chance. Vocabulary's attention-check (
 out.
 
 ```{r accuracy, fig.height=7.5}
+#| label: fig-accuracy
+#| fig-cap: "Hand-scored accuracy by age, one point per run, with a smooth for each dataset with 20 or more runs of the task. Dashed line: chance."
 chance_lines <- run_acc |>
   group_by(task_label) |>
   summarise(chance = mean(chance, na.rm = TRUE), .groups = "drop") |>
@@ -280,6 +323,8 @@ ggplot(run_acc, aes(x = age, y = accuracy)) +
 ```
 
 ```{r catch, fig.height=3.5}
+#| label: fig-catch
+#| fig-cap: "Vocabulary catch trials passed, by age."
 ggplot(catch, aes(x = age, y = pass)) +
   geom_jitter(aes(colour = dataset), width = 0, height = 0.02, alpha = 0.6) +
   geom_smooth(method = "loess", span = 1, se = FALSE, colour = "black", linewidth = 0.7) +
@@ -305,6 +350,8 @@ means accuracy rises with age within the band, so the task measures
 something there.
 
 ```{r liftoff, fig.height=4}
+#| label: fig-liftoff
+#| fig-cap: "Change in the log odds of a correct answer per year of age, for children under 3.5 (95% CIs)."
 liftoff |>
   mutate(task_label = factor(task_label, task_label),
          label = glue("{children} children")) |>
@@ -317,6 +364,8 @@ liftoff |>
 ```
 
 ```{r young-accuracy, fig.height=4.5}
+#| label: fig-young-accuracy
+#| fig-cap: "Accuracy above chance by half-year of age, under 4."
 young <- run_acc |>
   filter(age < 4, task_label %in% liftoff$task_label, chance > 0) |>
   mutate(band = cut(age, c(2, 2.5, 3, 3.5, 4), right = FALSE,
@@ -349,10 +398,37 @@ response-time window and `r f2(hf_young$windowed)` after it.
 # Official scores
 
 Production scores these children with the item parameters calibrated on
-5–12-year-olds. For runs it scored, the correlation of the official score
-with hand-scored accuracy, by dataset and task (20 or more scored runs):
+5–12-year-olds, so their scores sit on the same scale as the school-age
+children's (@fig-official-by-age).
+
+```{r official-by-age, fig.height=7.5}
+#| label: fig-official-by-age
+#| fig-cap: "Official scores by age for children under 6 (points, by dataset). Grey: the median and middle half of English-speaking school-age children's scores (Canada and the UK) at each half-year of age."
+ggplot() +
+  geom_ribbon(data = reference, aes(x = age, ymin = q25, ymax = q75),
+              fill = "grey80") +
+  geom_line(data = reference, aes(x = age, y = median), colour = "grey40") +
+  geom_point(data = run_acc |> filter(status == "scored"),
+             aes(x = age, y = score, colour = dataset), alpha = 0.5, size = 1.1) +
+  facet_wrap(vars(task_label), scales = "free_y") +
+  scale_colour_dataset(name = NULL) +
+  guides(colour = guide_legend(nrow = 2)) +
+  scale_x_continuous(breaks = 2:9) +
+  labs(x = "Age (years)", y = "Official score") +
+  theme(legend.position = "bottom")
+```
+
+Among the children under 6, scores correlate with age at r =
+`r f2(min(score_age$r))`–`r f2(max(score_age$r))` across tasks, and the
+95% CI excludes zero for
+`r paste(score_age$task_label[score_age$lo > 0], collapse = ", ")`.
+
+For runs it scored, the correlation of the official score with hand-scored
+accuracy, by dataset and task (20 or more scored runs):
 
 ```{r score-vs-hand, fig.height=4.5}
+#| label: fig-score-vs-hand
+#| fig-cap: "Correlation of official scores with hand-scored accuracy, by dataset and task (95% CIs)."
 score_vs_hand |>
   mutate(task_label = reorder(task_label, r)) |>
   ggplot(aes(x = r, y = task_label, colour = dataset)) +
@@ -364,6 +440,8 @@ score_vs_hand |>
 ```
 
 ```{r score-se, fig.height=4}
+#| label: fig-score-se
+#| fig-cap: "Standard errors of the official scores, by age."
 run_acc |>
   filter(status == "scored", !is.na(score_se)) |>
   ggplot(aes(x = age, y = score_se)) +
@@ -415,7 +493,8 @@ finish should be scored is a question for the whole age band.
 
 - **Raw versions.** Each raw dataset is pinned to its release of
   2026-10-22, the date of the pinned `levante_data_latest` release, so runs
-  and official scores line up.
+  and official scores line up:
+  `r paste0("\x60", raw_refs, "\x60", collapse = ", ")`.
 - **Ages** come from birth month and year and each run's start time, so they
   are accurate to about a month.
 - **Hand scoring** is the proportion of test trials correct, with the

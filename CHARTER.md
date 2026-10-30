@@ -69,6 +69,11 @@ chapters. Older chapters are brought into line as they are revised.
   published papers keep their older solarized colors.)
 - **Theme from `common.R`**, matching levante-pilots and the papers: Source
   Sans 3, no grid, plain axes.
+- **Numbered figures with anchors.** Every figure chunk has a label and a
+  caption (`#| label: fig-…`, `#| fig-cap: "…"`), and tables likewise
+  (`tbl-…`), so Quarto numbers them and each gets a link anchor
+  (`page.html#fig-…`) the team can share. Refer to them in the text as
+  `@fig-…`.
 - **Titles describe; captions conclude.** A plot title says what is shown. A
   claim about the data goes in the caption or text, with computed numbers.
 - **Standard plots.** Prefer the shared plotting functions in `common.R`
