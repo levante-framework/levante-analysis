@@ -39,7 +39,7 @@ website:
         - monitor/growth.qmd
         - monitor/structure.qmd
         - monitor/crosslang_dif_batch.qmd
-        - monitor/10_downward_extension.qmd
+        - monitor/downward_extension.qmd
     - title: "Task reports"
       contents:
         - tasks/index.qmd

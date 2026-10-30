@@ -1,0 +1,434 @@
+---
+title: "Downward extension: children under 6"
+order: 6
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    fig-width: 8
+    fig-height: 6
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| code-summary: "Setup: raw runs and trials, hand scores, official scores"
+source(here::here("common.R"))
+library(lme4)
+
+# Raw per-site datasets, pinned to their releases of 2026-10-22 (the date of
+# levante_data_latest v5_0). Raw data keep the runs production excludes,
+# which for young children are many.
+raw_specs <- tribble(
+  ~dataset,                         ~ref,                                      ~version,
+  "pilot_bostonchildrens_us_main",  "pilot_bostonchildrens_us_main_raw:7e6c",  "v7_0",
+  "partner_sparklab_us_downex",     "partner_sparklab_us_downex_raw:4n9e",     "v11_0",
+  "pilot_langcog_us_downex",        "pilot_langcog_us_downex_raw:a6kb",        "v13_0",
+  "pilot_leuphana_de_main",         "pilot_leuphana_de_main_raw:1j0w",         "v3_0")
+raw <- \(table) pmap_dfr(raw_specs, \(dataset, ref, version)
+  load_levante_raw(ref, version, table) |> mutate(dataset = dataset, .before = 1))
+raw_refs <- with(raw_specs, paste0(ref, ":", version))
+
+kids <- raw("users") |>
+  filter(user_type == "student") |>
+  select(dataset, user_id, birth_month, birth_year)
+runs <- raw("runs") |>
+  inner_join(kids, by = c("dataset", "user_id")) |>
+  left_join(task_lookup |> select(task_id, task_label), by = "task_id") |>
+  mutate(age = (year(time_started) - birth_year) + (month(time_started) - birth_month) / 12,
+         finished = !is.na(time_finished))
+
+# official scores from the pinned release
+scores_all <- load_levante_latest("scores")
+data_ref <- unique(scores_all$redivis_source)
+runs <- runs |>
+  left_join(scores_all |> select(run_id, exclusion, score, score_se), by = "run_id") |>
+  mutate(status = case_when(is.na(exclusion) & !is.na(score) ~ "scored",
+                            !is.na(exclusion) ~ str_replace_all(exclusion, "_", " "),
+                            run_id %in% scores_all$run_id ~ "unscored",
+                            TRUE ~ "not in release"))
+
+# test trials with simple hand-scoring rules: Hearts and Flowers responses
+# count as correct only between 200 and 2,000 ms (as in production); chance
+# comes from the number of response options
+test <- raw("trials") |>
+  filter(!is_practice_trial %in% TRUE) |>
+  inner_join(runs |> select(run_id, dataset, user_id, task_label, age), by = c("run_id", "user_id", "dataset")) |>
+  mutate(n_options = if_else(is.na(distractors) | distractors %in% c("", "{}"), NA_integer_,
+                             str_count(distractors, ",") + 2L),
+         chance = case_when(task_id == "hearts-and-flowers" ~ 0.5,
+                            task_id == "memory-game" ~ 0,
+                            TRUE ~ 1 / n_options),
+         catch = task_id == "vocab" & corpus_trial_type %in% "catch",
+         correct_hand = if_else(task_id == "hearts-and-flowers",
+                                correct & !is.na(rt_numeric) & rt_numeric >= 200 & rt_numeric <= 2000,
+                                correct))
+
+run_acc <- test |>
+  filter(!catch) |>
+  group_by(dataset, run_id, user_id, task_id, task_label, age) |>
+  summarise(trials = n(), accuracy = mean(correct_hand, na.rm = TRUE),
+            chance = mean(chance, na.rm = TRUE), .groups = "drop") |>
+  left_join(runs |> select(run_id, status, score, score_se, finished), by = "run_id")
+
+age_band <- \(a) cut(a, c(2, 3, 4, 5, 6.1), right = FALSE,
+                     labels = c("2", "3", "4", "5"))
+n_kids <- n_distinct(runs$user_id)
+
+# children, scoring by age band, exclusions
+kid_age <- runs |>
+  group_by(dataset, user_id) |>
+  summarise(age = min(age, na.rm = TRUE), .groups = "drop")
+
+scored_by_age <- runs |>
+  mutate(band = age_band(age)) |>
+  filter(!is.na(band)) |>
+  group_by(band) |>
+  summarise(runs = n(), share = mean(status == "scored"), .groups = "drop")
+
+incomplete_share <- runs |>
+  group_by(dataset) |>
+  summarise(share = mean(status == "incomplete"), .groups = "drop")
+
+# Vocabulary catch (attention-check) trials
+catch <- test |>
+  filter(catch) |>
+  group_by(dataset, run_id, user_id, age) |>
+  summarise(pass = mean(correct, na.rm = TRUE), .groups = "drop")
+catch_by_band <- catch |>
+  mutate(band = age_band(age)) |>
+  group_by(band) |>
+  summarise(runs = n(), pass = mean(pass), .groups = "drop")
+
+# accuracy change with age under 3.5
+liftoff <- test |>
+  filter(!catch, age < 3.5, !is.na(correct_hand)) |>
+  group_by(task_label) |>
+  filter(n_distinct(user_id) >= 8) |>
+  group_modify(\(d, key) {
+    m <- glmer(correct_hand ~ age + (1 | user_id), data = d, family = binomial,
+               control = glmerControl(optimizer = "bobyqa"))
+    est <- fixef(m)[["age"]]; se <- sqrt(vcov(m)["age", "age"])
+    tibble(children = n_distinct(d$user_id), trials = nrow(d), slope = est,
+           lo = est - 1.96 * se, hi = est + 1.96 * se)
+  }) |>
+  ungroup() |>
+  arrange(slope)
+
+# official scores against hand-scored accuracy
+score_vs_hand <- run_acc |>
+  filter(status == "scored") |>
+  group_by(dataset, task_label) |>
+  filter(n() >= 20) |>
+  reframe(cor_ci(score, accuracy))
+
+# the same, standardized within dataset and task and pooled per dataset,
+# so datasets with few runs per task can be compared
+score_vs_hand_ds <- run_acc |>
+  filter(status == "scored") |>
+  group_by(dataset, task_label) |>
+  filter(n() >= 5) |>
+  mutate(score_z = as.numeric(scale(score)), acc_z = as.numeric(scale(accuracy))) |>
+  group_by(dataset) |>
+  reframe(cor_ci(score_z, acc_z))
+lost_age2 <- runs |>
+  filter(age_band(age) == "2", status != "scored") |>
+  count(status, sort = TRUE) |>
+  mutate(share = n / sum(runs$age >= 2 & runs$age < 3, na.rm = TRUE))
+
+# LangCog checks
+lc_runs <- runs |> filter(dataset == "pilot_langcog_us_downex")
+lc_trials_v5 <- load_levante_latest("trials") |>
+  filter(dataset == "pilot_langcog_us_downex")
+items <- load_levante_latest("items")
+lc_test <- test |>
+  filter(dataset == "pilot_langcog_us_downex") |>
+  count(run_id, name = "test_trials")
+lc_incomplete <- lc_runs |>
+  filter(status == "incomplete") |>
+  left_join(lc_test, by = "run_id")
+complete_trials <- test |>
+  semi_join(runs |> filter(finished), by = "run_id") |>
+  count(task_label, run_id) |>
+  group_by(task_label) |>
+  summarise(median_complete = median(n), .groups = "drop")
+
+langcog <- tibble(
+  runs = nrow(lc_runs), children = n_distinct(lc_runs$user_id),
+  first = min(as.Date(lc_runs$time_started)), last = max(as.Date(lc_runs$time_started)),
+  versions = paste(sort(unique(sub("-.*", "", lc_runs$task_version))), collapse = ", "),
+  share_scored = mean(lc_runs$status == "scored"),
+  share_incomplete = mean(lc_runs$status == "incomplete"),
+  incomplete_unfinished = mean(!lc_incomplete$finished),
+  incomplete_at_complete_length = sum(lc_incomplete |>
+    left_join(complete_trials, by = "task_label") |>
+    with(test_trials >= median_complete), na.rm = TRUE),
+  in_bank = mean(lc_trials_v5$item_uid %in% items$item_uid))
+```
+
+::: {.callout-note appearance="simple"}
+## Summary
+
+**Data:** the raw datasets `r paste0("\x60", raw_refs, "\x60", collapse = ", ")`
+for runs and trials, and `r data_ref` for official scores.
+
+- `r fmt_n(n_kids)` children aged
+  `r round(min(runs$age, na.rm = TRUE), 1)`–`r round(max(runs$age, na.rm = TRUE), 1)`
+  ran `r fmt_n(nrow(runs))` tasks across the four datasets.
+  `r fmt_n(sum(kid_age$age < 3))` of them were under 3, all in
+  `r paste(unique(dataset_labels_named[kid_age$dataset[kid_age$age < 3]]), collapse = ", ")`;
+  Leuphana's `r sum(kid_age$dataset == "pilot_leuphana_de_main")` children
+  were `r paste(round(range(kid_age$age[kid_age$dataset == "pilot_leuphana_de_main"]), 1), collapse = "–")`.
+- Production scores `r fmt_pct(mean(runs$status == "scored"))` of these runs,
+  falling from `r fmt_pct(pick(scored_by_age, share, band == "5"))` at age 5 to
+  `r fmt_pct(pick(scored_by_age, share, band == "2"))` at age 2. Most of the
+  two-year-olds' lost runs have
+  `r lost_age2$status[1]` (`r fmt_pct(lost_age2$share[1])` of their runs) or
+  `r lost_age2$status[2]` (`r fmt_pct(lost_age2$share[2])`).
+- Under age 3.5, accuracy rises with age on
+  `r paste(liftoff$task_label[liftoff$lo > 0], collapse = ", ")`; it shows no
+  reliable rise on `r paste(liftoff$task_label[liftoff$lo <= 0], collapse = ", ")`.
+- Official scores track hand-scored accuracy: r =
+  `r f2(min(score_vs_hand$r))`–`r f2(max(score_vs_hand$r))` in each dataset
+  and task with 20 or more scored runs.
+- LangCog's runs, from early beta versions of the tasks, need no rescoring:
+  their scored runs map to calibrated items and track accuracy as closely as
+  the other datasets' (r =
+  `r f2(pick(score_vs_hand_ds, r, dataset == "pilot_langcog_us_downex"))`
+  within task, against
+  `r paste(f2(score_vs_hand_ds$r[score_vs_hand_ds$dataset != "pilot_langcog_us_downex"]), collapse = " and ")`). `r fmt_pct(langcog$share_incomplete)` of them are excluded
+  as incomplete, against
+  `r fmt_pct(max(incomplete_share$share[incomplete_share$dataset != "pilot_langcog_us_downex"]))`
+  or less elsewhere, and these runs are genuinely unfinished.
+:::
+
+# Who and what
+
+```{r children, fig.height=4}
+kid_age |>
+  mutate(dataset_label = dataset_labels_named[dataset]) |>
+  ggplot(aes(x = age, fill = dataset)) +
+  geom_histogram(binwidth = 0.25, boundary = 2, colour = "white") +
+  scale_fill_dataset(name = NULL) +
+  scale_x_continuous(breaks = 2:6) +
+  labs(x = "Age at first run (years)", y = "Children") +
+  theme(legend.position = "top")
+```
+
+```{r coverage, fig.height=4}
+runs |>
+  count(dataset, task_label, name = "runs") |>
+  mutate(dataset_label = factor(dataset_labels_named[dataset],
+                                rev(dataset_labels_named[raw_specs$dataset]))) |>
+  ggplot(aes(x = task_label, y = dataset_label, fill = runs)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = runs, colour = runs > 100), size = 3.4) +
+  scale_colour_manual(values = c(`TRUE` = "black", `FALSE` = "white"), guide = "none") +
+  scale_fill_viridis_c(trans = "log10", guide = "none") +
+  labs(x = NULL, y = NULL) +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))
+```
+
+Each cell is the number of runs of a task. Sparklab ran Math only.
+
+## What production scores
+
+```{r status, fig.height=4}
+runs |>
+  mutate(band = age_band(age)) |>
+  filter(!is.na(band)) |>
+  count(band, status) |>
+  group_by(band) |>
+  mutate(share = n / sum(n)) |>
+  ungroup() |>
+  mutate(status = fct_relevel(status, "scored")) |>
+  ggplot(aes(x = share, y = fct_rev(band), fill = status)) +
+  geom_col(position = position_stack(reverse = TRUE)) +
+  scale_fill_brewer(palette = "Set1", name = NULL) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(x = "Share of runs", y = "Age (years)") +
+  theme(legend.position = "bottom")
+```
+
+# Accuracy by age
+
+Each point is one run; lines are smooths within each dataset with 20 or
+more runs of the task. The dashed line is chance. Vocabulary's attention-check (catch) trials are left
+out.
+
+```{r accuracy, fig.height=7.5}
+chance_lines <- run_acc |>
+  group_by(task_label) |>
+  summarise(chance = mean(chance, na.rm = TRUE), .groups = "drop") |>
+  filter(chance > 0)
+
+ggplot(run_acc, aes(x = age, y = accuracy)) +
+  geom_hline(data = chance_lines, aes(yintercept = chance), lty = 2, colour = "grey50") +
+  geom_point(aes(colour = dataset), alpha = 0.4, size = 1.2) +
+  geom_smooth(data = run_acc |> group_by(dataset, task_label) |> filter(n() >= 20),
+              aes(colour = dataset), method = "loess", span = 1, se = FALSE,
+              linewidth = 0.9) +
+  facet_wrap(vars(task_label)) +
+  scale_colour_dataset(name = NULL) +
+  guides(colour = guide_legend(nrow = 2)) +
+  scale_x_continuous(breaks = 2:6) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(x = "Age (years)", y = "Proportion correct (hand-scored)") +
+  theme(legend.position = "bottom")
+```
+
+```{r catch, fig.height=3.5}
+ggplot(catch, aes(x = age, y = pass)) +
+  geom_jitter(aes(colour = dataset), width = 0, height = 0.02, alpha = 0.6) +
+  geom_smooth(method = "loess", span = 1, se = FALSE, colour = "black", linewidth = 0.7) +
+  geom_hline(yintercept = 0.25, lty = 2, colour = "grey50") +
+  scale_colour_dataset(name = NULL) +
+  guides(colour = guide_legend(nrow = 2)) +
+  scale_x_continuous(breaks = 2:6) +
+  labs(x = "Age (years)", y = "Catch trials passed") +
+  theme(legend.position = "bottom")
+```
+
+Vocabulary's catch trials are easy items that check the child is engaged.
+Two-year-olds pass `r fmt_pct(pick(catch_by_band, pass, band == "2"))` of
+them (`r pick(catch_by_band, runs, band == "2")` runs), against
+`r fmt_pct(pick(catch_by_band, pass, band == "3"))` at age 3.
+
+# Which tasks work under 3.5
+
+For children under 3.5, the change in the log odds of a correct answer per
+year of age, from a logistic model with a random intercept for each child
+(tasks with 8 or more such children; 95% CIs). A reliably positive slope
+means accuracy rises with age within the band, so the task measures
+something there.
+
+```{r liftoff, fig.height=4}
+liftoff |>
+  mutate(task_label = factor(task_label, task_label),
+         label = glue("{children} children")) |>
+  ggplot(aes(x = slope, y = task_label)) +
+  geom_vline(xintercept = 0, colour = "grey70") +
+  geom_pointrange(aes(xmin = lo, xmax = hi)) +
+  geom_text(aes(x = hi, label = label), hjust = -0.15, size = 3.2, colour = "grey40") +
+  scale_x_continuous(expand = expansion(mult = c(0.05, 0.25))) +
+  labs(x = "Change in log odds correct per year of age, under 3.5", y = NULL)
+```
+
+```{r young-accuracy, fig.height=4.5}
+young <- run_acc |>
+  filter(age < 4, task_label %in% liftoff$task_label, chance > 0) |>
+  mutate(band = cut(age, c(2, 2.5, 3, 3.5, 4), right = FALSE,
+                    labels = c("2–2.5", "2.5–3", "3–3.5", "3.5–4"))) |>
+  group_by(task_label, band) |>
+  summarise(runs = n(), accuracy = mean(accuracy), chance = mean(chance),
+            .groups = "drop")
+
+ggplot(young, aes(x = band, y = accuracy - chance, group = task_label)) +
+  geom_hline(yintercept = 0, colour = "grey70") +
+  geom_line(colour = "grey60") +
+  geom_point(aes(size = runs)) +
+  facet_wrap(vars(task_label)) +
+  scale_size_area(max_size = 3.5, name = "Runs") +
+  labs(x = "Age (years)", y = "Accuracy above chance")
+
+hf_young <- test |>
+  filter(task_id == "hearts-and-flowers", age < 3) |>
+  summarise(raw = mean(correct, na.rm = TRUE), windowed = mean(correct_hand, na.rm = TRUE),
+            slow = mean(rt_numeric > 2000, na.rm = TRUE))
+```
+
+At 2–2.5, accuracy is at or below chance (no more than .05 above it) on
+`r paste(young$task_label[young$band == "2–2.5" & young$accuracy - young$chance <= .05], collapse = ", ")`.
+Hearts and Flowers falls below chance for children under 3 because
+`r fmt_pct(hf_young$slow)` of their responses are slower than 2 seconds and
+count as wrong: their accuracy is `r f2(hf_young$raw)` before the
+response-time window and `r f2(hf_young$windowed)` after it.
+
+# Official scores
+
+Production scores these children with the item parameters calibrated on
+5–12-year-olds. For runs it scored, the correlation of the official score
+with hand-scored accuracy, by dataset and task (20 or more scored runs):
+
+```{r score-vs-hand, fig.height=4.5}
+score_vs_hand |>
+  mutate(task_label = reorder(task_label, r)) |>
+  ggplot(aes(x = r, y = task_label, colour = dataset)) +
+  geom_pointrange(aes(xmin = lo, xmax = hi), position = position_dodge(width = 0.5)) +
+  scale_colour_dataset(name = NULL) +
+  guides(colour = guide_legend(nrow = 2)) +
+  labs(x = "Correlation of official score with hand-scored accuracy (95% CI)", y = NULL) +
+  theme(legend.position = "bottom")
+```
+
+```{r score-se, fig.height=4}
+run_acc |>
+  filter(status == "scored", !is.na(score_se)) |>
+  ggplot(aes(x = age, y = score_se)) +
+  geom_point(aes(colour = dataset), alpha = 0.5) +
+  geom_smooth(method = "loess", span = 1, se = FALSE, colour = "black", linewidth = 0.7) +
+  facet_wrap(vars(task_label)) +
+  scale_colour_dataset(name = NULL) +
+  guides(colour = guide_legend(nrow = 2)) +
+  labs(x = "Age (years)", y = "Standard error of the official score") +
+  theme(legend.position = "bottom")
+```
+
+Median standard errors are
+`r f2(median(run_acc$score_se[run_acc$status == "scored" & run_acc$age < 4], na.rm = TRUE))`
+under age 4 and
+`r f2(median(run_acc$score_se[run_acc$status == "scored" & run_acc$age >= 5], na.rm = TRUE))`
+at age 5 and over.
+
+# LangCog's older runs
+
+LangCog collected `r langcog$runs` runs from `r langcog$children` children
+between `r format(langcog$first, "%B %Y")` and
+`r format(langcog$last, "%B %Y")`, on early versions of the tasks (mostly
+1.0.0 betas). Three checks:
+
+- **Item identity.** The raw beta trials carry no item identifiers, but
+  processing reconstructs them: `r fmt_pct(langcog$in_bank, 1)` of
+  LangCog's processed trials map to calibrated items.
+- **Scores.** LangCog has too few scored runs per task for the figure
+  above, so scores and accuracy are standardized within each task with 5 or
+  more scored runs and correlated across tasks: r =
+  `r f2(pick(score_vs_hand_ds, r, dataset == "pilot_langcog_us_downex"))`
+  (95% CI
+  `r f2(pick(score_vs_hand_ds, lo, dataset == "pilot_langcog_us_downex"))` to
+  `r f2(pick(score_vs_hand_ds, hi, dataset == "pilot_langcog_us_downex"))`,
+  `r pick(score_vs_hand_ds, n, dataset == "pilot_langcog_us_downex")` runs),
+  in line with Boston and Sparklab.
+- **Exclusions.** Production scores `r fmt_pct(langcog$share_scored)` of
+  LangCog's runs and excludes `r fmt_pct(langcog$share_incomplete)` as
+  incomplete. `r fmt_pct(langcog$incomplete_unfinished)` of those have no
+  finish time, and only `r langcog$incomplete_at_complete_length` reached the
+  median length of a finished run of the same task, so they are unfinished
+  runs rather than finished runs that were not marked complete.
+
+So LangCog's runs need no rescoring. Whether runs that young children don't
+finish should be scored is a question for the whole age band.
+
+# Notes
+
+- **Raw versions.** Each raw dataset is pinned to its release of
+  2026-10-22, the date of the pinned `levante_data_latest` release, so runs
+  and official scores line up.
+- **Ages** come from birth month and year and each run's start time, so they
+  are accurate to about a month.
+- **Hand scoring** is the proportion of test trials correct, with the
+  Hearts and Flowers response-time window applied as in production. Same and
+  Different and Memory count trials differently from the dashboard, so their
+  accuracies are only comparable within the task.
+
+# Revision history
+
+- **2026-10-30.** Rewritten on pinned data and widened from Boston
+  Children's alone to all four datasets with children under 6 (Boston,
+  Sparklab, LangCog, Leuphana), with official scores from the pinned release
+  and a check of LangCog's early-version runs. The item-level vocabulary
+  analysis, the CAT running-θ section and the per-task hand scores of the
+  earlier page ("10 — Downward extension (Boston Children's, ages 2–5)") are
+  not carried over; it is in `archive/`.

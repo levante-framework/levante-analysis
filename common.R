@@ -75,7 +75,7 @@ dataset_pal <- c(
   rfp1_utdt_intl_ys             = "#EE7733",  # Vibrant orange
   rfp1_mpib_intl_ys             = "#0077BB",  # Vibrant blue
   pilot_bostonchildrens_us_main = "#EE3377",  # Vibrant magenta
-  partner_sparklab_us_downex    = "#CC3311",  # Vibrant red
+  partner_sparklab_us_downex    = "#33BBEE",  # Vibrant cyan
   pilot_langcog_us_downex       = "#BBBBBB",  # grey
   pilot_leuphana_de_main        = "#777777"   # dark grey
 )
@@ -337,10 +337,30 @@ load_levante_latest <- function(table = c("scores", "trials", "participants",
                    scores = levante::get_scores,
                    trials = levante::get_trials,
                    participants = levante::get_participants,
-                   items = levante::get_items)
+                   # get_raw_table() reads any table by name, in every
+                   # version of levante (get_items() is recent)
+                   items = \(ds, version) levante::get_raw_table("items", ds, version))
   out <- getter("levante_data_latest:e9pf", version = version)
   dir_create(cache_dir)
   write_rds(out, cache_path)
+  out
+}
+
+#' Load one table of a raw per-site dataset at a pinned version, with on-disk
+#' cache. `data_source` is the dataset's qualified name (e.g.
+#' "pilot_bostonchildrens_us_main_raw:7e6c"); drops the placeholder schema row.
+load_levante_raw <- function(data_source, version, table, refresh = FALSE,
+                             cache_dir = here("data")) {
+  stub <- sub(":.*", "", data_source)
+  cache_path <- file.path(cache_dir, glue("{stub}__{version}__{table}.rds"))
+  if (refresh || !file_exists(cache_path)) {
+    out <- levante::get_raw_table(table, data_source = data_source,
+                                  data_source_version = version)
+    dir_create(cache_dir)
+    write_rds(out, cache_path)
+  }
+  out <- read_rds(cache_path)
+  if ("task_id" %in% names(out)) out <- filter(out, is.na(task_id) | task_id != "schema_row")
   out
 }
 
