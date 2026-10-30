@@ -538,6 +538,33 @@ consolidation payoff is. Phases 5–6 are where the scientific payoff is.
 
 ## 7. Decisions needed from you
 
+**Second round of decisions (Mike, 2026-10-30).** These supersede the text
+above where they conflict.
+
+- **Monitor data source:** pinned `levante_data_latest` only (item 2 below: yes).
+- **Headless renders:** add a Redivis API token as a repo secret, as
+  `levante-r`'s pkgdown action already does (item 4).
+- **Task template:** yes. MEFS is out of scope (item 5).
+- **Design registry:** in `levante-data-meta` (item 6).
+- **No local freeze.** Reproducibility comes from pinned Redivis releases,
+  not `_freeze`. Shipping the freeze folder to collaborators doesn't work.
+  This replaces "studies render from `_freeze` forever" (§1c, §1e, §4c). A
+  study pins its exact data refs and re-executes.
+- **SRE chapter:** re-render on current data; don't keep the 07-16 freeze.
+- **Where changes go:** push directly to `main` in this repo. Package changes
+  go on branches as PRs to Mika. Keep `levante-r` changes minimal, ideally
+  none: it was cut down to bare `get_*(source, version)` calls on 2026-10-15.
+  So the pinned-source config, cache and provenance helpers belong in this
+  repo, not in `levante-r` (this revises §2's data layer).
+- **Don't duplicate the datapage.** `levante-datapage` now has a
+  psychometrics view (empirical reliability, age r and test–retest per
+  task × dataset, from the Redivis workflow
+  `levante_data_latest_psychometrics`). Release-level monitoring that fits
+  that framework should live there. This repo keeps the analyses it can't
+  host (§1a needs re-scoping).
+- **H&F:** before any fix, audit the redundancy across the H&F chapters
+  (the v1 chapter predates most of the v2 work).
+
 1. ~~Package home.~~ **Decided:** `levante` for data access, `levantemodels` for
    everything else (§2).
 2. **Monitor data source.** Living chapters on pinned `levante_data_latest`
