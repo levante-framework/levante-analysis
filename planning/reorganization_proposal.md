@@ -180,23 +180,51 @@ hackathon pull scripts, and the June `slides/summary.qmd` deck. Not rendered.
   screener, 55 vs 59 min).
 - `handoffs/` for the DCC-facing `.md` write-ups now in `reports/`.
 
-Proposed `_quarto.yml` parts: **Monitor · Tasks · Studies · Register**.
+**Decided (2026-10-30): a landing page plus one site per chapter type.** The
+repo's top level becomes a short landing page whose only job is to route the
+reader to four destinations, each explained in one sentence:
+
+- **Monitor**: what the current data look like. Re-rendered each release; may
+  become a dashboard.
+- **Task reports**: everything about one task.
+- **Studies**: dated investigations and their verdicts.
+- **Findings & decisions**: the register.
+
+Each destination is its own Quarto project (a book now, possibly a dashboard
+later) in a subfolder: `monitor/`, `tasks/`, `studies/`, `register/`. Each has
+its own `_quarto.yml` and freeze policy, so the living sites re-execute while
+studies stay frozen. They render to subpaths of the same published URL, and the
+landing page links to them.
 
 ---
 
-## 2. Backend: one in-repo R package
+## 2. Backend: the LEVANTE packages, used consistently
 
-Make the repo root a small R package, working name **`levanteanalysis`**.
-`common.R` becomes a three-line shim (`pkgload::load_all()` plus theme), so
-existing chapters keep working during migration.
+**Decided (2026-10-30): the shared functions live in the existing packages,
+not in a new one.** This follows the 2026-07 package split:
 
-Boundary rule:
+- **Data access goes in `levante` (levante-r).** That covers source specs,
+  pinned refs, the dataset registry, and caching/provenance.
+- **Processing, scoring, psychometric primitives, the scoreboard and the
+  design evaluator go in `levantemodels`.** Use what already exists there first:
+  `dedupe_items`, `to_mirt_shape*`, `score_irt`, `get_model_record`,
+  `fit_task_models_multigroup`, `recode_*`.
+- **Plotting, palettes and report helpers stay in this repo.** `common.R` gets
+  slimmed to theme + palettes + book-only helpers.
 
-- Anything that changes **how production scores are made** (the SDS recode fix,
-  the SRE rate score, ToM uid fixes, H&F v2 recode windows) is drafted here as a
-  clearly-marked `repair_*()` with a test, then upstreamed to `levantemodels`.
-  Once merged, the local copy becomes a one-line alias with a deprecation note.
-- Everything **analysis-only** stays here.
+Every place in the book that re-implements a package function gets switched to
+the package call.
+
+One safeguard: the Redivis `process_dataset` notebook runs production on
+`levantemodels`. So the new analysis-side modules should be added in their own
+files with tests, without changing the signatures of production functions.
+Fixes that *do* change production scores (the SDS recode, the SRE rate score,
+ToM uids, H&F v2 windows) go in as separate, flagged PRs for DCC review. While
+a PR is open, the book pins it via `LEVANTEMODELS_PATH` exactly as Stories does
+now, and the study header records the PR.
+
+The module sketch below gives the intended functions. The `lv_` prefixes are
+placeholders; follow each package's existing naming.
 
 Modules (`R/` files), with the main signatures:
 
@@ -456,9 +484,9 @@ so this also works in Claude sessions.
 | Phase | Content | Check |
 |---|---|---|
 | **0** | Tag the current book `snapshot-2026-10-30`. Commit the missing SDS timing scripts. On your Mac, run a one-off script that inventories `data/` (filenames, sizes, mtimes), recording the orphan caches before anything moves. | — |
-| **1. Skeleton & data layer** | Package skeleton, `datasets.yml`, `lv_source`/`lv_scores`/`lv_trials`/`lv_runs`, manifest cache, provenance, CI with the first tests. `common.R` becomes a shim. | 00 re-renders on `levante_data_latest` v3_17; diff inventory vs the 2026-08 snapshot |
-| **2. Front-end move** | `studies/`, `archive/`, `handoffs/` folders with `STUDY.yml` headers (paths only, no code changes); `_quarto.yml` parts; findings register seeded from README/LEVANTE.md | book builds from freeze; every study page shows its header |
-| **3. Psychometric primitives + scoreboard** | `irt/`, `reliability/`, `longitudinal/`, `evaluate/` | **must reproduce** three existing results: SDS `eval_table`, H&F nominal metrics, SRE scoreboard (after the `first_run` fix) |
+| **1. Data layer** | In `levante`: pinned source specs, dataset registry, manifest cache, provenance, canonical runs table, tests + CI. In this repo: switch loaders to those calls; slim `common.R`. | 00 re-renders on `levante_data_latest` v3_17; diff inventory vs the 2026-08 snapshot |
+| **2. Front-end move** | Landing page; `monitor/`, `tasks/`, `studies/`, `register/` Quarto projects; `archive/`, `handoffs/`; `STUDY.yml` headers (paths only, no code changes); findings register seeded from README/LEVANTE.md | book builds from freeze; every study page shows its header |
+| **3. Psychometric primitives + scoreboard** | in `levantemodels`: `irt/`, `reliability/`, `longitudinal/`, `evaluate/` modules | **must reproduce** three existing results: SDS `eval_table`, H&F nominal metrics, SRE scoreboard (after the `first_run` fix) |
 | **4. Monitor + task template** | release QC with data contracts; reliability & stability; item health & DIF; pilot `task_report.qmd` on Math and H&F, then the rest | contracts catch the SDS drop on v3_17 retroactively |
 | **5. Design evaluator** | generalize the Stories CAT engine (de-hardcode the 18 stories, pluggable timing/population/stopping), port the memory replay and timing model, design registry | must reproduce the Stories `results_cat_sim` and memory C3 numbers |
 | **6. Panel & structure** | `lv_panel`, CFA/invariance/local-SEM helpers; port 02/03/04/05 into the monitor | conclusions re-stated with computed numbers on v3_17 |
@@ -510,15 +538,13 @@ consolidation payoff is. Phases 5–6 are where the scientific payoff is.
 
 ## 7. Decisions needed from you
 
-1. **Package home.** In-repo package (proposed; fast iteration, upstream
-   selectively), or put the psychometric primitives straight into
-   `levantemodels`?
+1. ~~Package home.~~ **Decided:** `levante` for data access, `levantemodels` for
+   everything else (§2).
 2. **Monitor data source.** Living chapters on pinned `levante_data_latest`
    only, with per-site drafts allowed only in studies? (Proposed: yes, now that
    v3_17 is current.)
-3. **One book or two.** One book with parts (proposed), or a separate "LEVANTE
-   monitor" site that re-renders on release while the studies book stays
-   frozen?
+3. ~~One book or two.~~ **Decided:** a landing page routing to one site per
+   chapter type (§1e).
 4. **Publishing living reports.** Re-renders need Redivis auth. Worth checking
    whether a Redivis API token (`REDIVIS_API_TOKEN`) would allow headless
    scheduled re-renders. That would make the monitor genuinely automatic.
