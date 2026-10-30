@@ -130,6 +130,47 @@ wide_bins <- wide_age |>
   mutate(age_bin = cut(age, age_bins, labels = c("under 7", "7–9", "9–11", "11 and over")))
 ladder_age <- ladder(wide_bins, "age_bin")
 
+# fluid-verbal correlation by age, pooled across datasets, using every
+# wave: each child contributes one row per wave (their first run of each
+# task in it), standardized on the dataset's first-wave scores; standard
+# errors are clustered by child
+by_wave_runs <- scores |>
+  filter(dataset %in% sample_ds, short %in% core) |>
+  add_waves() |>
+  group_by(dataset, user_id, short, wave) |>
+  slice_min(time_started, n = 1, with_ties = FALSE) |>
+  ungroup()
+first_wave_scale <- by_wave_runs |>
+  filter(wave == 1) |>
+  group_by(dataset, short) |>
+  summarise(m = mean(score), s = sd(score), .groups = "drop")
+wide_waves <- by_wave_runs |>
+  left_join(first_wave_scale, by = c("dataset", "short")) |>
+  mutate(z = (score - m) / s) |>
+  filter(!is.na(age)) |>
+  group_by(dataset, user_id, wave) |>
+  mutate(age = min(age)) |>
+  ungroup() |>
+  select(dataset, user_id, wave, age, short, z) |>
+  pivot_wider(names_from = short, values_from = z)
+
+local_fv <- function(d, ages = seq(6, 12, by = 0.5), h = 1, cluster = NULL) {
+  map_dfr(ages, function(a0) {
+    w <- dnorm((d$age - a0) / h)
+    if (sum(w)^2 / sum(w^2) < 150) return(NULL)
+    f <- tryCatch(cfa(models[["2-factor"]], cbind(d, .w = w / mean(w)), std.lv = TRUE,
+                      missing = "fiml", sampling.weights = ".w", cluster = cluster),
+                  error = \(e) NULL)
+    if (is.null(f) || !lavInspect(f, "converged")) return(NULL)
+    pe <- fv_cor(f)
+    tibble(age = a0, r = pe$est, lo = pe$ci.lower, hi = pe$ci.upper)
+  })
+}
+pooled_age <- bind_rows(
+  local_fv(wide_waves, cluster = "user_id") |> mutate(sample = "Every wave"),
+  local_fv(filter(wide_waves, wave == 1)) |> mutate(sample = "First wave only"))
+pooled_all <- filter(pooled_age, sample == "Every wave")
+
 # fluid-verbal correlation below and above each dataset's median age
 young_old <- wide_age |>
   group_by(dataset) |>
@@ -170,10 +211,16 @@ standardized within dataset.
   loadings can be held equal across datasets
   (ΔCFI = `r sprintf("%.3f", ladder_ds$dCFI[2])`) and across ages
   (ΔCFI = `r sprintf("%.3f", ladder_age$dCFI[2])`).
-- Younger children's fluid and verbal abilities are more strongly correlated
-  than older children's in `r sum(young_old$diff > 0)` of
-  `r nrow(young_old)` datasets, reliably so only in
-  `r paste(dataset_labels_named[young_old$dataset[young_old$lo > 0]], collapse = ", ")`.
+- The two abilities become less correlated with age. Pooled across datasets
+  and waves, the fluid–verbal correlation falls from
+  `r f2(pick(pooled_all, r, age == 7))` at age 7 to
+  `r f2(pick(pooled_all, r, age == 12))` at 12 (95% CIs
+  `r f2(pick(pooled_all, lo, age == 7))`–`r f2(pick(pooled_all, hi, age == 7))` and
+  `r f2(pick(pooled_all, lo, age == 12))`–`r f2(pick(pooled_all, hi, age == 12))`):
+  by `r f2(pick(pooled_all, r, age == 7) - pick(pooled_all, r, age == 9))`
+  from 7 to 9 and by
+  `r f2(pick(pooled_all, r, age == 9) - pick(pooled_all, r, age == 12))`
+  from 9 to 12.
 :::
 
 # Task correlations, corrected for measurement error
@@ -184,6 +231,8 @@ latent variable whose error variance is fixed from its empirical
 reliability, and the latent correlations are read off.
 
 ```{r corrected-correlations, fig.height=5.5}
+#| label: fig-corrected
+#| fig-cap: "Correlations between the core tasks, corrected for measurement error."
 as.data.frame(cor_corrected) |>
   rownames_to_column("t1") |>
   pivot_longer(-t1, names_to = "t2", values_to = "r") |>
@@ -224,6 +273,8 @@ fit indices keep improving as factors are added, so the models are judged
 first on whether the solution is proper, then on BIC.
 
 ```{r comparison}
+#| label: tbl-comparison
+#| tbl-cap: "Fit of the four candidate structures."
 comparison |>
   mutate(across(c(CFI, RMSEA), \(x) sprintf("%.3f", x)), BIC = fmt_n(round(BIC)),
          proper = if_else(proper, "yes", "no")) |>
@@ -233,6 +284,8 @@ comparison |>
 The `r best$model` model has the lowest BIC. Its standardized loadings:
 
 ```{r loadings, fig.height=4.5}
+#| label: fig-loadings
+#| fig-cap: "Standardized loadings of the two-factor model (95% CIs)."
 standardizedSolution(fit2) |>
   filter(op == "=~") |>
   mutate(task = factor(short_labels[rhs], rev(short_labels[core])),
@@ -251,6 +304,8 @@ ROAR-Word, ROAR-Sentence and ROAR-Phoneme are not core tasks, but adding
 them asks whether reading forms its own ability.
 
 ```{r reading}
+#| label: tbl-reading
+#| tbl-cap: "Fit with the three reading tasks added."
 reading_models <- list(
   `g` = "g =~ matrix+mrot+math+hf+mg+sds+trog+vocab+tom+swr+sre+pa",
   `2-factor, reading in verbal` = "fluid =~ matrix+mrot+math+hf+mg+sds\n verbal =~ trog+vocab+tom+swr+sre+pa",
@@ -263,6 +318,9 @@ imap_dfr(reading_fits, \(f, nm) tibble(model = nm, CFI = sprintf("%.3f", fit_ind
   knitr::kable(col.names = c("Model", "CFI", "BIC", "Proper"), align = "lrrc")
 ```
 
+With the reading tasks in the verbal factor, fluid and verbal correlate
+r = `r f2(lavInspect(reading_fits[[2]], "cor.lv")["fluid", "verbal"])`, against
+r = `r f2(fv_cor(fit2)$est)` without them, because reading relates to both.
 A separate reading factor has the lowest BIC. It correlates
 r = `r f2(reading_cor["reading", "fluid"])` with the fluid ability and
 r = `r f2(reading_cor["reading", "verbal"])` with the verbal one, so it is not
@@ -273,6 +331,8 @@ specifically tied to language.
 The one-, two- and three-factor models, fitted separately in each dataset:
 
 ```{r per-dataset, fig.height=4}
+#| label: fig-per-dataset
+#| fig-cap: "BIC of the one-, two- and three-factor models in each dataset, relative to the best model there."
 per_dataset |>
   mutate(dataset_label = factor(dataset_labels_named[dataset],
                                 rev(dataset_labels_named[sample_ds])),
@@ -303,10 +363,32 @@ further `r sprintf("%.3f", ladder_age$dCFI[3])`, as expected when scores rise wi
 a change in how the abilities relate across age is not an artifact of
 loadings drifting.
 
-Within each dataset, the fluid–verbal correlation in children below and
-above the dataset's median age (95% CIs):
+@fig-pooled-age shows the fluid–verbal correlation as a smooth function of
+age, pooled across the `r length(sample_ds)` datasets (local structural
+equation model: each row weighted by a normal kernel around the focal age,
+bandwidth 1 year). Children with runs in several waves contribute a row
+per wave, which adds `r fmt_n(sum(wide_waves$wave > 1))` rows, most of them
+at older ages; using first waves only gives nearly the same curve (the two
+differ by at most `r f2(max(abs(pooled_age$r[pooled_age$sample == "Every wave"] - pooled_age$r[pooled_age$sample == "First wave only"])))`).
+
+```{r pooled-age, fig.height=4}
+#| label: fig-pooled-age
+#| fig-cap: "Fluid–verbal correlation by age, pooled across datasets and waves, with 95% CIs (standard errors clustered by child). Dashed: first waves only."
+ggplot(pooled_all, aes(x = age, y = r)) +
+  geom_ribbon(aes(ymin = lo, ymax = hi), fill = "grey85") +
+  geom_line(linewidth = 1) +
+  geom_line(data = filter(pooled_age, sample == "First wave only"), lty = 2) +
+  scale_x_continuous(breaks = 6:12) +
+  labs(x = "Age (years)", y = "Fluid–verbal correlation")
+```
+
+The decline is concentrated in the older ages, which only some datasets
+reach. Within each dataset, the fluid–verbal correlation in children below
+and above the dataset's median age (95% CIs):
 
 ```{r young-old, fig.height=4}
+#| label: fig-young-old
+#| fig-cap: "Fluid–verbal correlation in the younger and older half of each dataset (95% CIs)."
 young_old |>
   select(dataset, split, younger, younger_se, older, older_se) |>
   pivot_longer(c(younger, older), names_to = "group", values_to = "r") |>
@@ -329,25 +411,16 @@ to `r f2(young_old$hi[which.max(young_old$diff)])`), and runs the other way
 in `r paste(dataset_labels_named[young_old$dataset[young_old$diff < 0]], collapse = " and ")`.
 The datasets cover different ages, so the median split falls between
 `r round(min(young_old$split), 1)` and `r round(max(young_old$split), 1)`
-years.
+years; datasets whose children are mostly under 9 cover little of the age
+range where the pooled decline is steepest.
 
 As a continuous function of age within each dataset (local structural
 equation model: each child weighted by a normal kernel around the focal
 age, bandwidth 1 year; shown where the effective sample is at least 150):
 
 ```{r local-sem, fig.height=5.5}
-local_fv <- function(d, ages = seq(6, 12, by = 0.5), h = 1) {
-  map_dfr(ages, function(a0) {
-    w <- dnorm((d$age - a0) / h)
-    if (sum(w)^2 / sum(w^2) < 150) return(NULL)
-    f <- tryCatch(cfa(models[["2-factor"]], cbind(d, .w = w / mean(w)), std.lv = TRUE,
-                      missing = "fiml", sampling.weights = ".w"),
-                  error = \(e) NULL)
-    if (is.null(f) || !lavInspect(f, "converged")) return(NULL)
-    pe <- fv_cor(f)
-    tibble(age = a0, r = pe$est, lo = pe$ci.lower, hi = pe$ci.upper)
-  })
-}
+#| label: fig-local-sem
+#| fig-cap: "Fluid–verbal correlation by age within each dataset (first waves; 95% CIs)."
 local <- wide_age |>
   group_by(dataset) |>
   group_modify(\(d, key) local_fv(d)) |>
@@ -384,6 +457,11 @@ ggplot(local, aes(x = age, y = r, colour = dataset, fill = dataset)) +
   added; scores are now standardized within dataset; MEFS is left out (few
   children have it); and the shared-speed check from 04 is not carried over.
   On the new data Stories is less fully absorbed into the verbal ability than
-  the earlier pages reported, and the decline of the fluid–verbal
-  correlation with age is clear only in rural Colombia, not in every
-  dataset. Both old pages are in `archive/`.
+  the earlier pages reported. The fluid–verbal correlation is lower than
+  the earlier pages' (about .96 at age 7) mainly because the reading tasks
+  are no longer in the verbal factor; its decline with age is the same size.
+  Both old pages are in `archive/`.
+- **2026-10-30, later.** Adds the pooled curve over every wave
+  (@fig-pooled-age). The first version of this rewrite showed only
+  within-dataset comparisons and said the decline was clear only in rural
+  Colombia; pooled, it is clear, and steepest after age 9.
