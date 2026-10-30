@@ -1,0 +1,250 @@
+---
+title: "The LEVANTE network"
+order: 1
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    fig-width: 8
+    fig-height: 6
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| code-summary: "Setup: the funded studies and the release"
+source(here::here("common.R"))
+
+# Funded studies, transcribed from the Q1 2026 Advisory Committee deck.
+# `teams` links a study to its datasets in the release (the `team` column).
+studies <- read_csv(here("monitor/network_studies.csv"), show_col_types = FALSE) |>
+  mutate(cohort = factor(cohort, c("Pilots '23", "Pilots '25", "RfP1", "RfP2")),
+         label = paste0(pi, " · ", cohort),
+         step = recode(cadence, annual = 1, biannual = 0.5, `15-month` = 1.25,
+                       none = NA_real_))
+recruiting <- studies |> filter(!is.na(age_min))
+
+scores_all <- load_levante_latest("scores")
+trials <- load_levante_latest("trials")
+scores <- clean_levante_latest(scores_all, trials) |> add_waves()
+data_ref <- unique(scores_all$redivis_source)
+
+study_teams <- recruiting |>
+  select(label, cohort, team = teams) |>
+  separate_longer_delim(team, ";") |>
+  filter(team != "")
+partner_teams <- setdiff(unique(scores$team), study_teams$team)
+
+# each child in the release, with the study (or partner dataset) it belongs to
+children <- scores |>
+  left_join(study_teams |> select(team, label), by = "team") |>
+  mutate(label = coalesce(label, paste0(site_labels_named[team], " · partner"))) |>
+  group_by(label, user_id) |>
+  summarise(first_age = min(age, na.rm = TRUE), waves = max(wave),
+            .groups = "drop") |>
+  mutate(first_age = if_else(is.finite(first_age), first_age, NA_real_))
+
+actual <- children |>
+  group_by(label) |>
+  summarise(n_children = n(),
+            age_lo = quantile(first_age, .05, na.rm = TRUE),
+            age_mid = median(first_age, na.rm = TRUE),
+            age_hi = quantile(first_age, .95, na.rm = TRUE),
+            wave2 = sum(waves >= 2), wave3 = sum(waves >= 3), .groups = "drop")
+
+with_data <- recruiting |> semi_join(actual, by = "label")
+long_with_data <- with_data |> filter(longitudinal) |>
+  left_join(actual, by = "label")
+
+cohort_pal <- c("Pilots '23" = "#4477AA", "Pilots '25" = "#EE6677",
+                "RfP1" = "#228833", "RfP2" = "#CCBB44", "Partner" = "#BBBBBB")
+
+# planned coverage: each recruited year-cohort followed by its planned waves.
+# Kievit and Ngo recruit two discrete cohorts rather than an age band.
+enroll_ages <- function(pi, a, b) {
+  if (pi == "Rogier Kievit") c(5, 9) else if (pi == "Zoe Ngo") c(4, 6) else a:b
+}
+planned <- recruiting |>
+  mutate(enroll_age = pmap(list(pi, age_min, age_max), enroll_ages)) |>
+  unnest(enroll_age) |>
+  mutate(x_end = enroll_age + if_else(n_waves <= 1 | is.na(step), 0,
+                                      (n_waves - 1) * step))
+planned_by_age <- planned |>
+  reframe(age = seq(enroll_age, floor(x_end)), .by = c(label, enroll_age, x_end)) |>
+  count(age, name = "year_cohorts")
+actual_by_age <- scores |>
+  filter(!is.na(age)) |>
+  distinct(user_id, age = floor(age)) |>
+  count(age, name = "children")
+peak_planned <- planned_by_age$age[which.max(planned_by_age$year_cohorts)]
+peak_actual <- actual_by_age$age[which.max(actual_by_age$children)]
+```
+
+::: {.callout-note appearance="simple"}
+## Summary
+
+**Data:** the funded-study plans in the Q1 2026 Advisory Committee deck,
+and `r data_ref` for what has been collected.
+
+- LEVANTE has `r nrow(studies)` funded studies in four funding rounds.
+  `r nrow(recruiting)` recruit children, in
+  `r n_distinct(recruiting$country)` countries;
+  `r sum(recruiting$longitudinal)` are longitudinal.
+- `r nrow(with_data)` of them have data in the release, plus
+  `r length(partner_teams)` partner datasets: `r fmt_n(n_distinct(scores$user_id))`
+  children in all.
+- The plans put the most coverage at age `r peak_planned`; the children in
+  the release are most numerous at age `r peak_actual`.
+  `r fmt_pct(mean(children$first_age < 6, na.rm = TRUE))` of children were
+  under 6 at their first run.
+- Of the `r nrow(long_with_data)` longitudinal studies with data,
+  `r sum(long_with_data$wave2 >= 20)` have 20 or more children in a second
+  wave and `r sum(long_with_data$wave3 >= 20)` in a third.
+:::
+
+# Planned and actual ages
+
+Each row is a funded study, plus the partner datasets in the release.
+Coloured squares are the ages the study plans to recruit. For studies with
+data, the black line spans the middle 90% of children's ages at their first
+run, and the dot marks the median.
+
+```{r ages, fig.height=8}
+rows <- bind_rows(
+  recruiting |> arrange(cohort, age_min, age_max) |> select(label, cohort),
+  actual |> filter(str_ends(label, "partner")) |> transmute(label, cohort = "Partner"))
+row_levels <- rev(rows$label)
+
+planned |>
+  mutate(label = factor(label, row_levels)) |>
+  ggplot(aes(y = label)) +
+  geom_tile(aes(x = enroll_age, fill = cohort), colour = "white",
+            width = 0.92, height = 0.8, alpha = 0.6) +
+  geom_linerange(data = actual |> mutate(label = factor(label, row_levels)),
+                 aes(xmin = age_lo, xmax = age_hi), linewidth = 0.8) +
+  geom_point(data = actual |> mutate(label = factor(label, row_levels)),
+             aes(x = age_mid), size = 2) +
+  scale_fill_manual(values = cohort_pal, name = NULL, drop = FALSE) +
+  scale_x_continuous(breaks = 2:15, expand = expansion(add = 0.5)) +
+  scale_y_discrete(drop = FALSE) +
+  labs(x = "Age (years)", y = NULL) +
+  theme(legend.position = "top", axis.text.y = element_text(size = 10))
+```
+
+# Planned and actual waves
+
+For the longitudinal studies with data: open circles are the planned waves,
+filled circles the waves reached, sized by the number of children. A child's
+runs of a task count as separate waves when they are at least 90 days apart.
+
+```{r waves, fig.height=4.5}
+reached <- children |>
+  semi_join(long_with_data, by = "label") |>
+  reframe(wave = seq_len(max(waves)), n = map_int(wave, \(k) sum(waves >= k)),
+          .by = label)
+planned_waves <- long_with_data |>
+  reframe(wave = seq_len(n_waves), .by = label)
+
+ggplot(mapping = aes(x = wave, y = label)) +
+  geom_point(data = planned_waves, shape = 1, size = 9, colour = "grey60") +
+  geom_point(data = reached, aes(size = n), colour = "black") +
+  geom_text(data = reached, aes(label = fmt_n(n)), nudge_x = 0.22, hjust = 0, size = 3.5) +
+  scale_size_area(max_size = 7, guide = "none") +
+  scale_y_discrete(expand = expansion(add = 0.7)) +
+  scale_x_continuous(breaks = 1:5, expand = expansion(add = c(0.3, 0.6))) +
+  labs(x = "Wave", y = NULL)
+```
+
+# Coverage by age
+
+Top: how many planned year-cohorts reach each age, following each recruited
+year forward through its planned waves. Bottom: children in the release with
+a run at each age.
+
+```{r coverage-by-age, fig.height=5.5}
+p_planned <- ggplot(planned_by_age, aes(age, year_cohorts)) +
+  geom_col(fill = "#4477AA") +
+  scale_x_continuous(breaks = 2:16, limits = c(1.5, 16.5)) +
+  labs(x = NULL, y = "Planned year-cohorts")
+p_actual <- ggplot(actual_by_age, aes(age, children)) +
+  geom_col(fill = "grey40") +
+  scale_x_continuous(breaks = 2:16, limits = c(1.5, 16.5)) +
+  labs(x = "Age (years)", y = "Children with a run")
+patchwork::wrap_plots(p_planned, p_actual, ncol = 1)
+```
+
+# Planned coverage by study
+
+Each line is one recruited year-cohort followed through its study's planned
+waves (dots); a study's year-cohorts are stacked.
+
+```{r planned-lines, fig.height=9}
+site_order <- recruiting |>
+  arrange(cohort, age_min, age_max) |>
+  mutate(base_y = n() - row_number() + 1) |>
+  select(label, base_y)
+
+lines <- planned |>
+  arrange(label, enroll_age) |>
+  group_by(label) |>
+  mutate(k = n(), j = row_number(),
+         offset = if_else(k == 1, 0, (j - (k + 1) / 2) / (k - 1) * 0.84)) |>
+  ungroup() |>
+  left_join(site_order, by = "label") |>
+  mutate(y = base_y + offset)
+dots <- lines |>
+  mutate(wv = map2(n_waves, step, \(n, s) if (is.na(n) || n <= 1 || is.na(s)) 0L else 0:(n - 1))) |>
+  unnest(wv) |>
+  mutate(wave_age = enroll_age + if_else(is.na(step), 0, wv * step))
+
+ggplot() +
+  geom_segment(data = lines, aes(enroll_age, y, xend = x_end, yend = y, colour = cohort),
+               linewidth = 0.5) +
+  geom_point(data = dots, aes(wave_age, y, colour = cohort), size = 0.7) +
+  scale_colour_manual(values = cohort_pal, name = NULL) +
+  scale_y_continuous(breaks = site_order$base_y, labels = site_order$label,
+                     expand = expansion(add = 0.7)) +
+  scale_x_continuous(breaks = 0:16, expand = expansion(add = 0.3)) +
+  labs(x = "Age (years)", y = NULL) +
+  theme(legend.position = "top", axis.text.y = element_text(size = 8))
+```
+
+::: {.callout-note collapse="true"}
+## The funded studies
+
+```{r study-table}
+studies |>
+  select(cohort, pi, institution, country, age_min, age_max, n_waves, cadence,
+         setting, teams) |>
+  knitr::kable(col.names = c("Round", "PI", "Institution", "Country", "Min age",
+                             "Max age", "Waves", "Cadence", "Setting",
+                             "Datasets in the release"))
+```
+:::
+
+# Notes
+
+- **Source.** Ages are the deck's annex cards; wave schedules are its
+  cohort tables. Where the two disagree the more specific value is used, and
+  `monitor/network_studies.csv` records it in `notes`.
+- **Planned coverage is an upper bound.** Each recruited year is followed
+  forward independently, which overstates the oldest ages for studies whose
+  stated age band already includes follow-up years.
+- **Not longitudinal.** The three 2025 pilots for ages 2–5 (Nelson, Mariño,
+  Bohn) are single visits, although the deck lists follow-up waves for them.
+- **Discrete cohorts.** Kievit (about 5 and 9) and Ngo (4 and 6) recruit two
+  separate age groups.
+- **Linking studies to data.** The 2023 pilot listed under Bohn at Leuphana
+  was collected at MPI EVA Leipzig (`pilot_mpieva_de`). The RfP1
+  younger-sibling datasets (`rfp1_utdt_intl`, `rfp1_mpib_intl`) are counted
+  with their studies (Calero, Ngo).
+
+# Revision history
+
+- **2026-10-30.** Adds what has been collected, from the pinned release:
+  actual ages and waves by study, and children by age next to the planned
+  coverage. The study table moves to `monitor/network_studies.csv`, with a
+  column linking each study to its datasets. Previously "09 — LEVANTE
+  network: enrollment ages & longitudinal coverage".

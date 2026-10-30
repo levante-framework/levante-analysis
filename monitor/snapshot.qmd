@@ -39,12 +39,7 @@ by_ds <- \(df) df |>
 # waves: a child's runs of one task count as separate waves when they are at
 # least 90 days apart
 wave_gap <- 90
-waves <- scores |>
-  arrange(user_id, task_id, time_started) |>
-  group_by(dataset, user_id, task_id) |>
-  mutate(gap = as.numeric(difftime(time_started, lag(time_started), units = "days")),
-         wave = cumsum(is.na(gap) | gap >= wave_gap)) |>
-  ungroup()
+waves <- add_waves(scores, min_gap = wave_gap)
 child_waves <- waves |>
   group_by(dataset, user_id) |>
   summarise(waves = max(wave), .groups = "drop")

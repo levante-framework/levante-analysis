@@ -561,6 +561,19 @@ clean_levante_latest <- function(scores, trials) {
   out
 }
 
+#' Number each child's runs of a task into waves: a run at least `min_gap`
+#' days after the child's previous run of that task starts a new wave. Adds
+#' `gap` (days since the previous run) and `wave` (1, 2, ...).
+add_waves <- function(scores, min_gap = 90) {
+  scores |>
+    arrange(user_id, task_id, time_started) |>
+    group_by(dataset, user_id, task_id) |>
+    mutate(gap = as.numeric(difftime(time_started, lag(time_started),
+                                     units = "days")),
+           wave = cumsum(is.na(gap) | gap >= min_gap)) |>
+    ungroup()
+}
+
 #' Add site / dataset / task labels to a scores tibble.
 label_levante_scores <- function(df) {
   df |>
