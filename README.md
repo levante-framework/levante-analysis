@@ -196,7 +196,7 @@ the register (`register/`) and move there as each study is reviewed.
   ToM + Same&Different (→ ~44 min) costs almost nothing. **Reading is the binding
   constraint** (protect ROAR-Word when trimming); a ~16-min 4-task screener
   recovers the broad fluid/verbal split at ≈ 0.90.
-- **Cross-language DIF** (`monitor/crosslang_dif_batch.qmd`, + ToM & TROG): the
+- **Cross-language DIF** (`archive/crosslang_dif_batch.qmd`; now `monitor/languages.qmd`, + ToM & TROG): the
   multigroup_site tasks are broadly invariant (Shape Rotation cleanest; Math &
   H&F lower but item-specific). One broken item found (TROG German
   `embedding_cat_cow_chase_black`, ~6.5 logits); top Math flags are

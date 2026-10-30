@@ -1,0 +1,210 @@
+---
+title: "Items across languages"
+order: 5
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    fig-width: 8
+    fig-height: 5.5
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| code-summary: "Setup: per-language item difficulties and comparisons"
+source(here::here("common.R"))
+library(lme4)
+
+scores_all <- load_levante_latest("scores")
+trials <- load_levante_latest("trials")
+scores <- clean_levante_latest(scores_all, trials)
+data_ref <- unique(scores_all$redivis_source)
+
+# core tasks whose items are shared across language versions. ROAR tasks
+# use different items in each language; Same and Different's multi-response
+# trials don't fit an item model.
+tasks <- c("egma-math", "matrix-reasoning", "mental-rotation", "hearts-and-flowers",
+           "memory-game", "trog", "vocab", "theory-of-mind")
+lang_labels <- c(de = "German", en = "English", es = "Spanish")
+
+first_runs <- scores |>
+  filter(task_id %in% tasks) |>
+  group_by(dataset, user_id, task_id) |>
+  slice_min(time_started, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(run_id)
+responses <- trials |>
+  filter(task_id %in% tasks) |>
+  semi_join(first_runs, by = "run_id") |>
+  mutate(lang = substr(language, 1, 2), y = as.integer(correct)) |>
+  filter(!is.na(y), lang %in% names(lang_labels))
+
+# Rasch difficulties in one language: a logistic mixed model with a fixed
+# effect per item and a random intercept per run, for items with at least 5
+# correct and 5 incorrect responses
+fit_rasch <- function(d) {
+  keep <- d |>
+    group_by(item_uid) |>
+    summarise(right = sum(y), wrong = sum(1 - y)) |>
+    filter(right >= 5, wrong >= 5) |>
+    pull(item_uid)
+  d <- d |> filter(item_uid %in% keep) |> mutate(item_uid = factor(item_uid))
+  m <- glmer(y ~ 0 + item_uid + (1 | run_id), data = d, family = binomial, nAGQ = 0)
+  fe <- fixef(m)
+  tibble(item_uid = sub("^item_uid", "", names(fe)), b = -unname(fe),
+         se = sqrt(diag(as.matrix(vcov(m)))))
+}
+difficulty <- responses |>
+  group_by(task_id, lang) |>
+  group_modify(\(d, key) fit_rasch(d)) |>
+  ungroup()
+
+# compare each pair of languages on their shared items, centered on those
+# items; flag a gap over 1 logit whose 95% CI excludes zero
+lang_pairs <- list(c("de", "es"), c("de", "en"), c("es", "en"))
+gaps <- map_dfr(lang_pairs, \(p) {
+  difficulty |>
+    filter(lang == p[1]) |>
+    select(task_id, item_uid, b1 = b, se1 = se) |>
+    inner_join(difficulty |> filter(lang == p[2]) |> select(task_id, item_uid, b2 = b, se2 = se),
+               by = c("task_id", "item_uid")) |>
+    group_by(task_id) |>
+    mutate(b1 = b1 - mean(b1), b2 = b2 - mean(b2)) |>
+    ungroup() |>
+    mutate(lang1 = p[1], lang2 = p[2],
+           pair = paste(lang_labels[p[1]], "–", lang_labels[p[2]]),
+           gap = b1 - b2, gap_se = sqrt(se1^2 + se2^2),
+           flagged = abs(gap) > 1 & abs(gap) > 1.96 * gap_se)
+}) |>
+  left_join(task_lookup |> select(task_id, task_label), by = "task_id")
+
+agreement <- gaps |>
+  group_by(task_label, pair) |>
+  reframe(cor_ci(b1, b2), flagged = sum(flagged))
+
+# items flagged in two pairs that share a language: that language differs
+odd_one_out <- gaps |>
+  filter(flagged) |>
+  group_by(task_label, item_uid) |>
+  filter(n() == 2) |>
+  summarise(language = intersect(c(lang1[1], lang2[1]), c(lang1[2], lang2[2])),
+            gap = mean(abs(gap)), .groups = "drop") |>
+  mutate(language = lang_labels[language])
+
+# for the summary: each task's weakest language pair, and flagged items
+agreement_task <- agreement |>
+  group_by(task_label) |>
+  summarise(r_min = min(r), .groups = "drop")
+flag_by_task <- gaps |>
+  filter(flagged) |>
+  distinct(task_label, item_uid) |>
+  count(task_label, sort = TRUE)
+```
+
+::: {.callout-note appearance="simple"}
+## Summary
+
+**Data:** `r data_ref`; each child's first run of
+`r length(tasks)` core tasks, in German, English and Spanish
+(`r fmt_n(n_distinct(responses$run_id))` runs).
+
+- Item difficulties agree most closely across languages for
+  `r paste(agreement_task$task_label[agreement_task$r_min >= .95], collapse = ", ")`
+  (r ≥ .95 for every language pair), and least for
+  `r paste(agreement_task$task_label[agreement_task$r_min < .8], collapse = " and ")`
+  (lowest pair r = `r f2(min(agreement$r))`).
+- `r fmt_n(n_distinct(paste(gaps$task_id[gaps$flagged], gaps$item_uid[gaps$flagged])))`
+  items differ in difficulty by more than one logit between at least one
+  pair of languages, most of them in
+  `r paste(flag_by_task$task_label[1:2], collapse = " and ")`.
+- `r nrow(odd_one_out)` items differ in one language against both others,
+  which points to that language's version of the item.
+:::
+
+# Agreement by task
+
+The correlation between two languages' item difficulties, on the items both
+languages share (95% CIs). Each language's difficulties come from a
+separate Rasch model.
+
+```{r agreement, fig.height=5}
+agreement |>
+  mutate(task_label = reorder(task_label, r)) |>
+  ggplot(aes(x = r, y = task_label, colour = pair)) +
+  geom_pointrange(aes(xmin = lo, xmax = hi), position = position_dodge(width = 0.5)) +
+  scale_colour_brewer(palette = "Set1", name = NULL) +
+  labs(x = "Correlation of item difficulties between languages", y = NULL) +
+  theme(legend.position = "top")
+```
+
+# Item differences
+
+An item is flagged when its difficulty differs between two languages by
+more than one logit, after centering both on their shared items, and the
+95% CI of the difference excludes zero.
+
+```{r flag-counts, fig.height=4}
+gaps |>
+  group_by(task_label, pair) |>
+  summarise(share = mean(flagged), items = n(), .groups = "drop") |>
+  mutate(task_label = reorder(task_label, share)) |>
+  ggplot(aes(x = share, y = task_label, colour = pair)) +
+  geom_point(size = 2.5, position = position_dodge(width = 0.5)) +
+  scale_colour_brewer(palette = "Set1", name = NULL) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(x = "Share of shared items flagged", y = NULL) +
+  theme(legend.position = "top")
+```
+
+# Items that differ in one language
+
+Items flagged against both other languages, with the language that
+differs. These are the first to check for a translation or picture problem.
+The `r sum(odd_one_out$gap >= 2)` that differ by 2 logits or more:
+
+```{r odd-one-out}
+odd_table <- \(df) df |>
+  arrange(desc(gap)) |>
+  mutate(gap = sprintf("%.1f", gap)) |>
+  knitr::kable(col.names = c("Task", "Item", "Language", "Mean gap (logits)"),
+               align = "lllr")
+odd_table(filter(odd_one_out, gap >= 2))
+```
+
+By language: `r paste0(names(table(odd_one_out$language)), " ", table(odd_one_out$language), collapse = ", ")`
+items.
+
+::: {.callout-note collapse="true"}
+## All `r nrow(odd_one_out)` items that differ in one language
+
+```{r odd-one-out-all}
+odd_table(odd_one_out)
+```
+:::
+
+# Notes
+
+- **Language, not site.** Each language pools its datasets (German:
+  Leipzig and the MPIB studies; Spanish: Colombia and Argentina; English:
+  Canada, the UK, Ghana and the US). A language difference can therefore
+  also reflect differences between those samples, such as curriculum for
+  Math.
+- **Model.** Rasch difficulties without a guessing floor, fitted separately
+  per language to each child's first run of the task. Only relative
+  difficulties are compared, so overall differences in ability between
+  languages do not matter.
+- **Not covered.** The ROAR tasks use different items in each language, and
+  Same and Different's trials have several responses each.
+
+# Revision history
+
+- **2026-10-30.** Rewritten on the pinned release. Adds Sentence
+  Understanding, Vocabulary and Stories to the five tasks of the earlier
+  "Cross-language DIF screen", and Argentina, the UK and the other datasets
+  in each language. Difficulties now come from a logistic mixed model rather
+  than `mirt`, each pair of languages is compared on its shared items only,
+  and flags require the difference's CI to exclude zero. The earlier page is
+  in `archive/`.
