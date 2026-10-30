@@ -131,6 +131,8 @@ languages share (95% CIs). Each language's difficulties come from a
 separate Rasch model.
 
 ```{r agreement, fig.height=5}
+#| label: fig-agreement
+#| fig-cap: "Correlation of item difficulties between each pair of languages, by task (95% CIs)."
 agreement |>
   mutate(task_label = reorder(task_label, r)) |>
   ggplot(aes(x = r, y = task_label, colour = pair)) +
@@ -147,6 +149,8 @@ more than one logit, after centering both on their shared items, and the
 95% CI of the difference excludes zero.
 
 ```{r flag-counts, fig.height=4}
+#| label: fig-flag-share
+#| fig-cap: "Share of shared items flagged, by task and language pair."
 gaps |>
   group_by(task_label, pair) |>
   summarise(share = mean(flagged), items = n(), .groups = "drop") |>
@@ -166,6 +170,8 @@ differs. These are the first to check for a translation or picture problem.
 The `r sum(odd_one_out$gap >= 2)` that differ by 2 logits or more:
 
 ```{r odd-one-out}
+#| label: tbl-odd-one-out
+#| tbl-cap: "Items that differ in one language by 2 logits or more."
 odd_table <- \(df) df |>
   arrange(desc(gap)) |>
   mutate(gap = sprintf("%.1f", gap)) |>
@@ -181,6 +187,8 @@ items.
 ## All `r nrow(odd_one_out)` items that differ in one language
 
 ```{r odd-one-out-all}
+#| label: tbl-odd-one-out-all
+#| tbl-cap: "All items that differ in one language."
 odd_table(odd_one_out)
 ```
 :::

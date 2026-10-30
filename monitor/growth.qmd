@@ -127,6 +127,37 @@ slopes <- growth_data |>
   ungroup() |>
   left_join(cross, by = c("dataset", "task_id"))
 
+# trajectory checks, per dataset and task with 20+ children in two waves
+check_cells <- first_pairs |>
+  count(dataset, task_label) |>
+  filter(n >= 20)
+wave1_sd <- by_wave |>
+  filter(wave == 1) |>
+  group_by(dataset, task_label) |>
+  summarise(sd1 = sd(score), .groups = "drop")
+traj_checks <- bind_rows(
+  by_wave |>
+    semi_join(check_cells, by = c("dataset", "task_label")) |>
+    group_by(dataset, task_label) |>
+    mutate(position = (score - min(score)) / (max(score) - min(score))) |>
+    summarise(share = mean(position < .05 | position > .95), .groups = "drop") |>
+    mutate(check = "Near the lowest or highest score"),
+  by_wave |>
+    semi_join(check_cells, by = c("dataset", "task_label")) |>
+    group_by(dataset, task_label) |>
+    summarise(share = max(table(round(score, 2))) / n(), .groups = "drop") |>
+    mutate(check = "Sharing the most common score value"),
+  pairs |>
+    semi_join(check_cells, by = c("dataset", "task_label")) |>
+    filter(wave2 == wave1 + 1) |>
+    left_join(wave1_sd, by = c("dataset", "task_label")) |>
+    group_by(dataset, task_label) |>
+    summarise(share = mean((score2 - score1) / sd1 < -2), .groups = "drop") |>
+    mutate(check = "Drop of more than 2 SD between waves")) |>
+  mutate(check = factor(check, c("Near the lowest or highest score",
+                                 "Sharing the most common score value",
+                                 "Drop of more than 2 SD between waves")))
+
 long_ds <- first_pairs |>
   group_by(dataset) |>
   summarise(children = n_distinct(user_id), gap = median(gap_months),
@@ -161,6 +192,8 @@ when they are at least 90 days apart.
 # Who has repeat data
 
 ```{r repeat-data, fig.height=4.5}
+#| label: fig-repeat-data
+#| fig-cap: "Children with a task in two waves, by dataset and task."
 repeat_cells <- first_pairs |>
   count(dataset, task_label, name = "children") |>
   mutate(dataset_label = factor(dataset_labels_named[dataset],
@@ -182,9 +215,11 @@ waves are a median of
 
 # Growth
 
-Each child's scores across waves, by task:
+Each child's scores across waves, by task (@fig-trajectories):
 
 ```{r trajectories, fig.height=8, fig.width=9}
+#| label: fig-trajectories
+#| fig-cap: "Each child's scores across waves, by task and dataset."
 traj <- by_wave |>
   filter(!is.na(age)) |>
   semi_join(first_pairs, by = c("dataset", "user_id", "task_label")) |>
@@ -200,6 +235,66 @@ ggplot(traj, aes(x = age, y = score, group = interaction(dataset, user_id),
   theme(legend.position = "bottom")
 ```
 
+## Trajectories by dataset {#sec-trajectories-by-dataset}
+
+One tab per dataset, with each run coloured by whether the adaptive or the
+fixed form was used. These views are the quickest way to spot data problems:
+scores piling up at one value, at a floor or ceiling, or single waves far
+below a child's other scores.
+
+::: {.panel-tabset}
+
+```{r trajectories-by-dataset, results="asis", fig.height=7.5, fig.width=9}
+for (ds in long_ds$dataset) {
+  cat("##", dataset_labels_named[[ds]], "\n\n")
+  d <- filter(traj, dataset == ds)
+  p <- ggplot(d, aes(x = age, y = score, group = user_id)) +
+    geom_line(alpha = 0.3, linewidth = 0.3) +
+    geom_point(aes(colour = if_else(adaptive, "adaptive", "fixed")), size = 0.7,
+               alpha = 0.7) +
+    facet_wrap(vars(task_label), scales = "free_y") +
+    scale_colour_manual(values = c(adaptive = "#4477AA", fixed = "#CC6677"),
+                        name = NULL) +
+    labs(x = "Age (years)", y = "Score") +
+    theme(legend.position = "bottom")
+  print(p)
+  cat("\n\n")
+}
+```
+
+:::
+
+## Checks on the trajectories
+
+Three symptoms that the trajectories show, counted for each dataset and
+task with 20 or more children in two waves (@fig-trajectory-checks): runs
+within 5% of the dataset's score range from its lowest or highest score, runs sharing a single
+score value with many other children, and drops between waves larger than
+two standard deviations. Each is a share of runs or pairs. Children rarely
+lose that much ability in a year, so large drops mostly mark runs where
+something went wrong.
+
+```{r trajectory-checks, fig.height=6, fig.width=9}
+#| label: fig-trajectory-checks
+#| fig-cap: "Share of runs within 5% of the dataset's score range from its lowest or highest score, share of runs sharing the dataset's most common score value, and share of wave-to-wave drops larger than 2 SD, by dataset and task."
+traj_checks |>
+  mutate(dataset_label = factor(dataset_labels_named[dataset],
+                                rev(dataset_labels_named[long_ds$dataset]))) |>
+  ggplot(aes(x = task_label, y = dataset_label, fill = share)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = fmt_pct(share), colour = share > .15), size = 2.8) +
+  scale_colour_manual(values = c(`TRUE` = "black", `FALSE` = "white"), guide = "none") +
+  scale_fill_viridis_c(limits = c(0, NA), guide = "none") +
+  facet_wrap(vars(check), ncol = 1) +
+  labs(x = NULL, y = NULL) +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))
+```
+
+The largest values are
+`r with(slice_max(traj_checks, share, n = 4), paste0(task_label, " in ", dataset_labels_named[dataset], " (", c("near the lowest or highest score", "sharing one score value", "drops of more than 2 SD")[as.integer(check)], ", ", fmt_pct(share), ")", collapse = "; "))`.
+
+## Within-child growth
+
 Within-child growth against the cross-sectional age gradient, for each
 dataset and task with 30 or more children in two waves. The within-child
 slope comes from a mixed model that separates each child's change from
@@ -207,6 +302,8 @@ their mean age, with adaptive vs fixed form as a covariate where both
 occur; bars are 95% CIs. The dotted line is equality.
 
 ```{r slopes, fig.height=5.5}
+#| label: fig-slopes
+#| fig-cap: "Within-child slope against the cross-sectional age gradient, by dataset and task (95% CIs). Dotted line: equality."
 slopes |>
   mutate(dataset_label = factor(dataset_labels_named[dataset],
                                 levels = dataset_labels_named[long_ds$dataset])) |>
@@ -239,6 +336,8 @@ in that dataset (open). Pooled across datasets with Fisher's z; bars are
 95% CIs.
 
 ```{r stability-first, fig.height=4.5}
+#| label: fig-stability-first
+#| fig-cap: "Correlation between the first two waves, pooled within datasets: observed (filled) and corrected for measurement error (open), with 95% CIs."
 stab_first_pooled |>
   mutate(task_label = factor(task_label, task_label)) |>
   ggplot(aes(y = task_label)) +
@@ -258,6 +357,8 @@ By gap between waves, using all pairs of a child's waves (each dataset's
 correlation in colour, pooled in black):
 
 ```{r stability-gap, fig.height=7, fig.width=9}
+#| label: fig-stability-gap
+#| fig-cap: "Correlation between waves by months between them: each dataset (colour) and pooled (black, 95% CIs)."
 ggplot(mapping = aes(x = gap_bin, y = r)) +
   geom_hline(yintercept = 0, colour = "grey85") +
   geom_point(data = stab_gap, aes(colour = dataset),

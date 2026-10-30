@@ -112,6 +112,8 @@ data, the black line spans the middle 90% of children's ages at their first
 run, and the dot marks the median.
 
 ```{r ages, fig.height=8}
+#| label: fig-ages
+#| fig-cap: "Planned enrollment ages (coloured squares) and, for studies with data, the middle 90% (line) and median (dot) of children's ages at their first run."
 rows <- bind_rows(
   recruiting |> arrange(cohort, age_min, age_max) |> select(label, cohort),
   actual |> filter(str_ends(label, "partner")) |> transmute(label, cohort = "Partner"))
@@ -140,6 +142,8 @@ filled circles the waves reached, sized by the number of children. A child's
 runs of a task count as separate waves when they are at least 90 days apart.
 
 ```{r waves, fig.height=4.5}
+#| label: fig-waves
+#| fig-cap: "Planned waves (open circles) and waves reached (filled, sized and labelled by the number of children), for longitudinal studies with data."
 reached <- children |>
   semi_join(long_with_data, by = "label") |>
   reframe(wave = seq_len(max(waves)), n = map_int(wave, \(k) sum(waves >= k)),
@@ -164,6 +168,8 @@ year forward through its planned waves. Bottom: children in the release with
 a run at each age.
 
 ```{r coverage-by-age, fig.height=5.5}
+#| label: fig-coverage-by-age
+#| fig-cap: "Planned year-cohorts reaching each age (top) and children in the release with a run at each age (bottom)."
 p_planned <- ggplot(planned_by_age, aes(age, year_cohorts)) +
   geom_col(fill = "#4477AA") +
   scale_x_continuous(breaks = 2:16, limits = c(1.5, 16.5)) +
@@ -181,6 +187,8 @@ Each line is one recruited year-cohort followed through its study's planned
 waves (dots); a study's year-cohorts are stacked.
 
 ```{r planned-lines, fig.height=9}
+#| label: fig-planned-lines
+#| fig-cap: "Planned coverage by study: each recruited year-cohort followed through its planned waves (dots)."
 site_order <- recruiting |>
   arrange(cohort, age_min, age_max) |>
   mutate(base_y = n() - row_number() + 1) |>
@@ -215,6 +223,8 @@ ggplot() +
 ## The funded studies
 
 ```{r study-table}
+#| label: tbl-studies
+#| tbl-cap: "The funded studies."
 studies |>
   select(cohort, pi, institution, country, age_min, age_max, n_waves, cadence,
          setting, teams) |>
