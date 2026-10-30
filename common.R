@@ -322,7 +322,7 @@ load_levante_scores <- function(refresh = FALSE,
 #' version never changes, so the cache never goes stale; bump
 #' `levante_latest_version` to move every chapter that uses this onto a new
 #' release. Tables carry `redivis_source` (the scoped reference) as provenance.
-levante_latest_version <- "v3_17"
+levante_latest_version <- "v5_0"
 
 load_levante_latest <- function(table = c("scores", "trials", "participants",
                                           "items"),
@@ -537,6 +537,30 @@ clean_levante_scores <- function(scores, trials = NULL) {
   list(scores = scores2, report = report, roar_drops = drops)
 }
 
+#' Clean a scores table from the pinned release (`load_levante_latest()`):
+#' keep runs that production scored without an exclusion, drop runs that
+#' carry more than one score, and drop ROAR-Word runs that fail the engagement
+#' rule (see `roar_word_engagement_drops()`). Adds `site` (from `team`) and
+#' labels. The rows each step removed are in `attr(, "cleaning")`.
+clean_levante_latest <- function(scores, trials) {
+  valid <- scores |> filter(is.na(exclusion), !is.na(score))
+  multi <- valid |> count(run_id) |> filter(n > 1)
+  swr_drops <- roar_word_engagement_drops(trials) |>
+    semi_join(valid, by = "run_id")
+  out <- valid |>
+    anti_join(multi, by = "run_id") |>
+    anti_join(swr_drops, by = "run_id") |>
+    mutate(site = team) |>
+    label_levante_scores()
+  attr(out, "cleaning") <- tibble(
+    step = c("Excluded by production", "Valid but unscored",
+             "More than one score", "ROAR-Word non-engagement"),
+    runs = c(sum(!is.na(scores$exclusion)),
+             sum(is.na(scores$exclusion) & is.na(scores$score)),
+             nrow(multi), nrow(swr_drops)))
+  out
+}
+
 #' Add site / dataset / task labels to a scores tibble.
 label_levante_scores <- function(df) {
   df |>
@@ -548,6 +572,33 @@ label_levante_scores <- function(df) {
     ) |>
     left_join(task_lookup, by = "task_id") |>
     mutate(task_category = factor(task_category, levels = task_categories_vec))
+}
+
+# ---- Prose helpers ----------------------------------------------------------
+#
+# For computed numbers in text (CHARTER.md: no hardcoded numbers).
+
+#' r or a proportion to two decimals, without the leading zero (".43").
+f2 <- \(x) sub("^(-?)0\\.", "\\1.", sprintf("%.2f", x))
+
+#' A count with thousands separators ("12,345").
+fmt_n <- \(x) format(x, big.mark = ",", scientific = FALSE, trim = TRUE)
+
+#' A percentage, rounded ("12%").
+fmt_pct <- \(x, digits = 0) paste0(round(100 * x, digits), "%")
+
+#' Fail-loud lookup of exactly one value from a table.
+pick <- function(df, col, ...) {
+  x <- dplyr::filter(df, ...) |> dplyr::pull({{ col }})
+  if (length(x) != 1) stop("pick(): expected 1 row, got ", length(x))
+  x
+}
+
+#' Correlation with a Fisher-z 95% CI, as a one-row tibble.
+cor_ci <- function(x, y) {
+  ok <- stats::complete.cases(x, y); n <- sum(ok); r <- stats::cor(x[ok], y[ok])
+  se <- 1 / sqrt(n - 3)
+  tibble(n = n, r = r, lo = tanh(atanh(r) - 1.96 * se), hi = tanh(atanh(r) + 1.96 * se))
 }
 
 # ---- Plot helpers -----------------------------------------------------------

@@ -1,5 +1,6 @@
 ---
 title: "04 — Construct structure: emergent dimensions, differentiation, and the role of g"
+order: 6
 format:
   html:
     toc: true

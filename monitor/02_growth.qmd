@@ -1,5 +1,6 @@
 ---
 title: "02 — Longitudinal traces and simple growth models"
+order: 3
 format:
   html:
     toc: true

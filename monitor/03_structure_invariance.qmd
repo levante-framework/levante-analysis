@@ -1,5 +1,6 @@
 ---
 title: "03 — Construct structure & measurement invariance"
+order: 5
 format:
   html:
     toc: true

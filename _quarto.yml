@@ -34,16 +34,15 @@ website:
       style: docked
       contents:
         - monitor/index.qmd
-        - monitor/00_load_data.qmd
-        - monitor/01_data_integrity.qmd
+        - monitor/09_longitudinal_coverage.qmd
+        - monitor/snapshot.qmd
         - monitor/02_growth.qmd
+        - monitor/test_retest_figures.qmd
         - monitor/03_structure_invariance.qmd
         - monitor/04_differentiation.qmd
         - monitor/05_battery_design.qmd
-        - monitor/09_longitudinal_coverage.qmd
-        - monitor/10_downward_extension.qmd
-        - monitor/test_retest_figures.qmd
         - monitor/crosslang_dif_batch.qmd
+        - monitor/10_downward_extension.qmd
     - title: "Task reports"
       contents:
         - tasks/index.qmd

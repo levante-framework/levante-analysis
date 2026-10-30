@@ -5,13 +5,13 @@ listing:
     - "*.qmd"
   type: table
   fields: [title]
-  sort: filename
+  sort: order
   sort-ui: false
   filter-ui: false
 ---
 
-Battery-wide analyses of the current data: loading and data integrity,
-coverage across the network, growth, construct structure, battery length,
+Battery-wide analyses of the current data: the network and what the
+release contains, growth, construct structure, battery length,
 test–retest and cross-language item functioning, and the downward extension
 to ages 2–5. Pages are moving from the 2026-08 per-site snapshot to the
 pinned `levante_data_latest` release, and each page states its data.

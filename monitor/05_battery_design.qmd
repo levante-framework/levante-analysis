@@ -1,5 +1,6 @@
 ---
 title: "05 — Battery design: how short can the battery be and still recover the factors?"
+order: 7
 format:
   html:
     toc: true

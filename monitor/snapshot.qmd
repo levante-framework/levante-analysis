@@ -1,0 +1,303 @@
+---
+title: "Data snapshot"
+order: 2
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    fig-width: 9
+    fig-height: 5
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| code-summary: "Setup: load and clean the release"
+source(here::here("common.R"))
+
+# the previous monitor release, for "what changed"
+prev_version <- "v3_17"
+
+scores_all <- load_levante_latest("scores")
+trials <- load_levante_latest("trials")
+scores <- clean_levante_latest(scores_all, trials)
+cleaning <- attr(scores, "cleaning")
+data_ref <- unique(scores_all$redivis_source)
+last_run <- as.Date(max(scores$time_started, na.rm = TRUE))
+
+prev <- load_levante_latest("scores", version = prev_version) |>
+  filter(is.na(exclusion), !is.na(score))
+
+# datasets ordered by number of children, for every plot below
+ds_order <- scores |> distinct(dataset, user_id) |> count(dataset, sort = TRUE)
+by_ds <- \(df) df |>
+  mutate(dataset_label = factor(dataset_labels_named[dataset],
+                                levels = rev(dataset_labels_named[ds_order$dataset])))
+
+# waves: a child's runs of one task count as separate waves when they are at
+# least 90 days apart
+wave_gap <- 90
+waves <- scores |>
+  arrange(user_id, task_id, time_started) |>
+  group_by(dataset, user_id, task_id) |>
+  mutate(gap = as.numeric(difftime(time_started, lag(time_started), units = "days")),
+         wave = cumsum(is.na(gap) | gap >= wave_gap)) |>
+  ungroup()
+child_waves <- waves |>
+  group_by(dataset, user_id) |>
+  summarise(waves = max(wave), .groups = "drop")
+
+n_children <- n_distinct(scores$user_id)
+n_long <- sum(child_waves$waves >= 2)
+long_ds <- child_waves |>
+  filter(waves >= 2) |>
+  count(dataset, sort = TRUE) |>
+  filter(n >= 20)
+# score agreement with the previous release, per task
+drift <- scores |>
+  select(run_id, task_label, score) |>
+  inner_join(prev |> select(run_id, prev_score = score), by = "run_id") |>
+  group_by(task_label) |>
+  reframe(cor_ci(score, prev_score),
+          mean_abs_change = mean(abs(score - prev_score))) |>
+  arrange(r)
+```
+
+::: {.callout-note appearance="simple"}
+## Summary
+
+**Data:** `r data_ref`, runs through `r format(last_run, "%Y-%m-%d")`.
+
+- The release has `r fmt_n(nrow(scores))` scored runs from
+  `r fmt_n(n_children)` children in `r n_distinct(scores$dataset)` datasets
+  and `r n_distinct(scores$task_id)` tasks.
+- `r fmt_n(n_long)` children have runs of at least one task in two or more
+  waves, in `r nrow(long_ds)` datasets with 20 or more such children.
+- Since `r prev_version`, the release has gained
+  `r fmt_n(nrow(anti_join(scores, prev, by = "run_id")))` scored runs. For
+  runs in both, scores agree at r ≥ .99 for
+  `r sum(drift$r >= .99)` of `r nrow(drift)` tasks; the lowest is
+  `r drift$task_label[which.min(drift$r)]` (r = `r f2(min(drift$r))`).
+- Of the runs production did not exclude,
+  `r fmt_pct(1 - pick(cleaning, runs, step == "Valid but unscored") / sum(is.na(scores_all$exclusion)), 1)`
+  carry a score, and `r fmt_n(sum(is.na(scores$age)))` scored runs have no
+  age.
+:::
+
+# Who is in the release
+
+```{r children-by-dataset, fig.height=5}
+kids <- scores |>
+  group_by(dataset) |>
+  summarise(children = n_distinct(user_id), runs = n(), .groups = "drop") |>
+  by_ds()
+
+ggplot(kids, aes(x = children, y = dataset_label, fill = dataset)) +
+  geom_col() +
+  geom_text(aes(label = fmt_n(children)), hjust = -0.15, size = 3.5) +
+  scale_fill_dataset(guide = "none") +
+  scale_x_continuous(expand = expansion(c(0, 0.12))) +
+  labs(x = "Children with at least one scored run", y = NULL)
+```
+
+```{r age-by-dataset, fig.height=6}
+first_age <- scores |>
+  filter(!is.na(age)) |>
+  group_by(dataset, user_id) |>
+  summarise(age = min(age), .groups = "drop") |>
+  by_ds()
+
+ggplot(first_age, aes(x = age, y = dataset_label, fill = dataset)) +
+  geom_boxplot(outlier.size = 0.6, width = 0.6, alpha = 0.8) +
+  scale_fill_dataset(guide = "none") +
+  scale_x_continuous(breaks = seq(2, 16, 2)) +
+  labs(x = "Age at first run (years)", y = NULL)
+```
+
+```{r coverage, fig.height=6.5}
+coverage <- scores |>
+  count(dataset, task_label, name = "runs") |>
+  by_ds()
+
+ggplot(coverage, aes(x = task_label, y = dataset_label, fill = runs)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = fmt_n(runs), colour = runs > 100), size = 3.2) +
+  scale_colour_manual(values = c(`TRUE` = "black", `FALSE` = "white"), guide = "none") +
+  scale_fill_viridis_c(trans = "log10", guide = "none") +
+  labs(x = NULL, y = NULL) +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))
+```
+
+Each cell is the number of scored runs of a task in a dataset.
+
+# Repeat assessments
+
+A child's runs of one task count as separate waves when they are at least
+`r wave_gap` days apart.
+
+```{r waves, fig.height=5}
+wave_share <- child_waves |>
+  mutate(waves = factor(pmin(waves, 3), 1:3, c("1 wave", "2 waves", "3 or more"))) |>
+  count(dataset, waves) |>
+  by_ds()
+
+ggplot(wave_share, aes(x = n, y = dataset_label, fill = waves)) +
+  geom_col(position = position_stack(reverse = TRUE)) +
+  scale_fill_brewer(palette = "Set1", name = NULL) +
+  labs(x = "Children", y = NULL) +
+  theme(legend.position = "bottom")
+```
+
+```{r wave-gaps, fig.height=4}
+gaps <- waves |>
+  filter(wave == 2, gap >= wave_gap) |>
+  semi_join(long_ds, by = "dataset") |>
+  by_ds()
+
+ggplot(gaps, aes(x = gap / 30.4, y = dataset_label, fill = dataset)) +
+  geom_boxplot(outlier.size = 0.6, width = 0.6, alpha = 0.8) +
+  scale_fill_dataset(guide = "none") +
+  labs(x = "Months between a child's first and second wave of a task", y = NULL)
+```
+
+The datasets with 20 or more children in two or more waves are
+`r paste(dataset_labels_named[long_ds$dataset], collapse = ", ")`.
+
+# Exclusions and cleaning
+
+Production marks runs it could not score with an exclusion reason.
+
+```{r exclusions, fig.height=5}
+excl <- scores_all |>
+  mutate(status = coalesce(exclusion, "kept")) |>
+  count(dataset, status) |>
+  group_by(dataset) |>
+  mutate(share = n / sum(n)) |>
+  ungroup() |>
+  filter(status != "kept") |>
+  mutate(status = str_replace_all(status, "_", " ")) |>
+  by_ds()
+
+ggplot(excl, aes(x = share, y = dataset_label, fill = status)) +
+  geom_col(position = position_stack(reverse = TRUE)) +
+  scale_fill_brewer(palette = "Set1", name = NULL) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(x = "Share of the dataset's runs excluded by production", y = NULL) +
+  theme(legend.position = "bottom")
+```
+
+The pages in the monitor use `clean_levante_latest()` (`common.R`), which
+removes these runs and a few more:
+
+```{r cleaning}
+cleaning |>
+  mutate(runs = fmt_n(runs)) |>
+  knitr::kable(col.names = c("Removed", "Runs"), align = "lr")
+```
+
+The ROAR-Word rule removes runs with accuracy below .4 or a median response
+time under 500 ms ([ROAR-Word engagement study](../studies/2026-07_roar-word-engagement/roar_word.qmd)).
+
+# Changes since `r prev_version`
+
+```{r new-runs, fig.height=4.5}
+new_runs <- scores |>
+  anti_join(prev, by = "run_id") |>
+  count(dataset) |>
+  by_ds()
+
+ggplot(new_runs, aes(x = n, y = dataset_label, fill = dataset)) +
+  geom_col() +
+  geom_text(aes(label = fmt_n(n)), hjust = -0.15, size = 3.5) +
+  scale_fill_dataset(guide = "none") +
+  scale_x_continuous(expand = expansion(c(0, 0.12))) +
+  labs(x = glue("Scored runs not in {prev_version}"), y = NULL)
+```
+
+```{r drift, fig.height=4.5}
+ggplot(drift, aes(x = r, y = reorder(task_label, r))) +
+  geom_pointrange(aes(xmin = lo, xmax = hi)) +
+  geom_vline(xintercept = 1, lty = 3) +
+  labs(x = glue("Correlation of each run's score with its score in {prev_version} (95% CI)"),
+       y = NULL)
+```
+
+For runs in both releases, scores are unchanged for
+`r paste(drift$task_label[drift$mean_abs_change < .001], collapse = ", ")`.
+The largest change is in `r drift$task_label[1]` (r = `r f2(drift$r[1])`,
+mean absolute change `r f2(drift$mean_abs_change[1])` SD units).
+`r fmt_n(nrow(anti_join(prev, scores_all |> filter(is.na(exclusion), !is.na(score)), by = "run_id")))`
+runs scored in `r prev_version` have no score in this release.
+
+# Checks
+
+Each check should come out at or near zero. A check that doesn't is
+reported to the data team, not handled here.
+
+```{r scored-share, fig.height=4.5}
+scored_share <- scores_all |>
+  filter(is.na(exclusion)) |>
+  group_by(dataset) |>
+  summarise(valid = n(), scored = mean(!is.na(score)), .groups = "drop") |>
+  by_ds()
+
+ggplot(scored_share, aes(x = scored, y = dataset_label, colour = dataset)) +
+  geom_point(size = 3) +
+  scale_colour_dataset(guide = "none") +
+  scale_x_continuous(labels = scales::percent, limits = c(NA, 1)) +
+  labs(x = "Share of non-excluded runs with a score", y = NULL)
+```
+
+```{r check-table}
+checks <- tibble(
+  check = c("Non-excluded runs without a score",
+            "Runs with more than one score",
+            "Scored runs without an age",
+            "Scored runs without an adaptive flag"),
+  runs = c(pick(cleaning, runs, step == "Valid but unscored"),
+           pick(cleaning, runs, step == "More than one score"),
+           sum(is.na(scores$age)),
+           sum(is.na(scores$adaptive))))
+
+unscored <- scores_all |>
+  filter(is.na(exclusion), is.na(score)) |>
+  left_join(task_lookup |> select(task_id, task_label), by = "task_id") |>
+  count(dataset, task_label, sort = TRUE)
+
+no_age <- scores |>
+  filter(is.na(age)) |>
+  count(dataset, sort = TRUE)
+
+checks |>
+  mutate(runs = fmt_n(runs)) |>
+  knitr::kable(col.names = c("Check", "Runs"), align = "lr")
+```
+
+Unscored runs are concentrated in
+`r unscored$task_label[1]` (`r fmt_n(sum(unscored$n[unscored$task_label == unscored$task_label[1]]))`
+of `r fmt_n(sum(unscored$n))`), and runs without an age are all in
+`r paste(dataset_labels_named[no_age$dataset], collapse = ", ")`.
+
+```{r score-se, fig.height=4.5}
+se <- scores |>
+  filter(!is.na(score_se)) |>
+  mutate(task_label = reorder(task_label, score_se, median))
+
+ggplot(se, aes(x = score_se, y = task_label)) +
+  geom_boxplot(outlier.size = 0.4, width = 0.6) +
+  coord_cartesian(xlim = c(0, 2)) +
+  labs(x = "Standard error of the score (ability scale)", y = NULL)
+```
+
+ROAR-Sentence has no standard error; its score is a rate.
+
+# Revision history
+
+- **2026-10-30.** This page replaces "00 — Load data" and "01 — Data
+  integrity audit", which ran on the 2026-08-31 per-site drafts. Their
+  June-era checks (missing adaptive flags, duplicate ToM rows, artifacts of
+  the v1.0 scoring bug) no longer apply to the pinned release and are not
+  carried over. Cleaning now lives in `clean_levante_latest()` in
+  `common.R`. Both old pages are in `archive/`.

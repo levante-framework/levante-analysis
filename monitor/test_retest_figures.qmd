@@ -1,5 +1,6 @@
 ---
 title: "Test–retest figures (corrected v1.2) — Colombia & Germany"
+order: 4
 format:
   html:
     toc: true
