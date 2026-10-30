@@ -1,6 +1,7 @@
 ---
 title: "05 — Battery design: how short can the battery be and still recover the factors?"
-order: 7
+date: 2026-08-24
+date-format: iso
 format:
   html:
     toc: true

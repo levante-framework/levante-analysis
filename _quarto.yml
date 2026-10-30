@@ -37,9 +37,7 @@ website:
         - monitor/network.qmd
         - monitor/snapshot.qmd
         - monitor/growth.qmd
-        - monitor/03_structure_invariance.qmd
-        - monitor/04_differentiation.qmd
-        - monitor/05_battery_design.qmd
+        - monitor/structure.qmd
         - monitor/crosslang_dif_batch.qmd
         - monitor/10_downward_extension.qmd
     - title: "Task reports"
@@ -66,6 +64,8 @@ website:
             - studies/2026-08_within-child-variability/06_within_child_variability.qmd
             - studies/2026-08_within-child-variability/07_rt_variability.qmd
             - studies/2026-08_within-child-variability/08_accuracy_variability.qmd
+        - section: "2026-07 · Battery length"
+          contents: studies/2026-07_battery-length/05_battery_design.qmd
         - section: "2026-07 · ROAR-Sentence scoring"
           contents: studies/2026-07_sre-scoring/sre.qmd
         - section: "2026-07 · Same & Different scoring"

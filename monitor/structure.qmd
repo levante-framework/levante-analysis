@@ -1,0 +1,389 @@
+---
+title: "Construct structure"
+order: 4
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    fig-width: 8
+    fig-height: 5.5
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| code-summary: "Setup: sample, reliabilities and models"
+source(here::here("common.R"))
+library(lavaan)
+
+scores_all <- load_levante_latest("scores")
+trials <- load_levante_latest("trials")
+scores <- clean_levante_latest(scores_all, trials)
+data_ref <- unique(scores_all$redivis_source)
+
+core <- c("matrix", "mrot", "math", "hf", "mg", "sds", "trog", "vocab", "tom")
+reading <- c("swr", "sre", "pa")
+short_labels <- deframe(task_lookup |> select(short, task_label))
+
+# each child's first run of each task
+first <- scores |>
+  filter(short %in% c(core, reading)) |>
+  group_by(dataset, user_id, short) |>
+  slice_min(time_started, n = 1, with_ties = FALSE) |>
+  ungroup()
+
+# datasets with 200 or more children who did at least 6 of the 9 core tasks
+sample_ds <- first |>
+  filter(short %in% core) |>
+  group_by(dataset, user_id) |>
+  summarise(k = n_distinct(short), .groups = "drop") |>
+  group_by(dataset) |>
+  summarise(full = sum(k >= 6), .groups = "drop") |>
+  filter(full >= 200) |>
+  pull(dataset)
+
+# scores standardized within dataset, so dataset mean differences drop out
+first <- first |>
+  filter(dataset %in% sample_ds) |>
+  group_by(dataset, short) |>
+  mutate(z = as.numeric(scale(score))) |>
+  ungroup()
+
+# empirical reliability of EAP scores, var / (var + mean SE^2), within
+# dataset and averaged weighted by n
+reliability <- first |>
+  filter(!is.na(score_se)) |>
+  group_by(dataset, short) |>
+  summarise(rel = var(score) / (var(score) + mean(score_se^2)), n = n(),
+            .groups = "drop") |>
+  group_by(short) |>
+  summarise(rel = weighted.mean(rel, n)) |>
+  deframe()
+
+age_first <- first |>
+  filter(!is.na(age)) |>
+  group_by(user_id) |>
+  summarise(age = min(age))
+wide <- first |>
+  select(dataset, user_id, short, z) |>
+  pivot_wider(names_from = short, values_from = z) |>
+  left_join(age_first, by = "user_id") |>
+  mutate(age_c = age - mean(age, na.rm = TRUE))
+wide_age <- filter(wide, !is.na(age))
+
+fit_index <- \(f, m) as.numeric(fitMeasures(f, m))
+improper <- function(f) {
+  pe <- parameterEstimates(f)
+  any(pe$est[pe$op == "~~" & pe$lhs == pe$rhs] < -1e-4) ||
+    any(abs(subset(standardizedSolution(f), op == "=~")$est.std) > 1.001)
+}
+fv_cor <- function(f) {
+  parameterEstimates(f) |> filter(lhs == "fluid", op == "~~", rhs == "verbal")
+}
+
+models <- list(
+  `g` = "g =~ matrix+mrot+math+hf+mg+sds+trog+vocab+tom",
+  `2-factor` = "fluid =~ matrix+mrot+math+hf+mg+sds\n verbal =~ trog+vocab+tom",
+  `3-factor` = "reasoning =~ matrix+mrot+math\n ef =~ hf+mg+sds\n language =~ trog+vocab+tom",
+  `bifactor` = "g =~ matrix+mrot+math+hf+mg+sds+trog+vocab+tom
+                reasoning =~ matrix+mrot+math\n ef =~ hf+mg+sds\n language =~ trog+vocab+tom")
+fits <- imap(models, \(m, nm) cfa(m, wide, std.lv = TRUE, missing = "fiml",
+                                  orthogonal = nm == "bifactor"))
+comparison <- imap_dfr(fits, \(f, nm) tibble(
+  model = nm, CFI = fit_index(f, "cfi"), RMSEA = fit_index(f, "rmsea"),
+  BIC = fit_index(f, "bic"), proper = !improper(f)))
+best <- comparison |> filter(proper) |> slice_min(BIC, n = 1)
+fit2 <- fits[["2-factor"]]
+fit3 <- fits[["3-factor"]]
+
+# corrected task correlations: each task a latent with error variance fixed
+# from its reliability
+silv <- paste(c(sprintf("eta_%s =~ 1*%s", core, core),
+                sprintf("%s ~~ %.4f*%s", core, pmax(1 - reliability[core], .02), core)),
+              collapse = "\n")
+cor_corrected <- lavInspect(cfa(silv, wide, missing = "fiml"), "cor.lv")
+dimnames(cor_corrected) <- list(short_labels[core], short_labels[core])
+
+# the one-, two- and three-factor models in each dataset
+per_dataset <- map_dfr(sample_ds, \(ds) imap_dfr(models[1:3], function(m, nm) {
+  f <- cfa(m, filter(wide, dataset == ds), std.lv = TRUE, missing = "fiml")
+  tibble(model = nm, BIC = fit_index(f, "bic"), proper = !improper(f))
+}) |> mutate(dataset = ds, dBIC = BIC - min(BIC)))
+
+two_best <- per_dataset |> filter(model == "2-factor")
+
+# invariance of the two-factor model across datasets and age bands
+ladder <- function(data, group) {
+  levels <- list(configural = NULL, metric = "loadings",
+                 scalar = c("loadings", "intercepts"))
+  imap_dfr(levels, \(eq, nm) {
+    f <- cfa(models[["2-factor"]], data, group = group, group.equal = eq,
+             std.lv = TRUE, missing = "fiml")
+    tibble(level = nm, CFI = fit_index(f, "cfi"), RMSEA = fit_index(f, "rmsea"))
+  }) |> mutate(dCFI = CFI - lag(CFI))
+}
+ladder_ds <- ladder(wide, "dataset") |> slice(1:2)
+age_bins <- c(0, 7, 9, 11, 20)
+wide_bins <- wide_age |>
+  mutate(age_bin = cut(age, age_bins, labels = c("under 7", "7–9", "9–11", "11 and over")))
+ladder_age <- ladder(wide_bins, "age_bin")
+
+# fluid-verbal correlation below and above each dataset's median age
+young_old <- wide_age |>
+  group_by(dataset) |>
+  group_modify(function(d, key) {
+    split <- median(d$age)
+    y <- fv_cor(cfa(models[["2-factor"]], filter(d, age < split), std.lv = TRUE, missing = "fiml"))
+    o <- fv_cor(cfa(models[["2-factor"]], filter(d, age >= split), std.lv = TRUE, missing = "fiml"))
+    tibble(split = split, younger = y$est, younger_se = y$se,
+           older = o$est, older_se = o$se)
+  }) |>
+  ungroup() |>
+  mutate(diff = younger - older, diff_se = sqrt(younger_se^2 + older_se^2),
+         lo = diff - 1.96 * diff_se, hi = diff + 1.96 * diff_se)
+```
+
+::: {.callout-note appearance="simple"}
+## Summary
+
+**Data:** `r data_ref`; each child's first run of each task in the
+`r length(sample_ds)` datasets with 200 or more children who did at least 6
+of the 9 core tasks (`r fmt_n(nrow(wide))` children). Scores are
+standardized within dataset.
+
+- The nine core tasks share a strong general factor. Corrected for
+  measurement error, every pair of tasks correlates between
+  `r f2(min(cor_corrected[upper.tri(cor_corrected)]))` and
+  `r f2(max(cor_corrected[upper.tri(cor_corrected)]))`.
+- Beyond it, the data support two correlated abilities: a fluid ability
+  (reasoning, spatial, math and executive tasks) and a verbal one (sentence
+  understanding, vocabulary and Stories), correlating
+  r = `r f2(fv_cor(fit2)$est)`. The two-factor model has the lowest BIC among
+  proper models, and splitting reasoning from executive function adds
+  nothing (those two factors correlate
+  r = `r f2(lavInspect(fit3, "cor.lv")["reasoning", "ef"])`).
+- The two-factor model has the lowest BIC in
+  `r sum(two_best$dBIC == 0)` of the `r length(sample_ds)` datasets and is
+  at most `r round(max(two_best$dBIC))` BIC points behind in the others. Its
+  loadings can be held equal across datasets
+  (ΔCFI = `r sprintf("%.3f", ladder_ds$dCFI[2])`) and across ages
+  (ΔCFI = `r sprintf("%.3f", ladder_age$dCFI[2])`).
+- Younger children's fluid and verbal abilities are more strongly correlated
+  than older children's in `r sum(young_old$diff > 0)` of
+  `r nrow(young_old)` datasets, reliably so only in
+  `r paste(dataset_labels_named[young_old$dataset[young_old$lo > 0]], collapse = ", ")`.
+:::
+
+# Task correlations, corrected for measurement error
+
+Most constructs here have a single task, so a task's reliable specific
+variance is mixed with its error. To separate them, each task becomes a
+latent variable whose error variance is fixed from its empirical
+reliability, and the latent correlations are read off.
+
+```{r corrected-correlations, fig.height=5.5}
+as.data.frame(cor_corrected) |>
+  rownames_to_column("t1") |>
+  pivot_longer(-t1, names_to = "t2", values_to = "r") |>
+  mutate(t1 = factor(t1, rev(short_labels[core])), t2 = factor(t2, short_labels[core]),
+         r = if_else(t1 == t2, NA_real_, r)) |>
+  ggplot(aes(t2, t1, fill = r)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = ifelse(is.na(r), "", f2(r)), colour = r > .6), size = 3.4) +
+  scale_colour_manual(values = c(`TRUE` = "black", `FALSE` = "white"), guide = "none") +
+  scale_fill_viridis_c(na.value = "grey92", name = "r") +
+  coord_fixed() +
+  labs(x = NULL, y = NULL) +
+  theme(axis.text.x = element_text(angle = 40, hjust = 1))
+```
+
+The reliabilities used range from `r f2(min(reliability[core]))`
+(`r short_labels[names(which.min(reliability[core]))]`) to
+`r f2(max(reliability[core]))`
+(`r short_labels[names(which.max(reliability[core]))]`). The highest
+corrected correlation is between Sentence Understanding and Vocabulary
+(r = `r f2(cor_corrected["Sentence Understanding", "Vocabulary"])`); Stories
+correlates `r f2(cor_corrected["Stories (ToM)", "Sentence Understanding"])`
+with Sentence Understanding and
+`r f2(cor_corrected["Stories (ToM)", "Vocabulary"])` with Vocabulary, so it
+keeps some reliable variance of its own.
+`r names(which.min(rowMeans(cor_corrected - diag(NA, nrow(cor_corrected)), na.rm = TRUE)))`
+is the most distinct task, with the lowest average correlation with the
+others.
+
+# Which structure
+
+Four confirmatory models: one general factor; two factors (fluid: Pattern
+Matching, Shape Rotation, Math, Hearts and Flowers, Memory, Same and
+Different; verbal: Sentence Understanding, Vocabulary, Stories); three
+factors (reasoning, executive function, language); and a bifactor model
+(a general factor plus the three domains). With a strong positive manifold,
+fit indices keep improving as factors are added, so the models are judged
+first on whether the solution is proper, then on BIC.
+
+```{r comparison}
+comparison |>
+  mutate(across(c(CFI, RMSEA), \(x) sprintf("%.3f", x)), BIC = fmt_n(round(BIC)),
+         proper = if_else(proper, "yes", "no")) |>
+  knitr::kable(col.names = c("Model", "CFI", "RMSEA", "BIC", "Proper"), align = "lrrrc")
+```
+
+The `r best$model` model has the lowest BIC. Its standardized loadings:
+
+```{r loadings, fig.height=4.5}
+standardizedSolution(fit2) |>
+  filter(op == "=~") |>
+  mutate(task = factor(short_labels[rhs], rev(short_labels[core])),
+         factor = str_to_title(lhs)) |>
+  ggplot(aes(x = est.std, y = task, colour = factor)) +
+  geom_pointrange(aes(xmin = ci.lower, xmax = ci.upper)) +
+  scale_colour_brewer(palette = "Set1", name = NULL) +
+  scale_x_continuous(limits = c(0, 1)) +
+  labs(x = "Standardized loading (95% CI)", y = NULL) +
+  theme(legend.position = "top")
+```
+
+## With the reading tasks
+
+ROAR-Word, ROAR-Sentence and ROAR-Phoneme are not core tasks, but adding
+them asks whether reading forms its own ability.
+
+```{r reading}
+reading_models <- list(
+  `g` = "g =~ matrix+mrot+math+hf+mg+sds+trog+vocab+tom+swr+sre+pa",
+  `2-factor, reading in verbal` = "fluid =~ matrix+mrot+math+hf+mg+sds\n verbal =~ trog+vocab+tom+swr+sre+pa",
+  `3-factor, separate reading` = "fluid =~ matrix+mrot+math+hf+mg+sds\n verbal =~ trog+vocab+tom\n reading =~ swr+sre+pa")
+reading_fits <- map(reading_models, \(m) cfa(m, wide, std.lv = TRUE, missing = "fiml"))
+reading_cor <- lavInspect(reading_fits[[3]], "cor.lv")
+imap_dfr(reading_fits, \(f, nm) tibble(model = nm, CFI = sprintf("%.3f", fit_index(f, "cfi")),
+                                       BIC = fmt_n(round(fit_index(f, "bic"))),
+                                       proper = if_else(improper(f), "no", "yes"))) |>
+  knitr::kable(col.names = c("Model", "CFI", "BIC", "Proper"), align = "lrrc")
+```
+
+A separate reading factor has the lowest BIC. It correlates
+r = `r f2(reading_cor["reading", "fluid"])` with the fluid ability and
+r = `r f2(reading_cor["reading", "verbal"])` with the verbal one, so it is not
+specifically tied to language.
+
+# Across datasets
+
+The one-, two- and three-factor models, fitted separately in each dataset:
+
+```{r per-dataset, fig.height=4}
+per_dataset |>
+  mutate(dataset_label = factor(dataset_labels_named[dataset],
+                                rev(dataset_labels_named[sample_ds])),
+         model = factor(model, names(models)[1:3])) |>
+  mutate(solution = if_else(proper, "proper", "improper")) |>
+  ggplot(aes(x = dBIC, y = dataset_label, colour = model, shape = solution)) +
+  geom_point(size = 3) +
+  scale_colour_brewer(palette = "Set1", name = NULL) +
+  scale_shape_manual(values = c(proper = 16, improper = 4), name = NULL) +
+  scale_x_continuous(trans = "pseudo_log") +
+  labs(x = "BIC above the best model in that dataset (0 = best)", y = NULL) +
+  theme(legend.position = "top")
+```
+
+Holding the two-factor model's loadings equal across the
+`r length(sample_ds)` datasets changes CFI by `r sprintf("%.3f", ladder_ds$dCFI[2])`
+(from `r sprintf("%.3f", ladder_ds$CFI[1])`), within the usual .01
+threshold, so the tasks measure the two abilities in the same way in each
+dataset. Because scores are standardized within dataset, a test of equal
+intercepts across datasets would not be informative.
+
+# Across age
+
+Holding loadings equal across four age bands
+(`r paste(levels(wide_bins$age_bin), collapse = ", ")`) changes CFI by
+`r sprintf("%.3f", ladder_age$dCFI[2])`; also holding intercepts equal changes it by a
+further `r sprintf("%.3f", ladder_age$dCFI[3])`, as expected when scores rise with age. So
+a change in how the abilities relate across age is not an artifact of
+loadings drifting.
+
+Within each dataset, the fluid–verbal correlation in children below and
+above the dataset's median age (95% CIs):
+
+```{r young-old, fig.height=4}
+young_old |>
+  select(dataset, split, younger, younger_se, older, older_se) |>
+  pivot_longer(c(younger, older), names_to = "group", values_to = "r") |>
+  mutate(se = if_else(group == "younger", younger_se, older_se),
+         group = factor(group, c("younger", "older"), c("Younger half", "Older half")),
+         dataset_label = factor(dataset_labels_named[dataset],
+                                rev(dataset_labels_named[sample_ds]))) |>
+  ggplot(aes(x = r, y = dataset_label, colour = group)) +
+  geom_pointrange(aes(xmin = r - 1.96 * se, xmax = r + 1.96 * se),
+                  position = position_dodge(width = 0.5)) +
+  scale_colour_manual(values = c("#4477AA", "#CC6677"), name = NULL) +
+  labs(x = "Fluid–verbal correlation", y = NULL) +
+  theme(legend.position = "top")
+```
+
+The difference is largest in
+`r dataset_labels_named[young_old$dataset[which.max(young_old$diff)]]`
+(`r f2(max(young_old$diff))`, 95% CI `r f2(young_old$lo[which.max(young_old$diff)])`
+to `r f2(young_old$hi[which.max(young_old$diff)])`), and runs the other way
+in `r paste(dataset_labels_named[young_old$dataset[young_old$diff < 0]], collapse = " and ")`.
+The datasets cover different ages, so the median split falls between
+`r round(min(young_old$split), 1)` and `r round(max(young_old$split), 1)`
+years.
+
+As a continuous function of age within each dataset (local structural
+equation model: each child weighted by a normal kernel around the focal
+age, bandwidth 1 year; shown where the effective sample is at least 150):
+
+```{r local-sem, fig.height=5.5}
+local_fv <- function(d, ages = seq(6, 12, by = 0.5), h = 1) {
+  map_dfr(ages, function(a0) {
+    w <- dnorm((d$age - a0) / h)
+    if (sum(w)^2 / sum(w^2) < 150) return(NULL)
+    f <- tryCatch(cfa(models[["2-factor"]], cbind(d, .w = w / mean(w)), std.lv = TRUE,
+                      missing = "fiml", sampling.weights = ".w"),
+                  error = \(e) NULL)
+    if (is.null(f) || !lavInspect(f, "converged")) return(NULL)
+    pe <- fv_cor(f)
+    tibble(age = a0, r = pe$est, lo = pe$ci.lower, hi = pe$ci.upper)
+  })
+}
+local <- wide_age |>
+  group_by(dataset) |>
+  group_modify(\(d, key) local_fv(d)) |>
+  ungroup()
+
+ggplot(local, aes(x = age, y = r, colour = dataset, fill = dataset)) +
+  geom_ribbon(aes(ymin = pmax(lo, 0.4), ymax = pmin(hi, 1)), alpha = 0.12, colour = NA) +
+  geom_line(linewidth = 1) +
+  facet_wrap(vars(dataset_labels_named[dataset])) +
+  scale_colour_dataset(guide = "none") +
+  scale_fill_dataset(guide = "none") +
+  scale_x_continuous(breaks = 6:12) +
+  coord_cartesian(ylim = c(0.4, 1)) +
+  labs(x = "Age (years)", y = "Fluid–verbal correlation")
+```
+
+# Notes
+
+- **Sample.** Each child contributes their first run of each task. The
+  downward-extension, younger-sibling and smaller datasets have too few
+  children with most of the core tasks to fit these models.
+- **Standardizing within dataset** removes differences in dataset means, so
+  these models describe how tasks covary within datasets, not how datasets
+  differ.
+- **Proper solutions.** A model is improper when a variance is negative or a
+  standardized loading exceeds 1.
+
+# Revision history
+
+- **2026-10-30.** Rewritten on the pinned release, merging "03 — Construct
+  structure & measurement invariance" and "04 — Construct structure:
+  emergent dimensions, differentiation, and the role of g" (both on the
+  2026-08 per-site snapshot of four datasets). Argentina and Sheffield are
+  added; scores are now standardized within dataset; MEFS is left out (few
+  children have it); and the shared-speed check from 04 is not carried over.
+  On the new data Stories is less fully absorbed into the verbal ability than
+  the earlier pages reported, and the decline of the fluid–verbal
+  correlation with age is clear only in rural Colombia, not in every
+  dataset. Both old pages are in `archive/`.
