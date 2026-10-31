@@ -1,0 +1,38 @@
+---
+title: "Fix list"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+Issues found on this site that need a change somewhere else, grouped by
+the activity that will fix them: the next calibration of the scoring
+models, the item banks, the task code and deployment, the scoring
+pipeline and releases, or a decision. Each entry links to the page where
+the evidence is computed, so the numbers there stay current; the entries
+themselves don't repeat them.
+
+The list lives in `register/fixes.csv`. Add an entry when a page turns up
+an issue, change its status when it is reported or fixed, and keep fixed
+entries (marked Fixed, with the release that fixed them) until the page
+that found them confirms the fix.
+
+```{r fixes}
+#| results: asis
+#| tbl-colwidths: [12, 35, 28, 16, 9]
+fixes <- readr::read_csv(here::here("register/fixes.csv"), show_col_types = FALSE)
+activities <- c("Recalibration", "Item banks", "Task code and deployment",
+                "Scoring pipeline and releases", "Decisions and new designs")
+stopifnot(all(fixes$activity %in% activities))
+for (a in activities) {
+  d <- fixes[fixes$activity == a, ]
+  cat("\n\n# ", a, "\n\n", sep = "")
+  print(knitr::kable(d[, c("task", "issue", "action", "evidence", "status")],
+                     col.names = c("Task", "Issue", "Action", "Evidence", "Status")))
+}
+```

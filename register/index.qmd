@@ -7,6 +7,10 @@ Each entry is dated, says which data it rests on, and links to the page
 with the evidence. When a finding is overturned, its entry stays and its
 status changes.
 
+Issues that need a fix elsewhere (in the item banks, the task code, the
+scoring pipeline or the next calibration) are tracked in the
+[fix list](fixes.qmd).
+
 The register is being seeded. Findings from earlier studies are added as
 each study is reviewed.
 

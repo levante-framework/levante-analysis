@@ -90,6 +90,7 @@ website:
     - title: "Findings & decisions"
       contents:
         - register/index.qmd
+        - register/fixes.qmd
 
 format:
   html:
