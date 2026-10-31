@@ -1,0 +1,91 @@
+---
+title: "Same & Different"
+params:
+  task_id: "same-different-selection"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    fig-width: 8
+    fig-height: 5
+execute:
+  warning: false
+  message: false
+---
+
+{{< include _task_report.qmd >}}
+
+# Blocks
+
+Same & Different runs in blocks. Children first say whether two cards are
+the same, then name the dimension two cards differ on, then pick every
+card that matches a target on two, three or four dimensions. The match
+blocks have no single chance level, so the below-chance check above
+covers only the first two blocks.
+
+```{r sds-blocks}
+sds_block_labels <- c(same = "same", dimensions = "dimensions", `2match` = "2-match",
+                      `3match` = "3-match", `4match` = "4-match")
+sds <- trials |>
+  filter(item_group %in% names(sds_block_labels), !is.na(correct)) |>
+  mutate(block = factor(sds_block_labels[item_group], sds_block_labels),
+         age_band = cut(age_at_run(run_id), c(3, 5, 7, 9, 11, 16), right = FALSE,
+                        labels = c("3–4", "5–6", "7–8", "9–10", "11+"))) |>
+  filter(!is.na(age_band))
+# share of each dataset's first runs on its single most common score
+sds_ties <- first_runs |>
+  group_by(dataset) |>
+  summarise(n = n(), top_value = as.numeric(names(which.max(table(round(score, 3))))),
+            top_share = max(table(round(score, 3))) / n(),
+            top_is_max = top_value == max(round(score, 3)), .groups = "drop")
+sds_top <- head(arrange(by_ds(sds_ties), desc(top_share)), 3)
+```
+
+```{r sds-blocks-plot, fig.height=3.5}
+#| label: fig-sds-blocks
+#| fig-cap: "Accuracy by block and age (cells with 50 or more responses)."
+sds |>
+  group_by(block, age_band) |>
+  summarise(accuracy = mean(correct), n = n(), .groups = "drop") |>
+  filter(n >= 50) |>
+  ggplot(aes(x = age_band, y = fct_rev(block), fill = accuracy)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = f2(accuracy), colour = accuracy > .5), size = 3) +
+  scale_colour_manual(values = c(`TRUE` = "black", `FALSE` = "white"), guide = "none") +
+  scale_fill_viridis_c(limits = c(0, 1), guide = "none") +
+  labs(x = "Age (years)", y = NULL)
+```
+
+# Shared scores
+
+```{r sds-ties-plot, fig.height=4}
+#| label: fig-sds-ties
+#| fig-cap: "Share of each dataset's first runs that have its single most common score (datasets with 50 or more runs)."
+sds_ties |>
+  by_ds() |>
+  ggplot(aes(x = top_share, y = dataset_label, fill = dataset)) +
+  geom_col() +
+  scale_fill_dataset(guide = "none") +
+  scale_x_continuous(labels = scales::percent) +
+  labs(x = "Share of runs on the most common score", y = NULL)
+```
+
+Children with the same responses get the same score. When one score
+value holds a large share of a dataset's runs, the score can't tell those
+children apart. The largest shares are
+`r with(sds_top, paste0(dataset_labels_named[dataset], " ", fmt_pct(top_share), collapse = ", "))`.
+`r tops <- filter(sds_top, top_is_max, top_share > .2); if (nrow(tops) > 0) paste0("In ", paste(dataset_labels_named[tops$dataset], collapse = " and "), " the most common score is also the highest, so those children are at the task's ceiling.") else ""`
+
+# Open issues
+
+`r below_chance_issue()`
+`r tops <- filter(sds_ties, top_is_max, top_share > .2, n >= min_runs); if (nrow(tops) > 0) paste0("- ", paste(dataset_labels_named[tops$dataset], collapse = " and "), if (nrow(tops) == 1) " has" else " have", " most first runs at the highest score (@fig-sds-ties), so the task gives little information about those children.") else ""`
+- New scoring models for this task are pending. How the blocks should be
+  scored, and the timing of each block, are studied in
+  [Same & Different scoring](../studies/2026-07_sds-scoring/same_different.qmd).
+
+# Revision history
+
+- **2026-10-30.** First version, from the standard task-report template on
+  the pinned release.

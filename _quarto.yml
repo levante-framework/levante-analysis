@@ -48,9 +48,13 @@ website:
         - tasks/memory.qmd
         - tasks/shape_rotation.qmd
         - tasks/sentence_understanding.qmd
+        - tasks/pattern_matching.qmd
+        - tasks/same_different.qmd
+        - tasks/stories.qmd
         - tasks/vocab.qmd
         - tasks/roar_phoneme.qmd
         - tasks/roar_sentence.qmd
+        - tasks/roar_word.qmd
     - title: "Studies"
       contents:
         - studies/index.qmd

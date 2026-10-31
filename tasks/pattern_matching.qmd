@@ -1,0 +1,88 @@
+---
+title: "Pattern Matching"
+params:
+  task_id: "matrix-reasoning"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    fig-width: 8
+    fig-height: 5
+execute:
+  warning: false
+  message: false
+---
+
+{{< include _task_report.qmd >}}
+
+# Item sets
+
+Pattern Matching is a matrix-reasoning task: the child picks the piece that
+completes a pattern. Items come from two shape sets, and set 3 has two
+kinds of answer options: distractors that differ minimally from the answer,
+and distractors that differ in pairs.
+
+```{r mr-items}
+mr_items <- items |>
+  mutate(set = coalesce(na_if(item_group_label, ""), item_group))
+mr_sets <- mr_items |>
+  group_by(set) |>
+  summarise(n_items = n(), difficulty = mean(difficulty),
+            thin = sum(n_responses < min_calib), .groups = "drop")
+mr_use <- trials |>
+  filter(!is.na(item_group), item_group != "") |>
+  left_join(distinct(mr_items, item_group, set), by = "item_group") |>
+  mutate(form = if_else(adaptive, "adaptive", "fixed"),
+         age_band = cut(age_at_run(run_id), c(3, 5, 7, 9, 11, 16), right = FALSE,
+                        labels = c("3–4", "5–6", "7–8", "9–10", "11+"))) |>
+  filter(!is.na(age_band))
+```
+
+```{r mr-sets-plot, fig.height=3.5}
+#| label: fig-mr-sets
+#| fig-cap: "Calibrated item difficulty by item set: each item (points; open if calibrated on fewer than 100 responses) and the set mean (bar)."
+mr_items |>
+  mutate(calibration = if_else(n_responses >= min_calib, "well calibrated", "few responses")) |>
+  ggplot(aes(x = difficulty, y = set)) +
+  geom_jitter(aes(shape = calibration), height = 0.15, colour = "#4477AA", alpha = 0.7) +
+  stat_summary(fun = mean, geom = "crossbar", width = 0.5, linewidth = 0.3) +
+  scale_shape_manual(values = c(`well calibrated` = 16, `few responses` = 1), name = NULL) +
+  labs(x = "Item difficulty", y = NULL) +
+  theme(legend.position = "top")
+```
+
+```{r mr-use-plot, fig.height=4}
+#| label: fig-mr-use
+#| fig-cap: "Share of each age group's responses that come from each item set, on the adaptive and fixed forms."
+mr_use |>
+  count(form, age_band, set) |>
+  group_by(form, age_band) |>
+  mutate(share = n / sum(n)) |>
+  ungroup() |>
+  ggplot(aes(x = age_band, y = share, fill = set)) +
+  geom_col() +
+  facet_wrap(vars(form)) +
+  scale_fill_manual(values = c("#4477AA", "#CC6677", "#228833"), name = NULL) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Age (years)", y = "Share of responses") +
+  theme(legend.position = "top")
+```
+
+`r set1_adaptive <- with(filter(mr_use, form == "adaptive"), mean(set == mr_sets$set[str_detect(mr_sets$set, "set 1")])); paste0(fmt_pct(set1_adaptive), " of responses on the adaptive form are to set-1 items, so the set-3 items are calibrated mostly from the fixed form.")`
+`r with(mr_sets, paste0(set, ": ", n_items, " items, mean difficulty ", f2(difficulty), ", ", thin, " calibrated on fewer than ", min_calib, " responses", collapse = "; "))`.
+
+# Open issues
+
+`r below_chance_issue()`
+- `r sum(mr_items$n_responses < min_calib)` of the `r nrow(mr_items)` items
+  have parameters from fewer than `r min_calib` responses
+  (@fig-mr-sets); recalibrating on the current release would firm them up.
+- Whether children improve on a second run because they have seen the
+  items before is studied in
+  [training vs development](../studies/2026-07_training-vs-development/training_vs_development.qmd).
+
+# Revision history
+
+- **2026-10-30.** First version, from the standard task-report template on
+  the pinned release.

@@ -14,6 +14,7 @@ One page per task, each built from the standard task report and computed
 from the pinned release: deployment and forms, coverage, the item bank,
 item health, scores, reliability, stability and validity, and time,
 followed by a section specific to the task and its open issues. For tasks
-calibrated separately in each language (Vocabulary, ROAR-Phoneme), the
-item sections are per language. Analyses of Same & Different, Stories,
-Pattern Matching and ROAR-Word are in [Studies](../studies/index.qmd).
+calibrated separately in each language (Vocabulary, ROAR-Phoneme, ROAR-Word), the
+item sections are per language. Longer analyses of particular tasks (for
+example Stories, Same & Different scoring and ROAR-Word engagement) are in
+[Studies](../studies/index.qmd) and linked from each page's open issues.

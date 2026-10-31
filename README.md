@@ -240,17 +240,17 @@ children with ≥ 2 administrations (longitudinal signal).
 | Task | task_id | runs | kids 2-wave | status |
 |---|---|---:|---:|---|
 | Math | egma-math | 2967 | 470 | **task report** (`tasks/math.qmd`; June chapters in `archive/math*.qmd`) |
-| Stories / ToM | theory-of-mind | 1931 | 198 | **deep-dived** (`studies/2026-09_stories/stories.qmd`; forensic appendix `studies/2026-06_tom-reality-check/tom_reality_check_bug.qmd`) |
+| Stories / ToM | theory-of-mind | 1931 | 198 | **task report** (`tasks/stories.qmd`) + study (`studies/2026-09_stories/stories.qmd`; forensic appendix `studies/2026-06_tom-reality-check/tom_reality_check_bug.qmd`) |
 | Vocabulary | vocab | 1481 | 239 | **task report** (`tasks/vocab.qmd`) |
-| ROAR-Word | swr | 1610 | 195 | **deep-dived** (`studies/2026-07_roar-word-engagement/roar_word.qmd`) |
+| ROAR-Word | swr | 1610 | 195 | **task report** (`tasks/roar_word.qmd`) + study (`studies/2026-07_roar-word-engagement/roar_word.qmd`) |
 | Memory | memory-game | 1717 | 284 | **task report** (`tasks/memory.qmd`) — board linking checked across waves |
 | Hearts & Flowers | hearts-and-flowers | 1685 | 280 | **task report** (`tasks/hearts_and_flowers.qmd`; v2 study in `studies/2026-10_hf-v2-redesign/`) |
-| Pattern Matching | matrix-reasoning | 1536 | 263 | **deep-dived** (`studies/2026-07_training-vs-development/training_vs_development.qmd`) — no practice effect on corrected data |
+| Pattern Matching | matrix-reasoning | 1536 | 263 | **task report** (`tasks/pattern_matching.qmd`) + study (`studies/2026-07_training-vs-development/training_vs_development.qmd`) |
 | Sentence Understanding | trog | 1465 | 229 | **task report** (`tasks/sentence_understanding.qmd`; `studies/2026-07_training-vs-development/training_vs_development.qmd`) |
 | Shape Rotation | mental-rotation | 1482 | 247 | **task report** (`tasks/shape_rotation.qmd`) — angle effect on well-calibrated items |
 | ROAR-Sentence | sre | 1622 | 202 | **task report** (`tasks/roar_sentence.qmd`) |
 | ROAR-Phoneme | pa | 1554 | 69 | **task report** (`tasks/roar_phoneme.qmd`) |
-| Same & Different | same-different-selection | 1066 | 201 | **pending new scoring models** (not yet implemented) |
+| Same & Different | same-different-selection | 1066 | 201 | **task report** (`tasks/same_different.qmd`); new scoring models pending |
 
 **Training vs development (PM & SU):** the release-notes "T2 > T1" did **not**
 replicate on corrected data — it was largely the scoring bug. The one clean

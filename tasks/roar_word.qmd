@@ -1,0 +1,77 @@
+---
+title: "ROAR-Word"
+params:
+  task_id: "swr"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    fig-width: 8
+    fig-height: 5
+execute:
+  warning: false
+  message: false
+---
+
+{{< include _task_report.qmd >}}
+
+# Engagement
+
+ROAR-Word is a timed lexical decision task: the child sees a letter string
+and decides as fast as they can whether it is a real word. Children who
+tap through without reading answer near chance, or very fast. Runs with
+accuracy below 40% or a median response time under 500 ms are dropped
+before any analysis on this site (`clean_levante_latest()` in `common.R`).
+
+```{r swr-engagement}
+swr_runs_all <- load_levante_latest_trials("swr") |>
+  group_by(run_id) |>
+  summarise(accuracy = mean(correct, na.rm = TRUE),
+            median_rt = median(rt_numeric, na.rm = TRUE), .groups = "drop") |>
+  inner_join(scores_all |> filter(task_id == "swr") |>
+               distinct(run_id, dataset, language, score), by = "run_id") |>
+  mutate(dropped = accuracy < 0.4 | median_rt < 500)
+swr_drop <- swr_runs_all |>
+  filter(!is.na(score)) |>
+  group_by(dataset) |>
+  summarise(n = n(), dropped = mean(dropped), .groups = "drop")
+swr_unscored <- scores_all |>
+  filter(task_id == "swr") |>
+  distinct(run_id, language, score) |>
+  group_by(lang = substr(language, 1, 2)) |>
+  summarise(n = n(), unscored = sum(is.na(score)), .groups = "drop")
+```
+
+```{r swr-engagement-plot, fig.height=4.5}
+#| label: fig-swr-engagement
+#| fig-cap: "Accuracy against median response time for every scored ROAR-Word run; runs outside the dashed lines are dropped as non-engaged."
+swr_runs_all |>
+  filter(!is.na(score), median_rt < 5000) |>
+  ggplot(aes(x = median_rt, y = accuracy, colour = dropped)) +
+  geom_point(alpha = 0.3, size = 0.8) +
+  geom_hline(yintercept = 0.4, lty = 2) +
+  geom_vline(xintercept = 500, lty = 2) +
+  scale_colour_manual(values = c(`TRUE` = "#CC3311", `FALSE` = "grey45"), guide = "none") +
+  scale_x_log10() +
+  labs(x = "Median response time (ms)", y = "Accuracy")
+```
+
+Share of scored runs dropped:
+`r with(by_ds(swr_drop), paste0(dataset_labels_named[dataset], " ", fmt_pct(dropped), " (of ", fmt_n(n), ")", collapse = "; "))`.
+
+# Open issues
+
+`r k <- sum(item_lang$below_chance); if (k > 0) paste0("- ", k, " item-language combinations are answered below chance (@fig-item-health). In lexical decision this need not mean a wrong key: children can reject rare real words and accept pseudowords that look like real words. These items are worth reviewing, but they may be working as intended.") else ""`
+`r de <- filter(swr_unscored, lang == "de"); if (nrow(de) == 1 && de$unscored == de$n) paste0("- None of the ", fmt_n(de$n), " German runs has a score in this release, although a German item bank is calibrated (", sum(items$lang == "de"), " items).") else ""`
+- `r fmt_pct(mean(item_key(trials) %in% item_key(thin_items)), 0)` of
+  responses go to items calibrated on fewer than `r min_calib` responses.
+  With a large bank of words seen rarely, many item parameters rest on
+  little data.
+- The engagement rule and its effect on scores are studied in
+  [ROAR-Word engagement](../studies/2026-07_roar-word-engagement/roar_word.qmd).
+
+# Revision history
+
+- **2026-10-30.** First version, from the standard task-report template on
+  the pinned release.

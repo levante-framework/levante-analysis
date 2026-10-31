@@ -1,0 +1,68 @@
+---
+title: "Stories"
+params:
+  task_id: "theory-of-mind"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    fig-width: 8
+    fig-height: 5
+execute:
+  warning: false
+  message: false
+---
+
+{{< include _task_report.qmd >}}
+
+# Story types
+
+Stories is the theory-of-mind task: the child hears illustrated stories
+and answers questions about what the characters know, believe, feel and
+intend. Each story belongs to one scenario type, and the items are scored
+with a two-parameter model, so items differ in how well they separate
+children as well as in difficulty.
+
+```{r tom-items}
+tom_items <- items |>
+  mutate(scenario = str_remove(coalesce(na_if(item_group_label, ""), item_group), " scenario$"))
+tom_types <- tom_items |>
+  group_by(scenario) |>
+  summarise(n_items = n(), difficulty = mean(difficulty),
+            discrimination = median(discrimination), .groups = "drop") |>
+  arrange(difficulty)
+tom_low <- tom_items |> filter(discrimination < 0.5)
+```
+
+```{r tom-items-plot, fig.height=4.5}
+#| label: fig-tom-items
+#| fig-cap: "Calibrated difficulty and discrimination of each item, by scenario type."
+tom_items |>
+  ggplot(aes(x = difficulty, y = discrimination, colour = scenario)) +
+  geom_hline(yintercept = 0.5, lty = 3, colour = "grey60") +
+  geom_point(size = 2, alpha = 0.8) +
+  scale_colour_manual(values = c("#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE", "#AA3377"),
+                      name = NULL) +
+  labs(x = "Item difficulty", y = "Discrimination") +
+  theme(legend.position = "right")
+```
+
+By mean difficulty, the easiest scenario type is
+`r tom_types$scenario[1]` (`r f2(tom_types$difficulty[1])`) and the hardest
+`r tom_types$scenario[nrow(tom_types)]` (`r f2(tom_types$difficulty[nrow(tom_types)])`).
+`r nrow(tom_low)` of the `r nrow(tom_items)` items have a discrimination
+below 0.5 and contribute little to a child's score
+(`r paste(count(tom_low, scenario)$scenario, " ", count(tom_low, scenario)$n, collapse = ", ")`).
+
+# Open issues
+
+`r below_chance_issue()`
+- The item audit (item keys, exclusions, and whether the scenarios measure
+  one construct) and the recommendation for an adaptive form built from
+  whole stories are in [Stories](../studies/2026-09_stories/stories.qmd).
+
+# Revision history
+
+- **2026-10-30.** First version, from the standard task-report template on
+  the pinned release.
