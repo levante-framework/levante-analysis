@@ -22,14 +22,41 @@ suppressPackageStartupMessages({
 # sysfonts/showtext if available; otherwise we fall back to the system default
 # so this still works in headless renders without those packages installed.
 
+# The font files are downloaded once into a per-user cache, with short
+# timeouts, so an offline or slow network never stalls a render. Failing
+# that, an installed Source Sans Pro (the same typeface's earlier name) is
+# used, and failing that the system default.
 .levante_font <- "sans"
-if (requireNamespace("sysfonts", quietly = TRUE) &&
-    requireNamespace("showtext", quietly = TRUE)) {
-  .levante_font <- "Source Sans 3"
-  sysfonts::font_add_google(.levante_font)
+local({
+  if (!requireNamespace("sysfonts", quietly = TRUE) ||
+      !requireNamespace("showtext", quietly = TRUE)) return()
+  cache <- tools::R_user_dir("levante-analysis", "cache")
+  files <- file.path(cache, c("SourceSans3-Regular.ttf", "SourceSans3-Bold.ttf"))
+  if (!all(file.exists(files))) {
+    try({
+      h <- curl::new_handle(connecttimeout = 5, timeout = 30)
+      db <- sysfonts:::google_font_db(TRUE, h)
+      font <- db[[2]][[sysfonts:::search_db("Source Sans 3", db_cache = TRUE, handle = h)]]
+      dir.create(cache, recursive = TRUE, showWarnings = FALSE)
+      curl::curl_download(font$files[["regular"]], files[1], handle = h)
+      curl::curl_download(font$files[["700"]], files[2], handle = h)
+    }, silent = TRUE)
+  }
+  installed <- file.path(c("~/Library/Fonts", "/Library/Fonts"),
+                         rep(c("SourceSansPro-Regular.ttf", "SourceSansPro-Bold.ttf"), each = 2))
+  installed <- installed[file.exists(installed)]
+  if (all(file.exists(files)) && all(file.size(files) > 10000)) {
+    sysfonts::font_add("Source Sans 3", regular = files[1], bold = files[2])
+  } else if (length(installed) >= 2) {
+    sysfonts::font_add("Source Sans 3", regular = grep("Regular", installed, value = TRUE)[1],
+                       bold = grep("Bold", installed, value = TRUE)[1])
+  } else {
+    return()
+  }
   showtext::showtext_auto()
   showtext::showtext_opts(dpi = 300)
-}
+  .levante_font <<- "Source Sans 3"
+})
 
 theme_set(theme_bw(base_size = 14, base_family = .levante_font))
 theme_update(panel.grid = element_blank(),
@@ -343,6 +370,30 @@ load_levante_latest <- function(table = c("scores", "trials", "participants",
   out <- getter("levante_data_latest:e9pf", version = version)
   dir_create(cache_dir)
   write_rds(out, cache_path)
+  out
+}
+
+#' Trials of the pinned release for some tasks, cached per task so pages
+#' don't each read the whole trials table.
+load_levante_latest_trials <- function(task_ids, version = levante_latest_version,
+                                       refresh = FALSE, cache_dir = here("data")) {
+  path_of <- \(tk) file.path(cache_dir, glue("levante_data_latest__{version}__trials__{tk}.rds"))
+  missing <- task_ids[refresh | !file_exists(path_of(task_ids))]
+  if (length(missing) > 0) {
+    all <- load_levante_latest("trials", version = version)
+    for (tk in missing) write_rds(filter(all, task_id == tk), path_of(tk))
+  }
+  map_dfr(task_ids, \(tk) read_rds(path_of(tk)))
+}
+
+#' Cleaned scores of the pinned release (`clean_levante_latest()`), cached.
+load_levante_clean <- function(version = levante_latest_version, refresh = FALSE,
+                               cache_dir = here("data")) {
+  path <- file.path(cache_dir, glue("levante_data_latest__{version}__scores_clean.rds"))
+  if (!refresh && file_exists(path)) return(read_rds(path))
+  out <- clean_levante_latest(load_levante_latest("scores", version = version),
+                              load_levante_latest_trials("swr", version = version))
+  write_rds(out, path)
   out
 }
 

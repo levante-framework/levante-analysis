@@ -18,8 +18,7 @@ execute:
 source(here::here("common.R"))
 
 scores_all <- load_levante_latest("scores")
-trials <- load_levante_latest("trials")
-scores <- clean_levante_latest(scores_all, trials)
+scores <- load_levante_clean()
 cleaning <- attr(scores, "cleaning")
 data_ref <- unique(scores_all$redivis_source)
 last_run <- as.Date(max(scores$time_started, na.rm = TRUE))

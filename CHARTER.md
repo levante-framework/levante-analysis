@@ -55,6 +55,15 @@ chapters. Older chapters are brought into line as they are revised.
   fix there. The monitor's checks may show the symptom (e.g. a count of
   unscored runs), but the chapters don't carry bug narratives.
 
+## Task reports
+
+- Task pages are built from the standard template, `tasks/_task_report.qmd`
+  (data and summaries in `tasks/_task_report.R`). A task page sets
+  `params: task_id`, includes the template, and adds only a task-specific
+  section, open issues with links to the relevant studies, and a revision
+  history. A section every task needs goes in the template, not in one
+  page.
+
 ## Figures and tables
 
 - **Plots over tables**, usually. Keep a table when readers need the exact

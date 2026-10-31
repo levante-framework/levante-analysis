@@ -19,8 +19,7 @@ source(here::here("common.R"))
 library(lme4)
 
 scores_all <- load_levante_latest("scores")
-trials <- load_levante_latest("trials")
-scores <- clean_levante_latest(scores_all, trials)
+scores <- load_levante_clean()
 data_ref <- unique(scores_all$redivis_source)
 
 # core tasks whose items are shared across language versions. ROAR tasks
@@ -36,8 +35,7 @@ first_runs <- scores |>
   slice_min(time_started, n = 1, with_ties = FALSE) |>
   ungroup() |>
   select(run_id)
-responses <- trials |>
-  filter(task_id %in% tasks) |>
+responses <- load_levante_latest_trials(tasks) |>
   semi_join(first_runs, by = "run_id") |>
   mutate(lang = substr(language, 1, 2), y = as.integer(correct)) |>
   filter(!is.na(y), lang %in% names(lang_labels))

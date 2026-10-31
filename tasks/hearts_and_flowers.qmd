@@ -1,0 +1,105 @@
+---
+title: "Hearts and Flowers"
+params:
+  task_id: "hearts-and-flowers"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    fig-width: 8
+    fig-height: 5
+execute:
+  warning: false
+  message: false
+---
+
+{{< include _task_report.qmd >}}
+
+# Blocks and switching
+
+Hearts and Flowers has three blocks: hearts (press on the same side),
+flowers (press on the opposite side) and a mixed block. Trials are the first
+of a block (start), a repeat of the previous rule (stay) or, in the mixed
+block, a change of rule (switch). Responses faster than 200 ms or slower
+than 2 seconds count as wrong.
+
+```{r hf-trials}
+hf <- trials |>
+  mutate(block = recode(item_group, hearts = "Hearts", flowers = "Flowers",
+                        heartsflowers = "Mixed"),
+         trial_type = str_extract(item_uid, "(start|stay|switch)$"),
+         age_band = cut(age_at_run(run_id), c(3, 5, 7, 9, 11, 16), right = FALSE,
+                        labels = c("3–4", "5–6", "7–8", "9–10", "11+")))
+```
+
+```{r hf-blocks, fig.height=4.5}
+#| label: fig-hf-blocks
+#| fig-cap: "Accuracy by block, trial type and age (all runs)."
+hf |>
+  filter(!is.na(age_band), !is.na(trial_type)) |>
+  group_by(block, trial_type, age_band) |>
+  summarise(accuracy = mean(correct, na.rm = TRUE), n = n(), .groups = "drop") |>
+  ggplot(aes(x = age_band, y = accuracy, colour = trial_type, group = trial_type)) +
+  geom_hline(yintercept = 0.5, lty = 2, colour = "grey60") +
+  geom_line() +
+  geom_point() +
+  facet_wrap(vars(block)) +
+  scale_colour_brewer(palette = "Set1", name = NULL) +
+  labs(x = "Age (years)", y = "Accuracy") +
+  theme(legend.position = "top")
+```
+
+```{r hf-switch-cost}
+switch_cost <- hf |>
+  filter(block == "Mixed", trial_type %in% c("stay", "switch"), !is.na(age_band)) |>
+  group_by(age_band, trial_type) |>
+  summarise(accuracy = mean(correct, na.rm = TRUE), .groups = "drop") |>
+  pivot_wider(names_from = trial_type, values_from = accuracy) |>
+  mutate(cost = stay - switch)
+```
+
+In the mixed block, switch trials are
+`r if (all(switch_cost$cost > 0)) "less accurate than stay trials at every age" else "not less accurate than stay trials at every age"`;
+the difference is `r f2(max(switch_cost$cost))` at
+`r switch_cost$age_band[which.max(switch_cost$cost)]` and
+`r f2(min(switch_cost$cost))` at
+`r switch_cost$age_band[which.min(switch_cost$cost)]`.
+
+```{r hf-timing, fig.height=4}
+#| label: fig-hf-timing
+#| fig-cap: "Share of responses outside the 200–2,000 ms window, by block and age; these count as wrong."
+hf |>
+  filter(!is.na(age_band)) |>
+  group_by(block, age_band) |>
+  summarise(too_slow = mean(rt_numeric > 2000 | is.na(rt_numeric)),
+            too_fast = mean(rt_numeric < 200, na.rm = TRUE), .groups = "drop") |>
+  pivot_longer(c(too_slow, too_fast), names_to = "kind", values_to = "share") |>
+  mutate(kind = recode(kind, too_slow = "slower than 2 s or no response",
+                       too_fast = "faster than 200 ms")) |>
+  ggplot(aes(x = age_band, y = share, colour = block, group = block)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(vars(kind)) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_colour_brewer(palette = "Set1", name = NULL) +
+  labs(x = "Age (years)", y = "Share of responses") +
+  theme(legend.position = "top")
+```
+
+# Open issues
+
+- Which form a child receives follows the task variant, not the code
+  version; the redesign that added a feedback sound and faster mixed blocks
+  is evaluated in the
+  [Hearts and Flowers v2 study](../studies/2026-10_hf-v2-redesign/hearts_and_flowers_v2.qmd).
+- Scores pile up near the top of the range in some datasets (see Scores
+  above and the [growth page checks](../monitor/growth.qmd#fig-trajectory-checks)).
+- Production scores the task with a Rasch model with a .5 guessing floor;
+  an earlier claim that a 2PL model fits better is
+  [retracted](../register/index.qmd).
+
+# Revision history
+
+- **2026-10-30.** First version, from the standard task-report template on
+  the pinned release. Replaces the June chapter (now in `archive/`).

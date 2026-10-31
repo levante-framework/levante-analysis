@@ -27,8 +27,7 @@ studies <- read_csv(here("monitor/network_studies.csv"), show_col_types = FALSE)
 recruiting <- studies |> filter(!is.na(age_min))
 
 scores_all <- load_levante_latest("scores")
-trials <- load_levante_latest("trials")
-scores <- clean_levante_latest(scores_all, trials) |> add_waves()
+scores <- load_levante_clean() |> add_waves()
 data_ref <- unique(scores_all$redivis_source)
 
 study_teams <- recruiting |>

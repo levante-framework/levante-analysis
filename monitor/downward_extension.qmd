@@ -167,7 +167,7 @@ sparklab_repeats <- runs |>
 
 # LangCog checks
 lc_runs <- runs |> filter(dataset == "pilot_langcog_us_downex")
-lc_trials_v5 <- load_levante_latest("trials") |>
+lc_trials_v5 <- load_levante_latest_trials(unique(lc_runs$task_id)) |>
   filter(dataset == "pilot_langcog_us_downex")
 items <- load_levante_latest("items")
 lc_test <- test |>

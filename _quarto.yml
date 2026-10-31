@@ -43,6 +43,8 @@ website:
     - title: "Task reports"
       contents:
         - tasks/index.qmd
+        - tasks/hearts_and_flowers.qmd
+        - tasks/math.qmd
         - tasks/memory.qmd
         - tasks/shape_rotation.qmd
         - tasks/sentence_understanding.qmd
@@ -52,30 +54,30 @@ website:
       contents:
         - studies/index.qmd
         - section: "2026-10 · H&F v2 redesign"
-          contents: studies/2026-10_hf-v2-redesign/hearts_and_flowers_v2.qmd
+          contents: [studies/2026-10_hf-v2-redesign/hearts_and_flowers_v2.qmd]
         - section: "2026-09 · Stories (ToM)"
-          contents: studies/2026-09_stories/stories.qmd
+          contents: [studies/2026-09_stories/stories.qmd]
         - section: "2026-09 · TROG skin tone"
-          contents: studies/2026-09_trog-skin-tone/trog_skin_tone.qmd
+          contents: [studies/2026-09_trog-skin-tone/trog_skin_tone.qmd]
         - section: "2026-08 · Memory length"
-          contents: studies/2026-08_memory-length/memory_length.qmd
+          contents: [studies/2026-08_memory-length/memory_length.qmd]
         - section: "2026-08 · Within-child variability"
           contents:
             - studies/2026-08_within-child-variability/06_within_child_variability.qmd
             - studies/2026-08_within-child-variability/07_rt_variability.qmd
             - studies/2026-08_within-child-variability/08_accuracy_variability.qmd
         - section: "2026-07 · Battery length"
-          contents: studies/2026-07_battery-length/05_battery_design.qmd
+          contents: [studies/2026-07_battery-length/05_battery_design.qmd]
         - section: "2026-07 · ROAR-Sentence scoring"
-          contents: studies/2026-07_sre-scoring/sre.qmd
+          contents: [studies/2026-07_sre-scoring/sre.qmd]
         - section: "2026-07 · Same & Different scoring"
-          contents: studies/2026-07_sds-scoring/same_different.qmd
+          contents: [studies/2026-07_sds-scoring/same_different.qmd]
         - section: "2026-07 · ROAR-Word engagement"
-          contents: studies/2026-07_roar-word-engagement/roar_word.qmd
+          contents: [studies/2026-07_roar-word-engagement/roar_word.qmd]
         - section: "2026-07 · Training vs development"
-          contents: studies/2026-07_training-vs-development/training_vs_development.qmd
+          contents: [studies/2026-07_training-vs-development/training_vs_development.qmd]
         - section: "2026-06 · ToM reality-check forensics"
-          contents: studies/2026-06_tom-reality-check/tom_reality_check_bug.qmd
+          contents: [studies/2026-06_tom-reality-check/tom_reality_check_bug.qmd]
         - section: "2026-06 · IRT column-order bug"
           contents:
             - studies/2026-06_irt-column-order-bug/math_eap_vs_ml.qmd

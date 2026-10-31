@@ -1,0 +1,218 @@
+```{r setup}
+#| code-summary: "Setup: the task's runs, trials and items"
+source(here::here("common.R"))
+task_id <- params$task_id
+source(here::here("tasks/_task_report.R"))
+```
+
+::: {.callout-note appearance="simple"}
+## Summary
+
+**Data:** `r data_ref`.
+
+- `r fmt_n(n_runs)` scored runs from `r fmt_n(n_children)` children in
+  `r n_distinct(runs$dataset)` datasets; `r fmt_pct(share_adaptive)` used
+  the adaptive form. A run takes a median of `r round(minutes_median, 1)`
+  minutes.
+- Reliability of the scores is `r f2(min(reliability$reliability))`–`r f2(max(reliability$reliability))`
+  across datasets, and scores correlate with age at
+  r = `r f2(min(age_cor$r))`–`r f2(max(age_cor$r))`.
+- `r if (nrow(retest_big) > 0) paste0("Between a child's first two waves, scores correlate r = ", f2(min(retest_big$r)), "–", f2(max(retest_big$r)), " in the ", nrow(retest_big), " datasets with 50 or more children in two waves (median gaps ", round(min(retest_big$gap_months)), "–", round(max(retest_big$gap_months)), " months)", if (nrow(retest) > nrow(retest_big)) paste0("; ", nrow(retest) - nrow(retest_big), if (nrow(retest) - nrow(retest_big) == 1) " smaller dataset is shown below" else " smaller datasets are shown below") else "", ".") else "No dataset has 50 or more children with two waves of this task yet."`
+- The calibrated bank has `r fmt_n(nrow(items))` items;
+  `r fmt_pct(mean(trials$item_uid %in% items$item_uid), 1)` of responses are
+  to calibrated items, and `r sum(item_lang$below_chance)` item-language
+  combinations are answered below chance.
+:::
+
+# Deployment and forms
+
+```{r forms, fig.height=4}
+#| label: fig-forms
+#| fig-cap: "Runs per month, by task version and adaptive or fixed form."
+runs |>
+  mutate(month = lubridate::floor_date(as.Date(time_started), "month")) |>
+  count(month, form) |>
+  ggplot(aes(x = month, y = n, fill = form)) +
+  geom_col() +
+  scale_fill_brewer(palette = "Set1", name = NULL) +
+  labs(x = NULL, y = "Runs") +
+  theme(legend.position = "bottom")
+```
+
+```{r form-table}
+#| label: tbl-forms
+#| tbl-cap: "Forms in the release: version, adaptive or fixed, and the variant settings recorded with each run."
+runs |>
+  count(version, adaptive = if_else(adaptive, "adaptive", "fixed"), max_time,
+        max_incorrect, corpus = coalesce(corpus, "")) |>
+  arrange(desc(n)) |>
+  mutate(n = fmt_n(n)) |>
+  knitr::kable(col.names = c("Version", "Form", "Time limit (min)", "Errors allowed",
+                             "Item bank", "Runs"))
+```
+
+# Coverage
+
+```{r coverage, fig.height=4.5}
+#| label: fig-coverage
+#| fig-cap: "Children by dataset and age at their first run of the task (datasets with 50 or more runs)."
+first_runs |>
+  filter(!is.na(age)) |>
+  mutate(age = floor(age)) |>
+  count(dataset, age) |>
+  by_ds() |>
+  ggplot(aes(x = age, y = dataset_label, fill = n)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = n, colour = n > 60), size = 3) +
+  scale_colour_manual(values = c(`TRUE` = "black", `FALSE` = "white"), guide = "none") +
+  scale_fill_viridis_c(guide = "none") +
+  scale_x_continuous(breaks = 2:15) +
+  labs(x = "Age (years)", y = NULL)
+```
+
+`r fmt_n(n_distinct(wave_runs$user_id[wave_runs$wave >= 2]))` children have
+this task in two or more waves (runs at least 90 days apart).
+
+# Item bank
+
+The calibrated item difficulties and the children's scores share one scale
+(@fig-wright). Items far below most children's scores tell us little about
+them, and children above the hardest items are at the bank's ceiling.
+
+```{r wright, fig.height=4.5}
+#| label: fig-wright
+#| fig-cap: "Calibrated item difficulties (top) and children's scores on their first run (bottom), on the same scale."
+lims <- range(c(items$difficulty, first_runs$score), na.rm = TRUE)
+p_items <- ggplot(items, aes(x = difficulty)) +
+  geom_histogram(binwidth = 0.25, fill = "#4477AA") +
+  coord_cartesian(xlim = lims) +
+  labs(x = NULL, y = "Items")
+p_kids <- ggplot(first_runs, aes(x = score)) +
+  geom_histogram(binwidth = 0.25, fill = "grey45") +
+  coord_cartesian(xlim = lims) +
+  labs(x = "Ability scale", y = "Children")
+patchwork::wrap_plots(p_items, p_kids, ncol = 1)
+```
+
+```{r exposure, fig.height=3.5}
+#| label: fig-exposure
+#| fig-cap: "Responses per item in the release, calibrated and not."
+item_use |>
+  mutate(calibrated = if_else(item_uid %in% items$item_uid, "calibrated", "not calibrated")) |>
+  ggplot(aes(x = responses, fill = calibrated)) +
+  geom_histogram(bins = 40) +
+  scale_x_log10(labels = scales::comma) +
+  scale_fill_manual(values = c(calibrated = "#4477AA", `not calibrated` = "#CC6677"),
+                    name = NULL) +
+  labs(x = "Responses per item", y = "Items") +
+  theme(legend.position = "top")
+```
+
+Children answered `r fmt_n(nrow(item_use))` distinct items;
+`r sum(!item_use$item_uid %in% items$item_uid)` of them are not in the
+calibrated bank, and `r sum(!items$item_uid %in% item_use$item_uid)`
+calibrated items were never shown.
+
+# Item health
+
+Items answered below chance in a language (the upper end of the 95% CI of
+accuracy is below chance; items with 30 or more responses in that language)
+suggest a wrong answer key, a misleading picture or a translation problem.
+
+```{r item-health, fig.height=4}
+#| label: fig-item-health
+#| fig-cap: "Accuracy against chance for each item in each language; items answered below chance in red."
+item_lang |>
+  mutate(language = c(de = "German", en = "English", es = "Spanish")[lang]) |>
+  ggplot(aes(x = chance, y = accuracy, colour = below_chance)) +
+  geom_abline(lty = 2, colour = "grey60") +
+  geom_jitter(width = 0.01, height = 0, alpha = 0.6) +
+  facet_wrap(vars(language)) +
+  scale_colour_manual(values = c(`TRUE` = "#CC3311", `FALSE` = "grey50"), guide = "none") +
+  coord_cartesian(xlim = c(0, 0.6)) +
+  labs(x = "Chance", y = "Accuracy")
+```
+
+`r if (any(item_lang$below_chance)) paste0("Answered below chance: ", with(filter(item_lang, below_chance), paste0(item_uid, " (", lang, ", ", f2(accuracy), " correct, n = ", n, ")", collapse = "; ")), ".") else "No item is answered below chance in any language."`
+
+# Scores
+
+```{r scores-age, fig.height=5.5}
+#| label: fig-scores-age
+#| fig-cap: "Scores on each child's first run by age, with a smooth for each dataset."
+first_runs |>
+  filter(!is.na(age)) |>
+  by_ds() |>
+  ggplot(aes(x = age, y = score, colour = dataset)) +
+  geom_point(alpha = 0.25, size = 0.8) +
+  geom_smooth(method = "loess", span = 1, se = FALSE, linewidth = 0.9) +
+  scale_colour_dataset(name = NULL) +
+  guides(colour = guide_legend(nrow = 3, override.aes = list(alpha = 1))) +
+  labs(x = "Age (years)", y = "Score") +
+  theme(legend.position = "bottom")
+```
+
+```{r score-se, fig.height=4}
+#| label: fig-score-se
+#| fig-cap: "Standard error of each score against the score."
+first_runs |>
+  filter(!is.na(score_se)) |>
+  ggplot(aes(x = score, y = score_se)) +
+  geom_point(alpha = 0.2, size = 0.8) +
+  geom_smooth(method = "loess", se = FALSE, colour = "black", linewidth = 0.8) +
+  labs(x = "Score", y = "Standard error")
+```
+
+Within 5% of the score range from either end:
+`r with(by_ds(ends), paste0(dataset_labels_named[dataset], " ", fmt_pct(low), " low and ", fmt_pct(high), " high", collapse = "; "))`.
+
+# Reliability, stability and validity
+
+```{r psychometrics, fig.height=5}
+#| label: fig-psychometrics
+#| fig-cap: "Empirical reliability, correlation between a child's first two waves, and correlation with age, by dataset (95% CIs where available)."
+bind_rows(
+  reliability |> transmute(dataset, measure = "Reliability", r = reliability, lo = NA, hi = NA),
+  retest |> transmute(dataset, measure = "Retest (first two waves)", r, lo, hi),
+  age_cor |> transmute(dataset, measure = "Correlation with age", r, lo, hi)) |>
+  by_ds() |>
+  ggplot(aes(x = r, y = dataset_label, colour = dataset)) +
+  geom_pointrange(aes(xmin = lo, xmax = hi), na.rm = TRUE) +
+  geom_point(size = 2.5) +
+  facet_wrap(vars(measure)) +
+  scale_colour_dataset(guide = "none") +
+  coord_cartesian(xlim = c(0, 1)) +
+  labs(x = NULL, y = NULL)
+```
+
+```{r task-cor, fig.height=4.5}
+#| label: fig-task-cor
+#| fig-cap: "Correlation of this task's scores with each other task's, on children's first runs, standardized within dataset and pooled (95% CIs)."
+task_cor |>
+  mutate(other_task = reorder(other_task, r)) |>
+  ggplot(aes(x = r, y = other_task)) +
+  geom_pointrange(aes(xmin = lo, xmax = hi)) +
+  labs(x = glue("Correlation with {task_label}"), y = NULL)
+```
+
+`r if (nrow(retest) > 0) paste0("Retest pairs that change task version between waves: ", paste0(dataset_labels_named[retest$dataset], " ", fmt_pct(retest$version_change), " (", retest$n, " pairs, r = ", f2(retest$r), ")", collapse = "; "), ".") else ""`
+
+`r task_label` correlates most strongly with
+`r task_cor$other_task[1]` (r = `r f2(task_cor$r[1])`) and least with
+`r task_cor$other_task[nrow(task_cor)]` (r = `r f2(task_cor$r[nrow(task_cor)])`).
+
+# Time
+
+```{r time, fig.height=4}
+#| label: fig-time
+#| fig-cap: "Minutes per run by age, for the adaptive and fixed forms."
+runs |>
+  filter(!is.na(age), minutes < 60) |>
+  mutate(form = if_else(adaptive, "adaptive", "fixed")) |>
+  ggplot(aes(x = age, y = minutes, colour = form)) +
+  geom_point(alpha = 0.15, size = 0.7) +
+  geom_smooth(method = "loess", span = 1, se = FALSE, linewidth = 0.9) +
+  scale_colour_manual(values = c(adaptive = "#4477AA", fixed = "#CC6677"), name = NULL) +
+  labs(x = "Age (years)", y = "Minutes") +
+  theme(legend.position = "top")
+```

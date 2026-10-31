@@ -19,8 +19,7 @@ source(here::here("common.R"))
 library(lme4)
 
 scores_all <- load_levante_latest("scores")
-trials <- load_levante_latest("trials")
-scores <- clean_levante_latest(scores_all, trials) |> add_waves()
+scores <- load_levante_clean() |> add_waves()
 data_ref <- unique(scores_all$redivis_source)
 
 # each child's first run in each wave of a task

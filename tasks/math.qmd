@@ -1,0 +1,82 @@
+---
+title: "Math"
+params:
+  task_id: "egma-math"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    fig-width: 8
+    fig-height: 5
+execute:
+  warning: false
+  message: false
+---
+
+{{< include _task_report.qmd >}}
+
+# Subtasks
+
+Math items come from subtasks (identifying numbers, counting, comparing,
+adding, subtracting, multiplying, number lines, missing numbers and
+fractions). The adaptive form chooses items by difficulty, so which
+subtasks a child sees depends on their ability.
+
+```{r math-trials}
+math <- trials |>
+  mutate(subtask = item_group,
+         age_band = cut(age_at_run(run_id), c(3, 5, 7, 9, 11, 16), right = FALSE,
+                        labels = c("3–4", "5–6", "7–8", "9–10", "11+")),
+         form = if_else(adaptive, "adaptive", "fixed")) |>
+  filter(!is.na(age_band), !is.na(subtask))
+```
+
+```{r math-subtask-accuracy, fig.height=5}
+#| label: fig-math-subtask-accuracy
+#| fig-cap: "Accuracy by subtask and age (cells with 50 or more responses)."
+math |>
+  group_by(subtask, age_band) |>
+  summarise(accuracy = mean(correct, na.rm = TRUE), n = n(), .groups = "drop") |>
+  filter(n >= 50) |>
+  ggplot(aes(x = age_band, y = reorder(subtask, accuracy), fill = accuracy)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = f2(accuracy), colour = accuracy > .5), size = 3) +
+  scale_colour_manual(values = c(`TRUE` = "black", `FALSE` = "white"), guide = "none") +
+  scale_fill_viridis_c(limits = c(0, 1), guide = "none") +
+  labs(x = "Age (years)", y = NULL)
+```
+
+```{r math-routing, fig.height=5}
+#| label: fig-math-routing
+#| fig-cap: "Share of each age group's responses that come from each subtask, on the adaptive and fixed forms."
+math |>
+  count(form, age_band, subtask) |>
+  group_by(form, age_band) |>
+  mutate(share = n / sum(n)) |>
+  ungroup() |>
+  ggplot(aes(x = age_band, y = share, fill = subtask)) +
+  geom_col() +
+  facet_wrap(vars(form)) +
+  scale_fill_manual(values = colorRampPalette(RColorBrewer::brewer.pal(12, "Paired"))(n_distinct(math$subtask)),
+                    name = NULL) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Age (years)", y = "Share of responses")
+```
+
+# Open issues
+
+- Math items differ in difficulty across languages more than most tasks'
+  items, plausibly because of curriculum
+  ([items across languages](../monitor/languages.qmd)).
+- Children under 4 are at or near the bottom of the scale, and the bank
+  has few items for them
+  ([downward extension](../monitor/downward_extension.qmd#fig-official-by-age)).
+- Math scores before registry v1.2 were affected by an item-order scoring
+  bug, since fixed
+  ([IRT column-order study](../studies/2026-06_irt-column-order-bug/math_eap_vs_ml.qmd)).
+
+# Revision history
+
+- **2026-10-30.** First version, from the standard task-report template on
+  the pinned release. Replaces the June Math chapters (now in `archive/`).
