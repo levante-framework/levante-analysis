@@ -340,7 +340,7 @@ scores_cmp |>
 scores_cmp |>
   mutate(change = score_new - score_old) |>
   slice_max(abs(change), n = 10) |>
-  select(dataset_label, run_id, n_trials, span, n_correct, n_incorrect,
+  select(dataset_label, n_trials, span, n_correct, n_incorrect,
          score_old, score_new, change) |>
   knitr::kable(digits = 2, caption = "Largest score changes from the legacy rule to the rate")
 ```
