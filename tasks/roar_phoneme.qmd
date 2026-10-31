@@ -1,0 +1,84 @@
+---
+title: "ROAR-Phoneme"
+params:
+  task_id: "pa"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    fig-width: 8
+    fig-height: 5
+execute:
+  warning: false
+  message: false
+---
+
+{{< include _task_report.qmd >}}
+
+# Subtests
+
+ROAR-Phoneme has three subtests: matching the first sound of words,
+matching the last sound, and deleting a sound. It is calibrated separately
+for each language, and there is no German version.
+
+```{r pa-items}
+pa_items <- items |>
+  mutate(subtest = coalesce(na_if(item_group_label, ""), item_group), language = lang_names[lang])
+pa_subtests <- pa_items |>
+  group_by(language, subtest) |>
+  summarise(n_items = n(), difficulty = mean(difficulty), .groups = "drop")
+pa_acc <- trials |>
+  filter(!is.na(correct)) |>
+  mutate(subtest = c(fsm = "first-sound matching", lsm = "last-sound matching",
+                     del = "deletion")[item_group],
+         age = floor(age_at_run(run_id)), language = lang_names[lang]) |>
+  filter(!is.na(subtest), !is.na(age), between(age, 4, 13)) |>
+  group_by(language, subtest, age) |>
+  summarise(accuracy = mean(correct), n = n(), .groups = "drop") |>
+  filter(n >= 50)
+```
+
+```{r pa-subtest-plot, fig.height=4}
+#| label: fig-pa-subtests
+#| fig-cap: "Calibrated item difficulty by subtest and language: each item (points) and the subtest mean (bar)."
+pa_items |>
+  ggplot(aes(x = subtest, y = difficulty, colour = language)) +
+  geom_point(position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.6), alpha = 0.6) +
+  stat_summary(fun = mean, geom = "crossbar", width = 0.5, linewidth = 0.3,
+               position = position_dodge(width = 0.6)) +
+  scale_colour_manual(values = c(English = "#4477AA", Spanish = "#CC6677"), name = NULL) +
+  labs(x = NULL, y = "Item difficulty") +
+  theme(legend.position = "top")
+```
+
+```{r pa-acc-plot, fig.height=4}
+#| label: fig-pa-acc
+#| fig-cap: "Accuracy by subtest and age, by language (cells with 50 or more responses). The dotted line is chance."
+pa_acc |>
+  ggplot(aes(x = age, y = accuracy, colour = subtest)) +
+  geom_hline(yintercept = 1 / 3, lty = 3, colour = "grey50") +
+  geom_line(linewidth = 0.8) +
+  geom_point() +
+  facet_wrap(vars(language)) +
+  scale_colour_manual(values = c(`first-sound matching` = "#4477AA", `last-sound matching` = "#CC6677",
+                                 deletion = "#228833"), name = NULL) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "Age (years)", y = "Accuracy") +
+  theme(legend.position = "top")
+```
+
+Mean item difficulty by subtest:
+`r with(pa_subtests, paste0(language, " ", subtest, " ", f2(difficulty), " (", n_items, " items)", collapse = "; "))`.
+
+# Open issues
+
+`r below_chance_issue()`
+- The deletion subtest is in the English bank only.
+- With separate calibrations, scores can't be compared across languages.
+
+# Revision history
+
+- **2026-10-30.** First version, from the standard task-report template
+  on the pinned release. Replaces the ROAR-Phoneme half of the August
+  ROAR literacy page (now `archive/roar_literacy.qmd`).

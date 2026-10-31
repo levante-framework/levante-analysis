@@ -10,10 +10,26 @@ task <- task_lookup |> filter(task_id == .env$task_id)
 task_label <- task$task_label
 
 runs <- scores_clean |> filter(task_id == .env$task_id) |> add_waves()
-trials <- load_levante_latest_trials(task_id) |> filter(run_id %in% runs$run_id)
+trials <- load_levante_latest_trials(task_id) |>
+  filter(run_id %in% runs$run_id) |>
+  mutate(lang = substr(language, 1, 2))
+# the items table has one row per item per dataset; a task calibrated by
+# language has one set of parameters per language (`subset`, e.g. "es-CO")
 items <- load_levante_latest("items") |>
   filter(task_id == .env$task_id) |>
-  distinct(item_uid, .keep_all = TRUE)
+  distinct(item_uid, subset, .keep_all = TRUE)
+has_items <- nrow(items) > 0
+by_language <- has_items && all(items$model_set == "by_language")
+items <- items |> mutate(lang = if (by_language) substr(subset, 1, 2) else NA_character_)
+item_langs <- sort(unique(items$lang))
+has_se <- any(!is.na(runs$score_se))
+# accuracy against chance is meaningless for some tasks (e.g. memory spans)
+check_chance <- params$check_chance %||% TRUE
+# a response is to a calibrated item if the item is in the bank (for its
+# language, when the task is calibrated by language)
+trials <- trials |>
+  mutate(calibrated = if (by_language) paste(item_uid, lang) %in% paste(items$item_uid, items$lang)
+                      else item_uid %in% items$item_uid)
 
 # datasets with enough runs to summarize on their own
 min_runs <- 50
@@ -100,12 +116,10 @@ ends <- first_runs |>
 
 # items: bank coverage, exposure and accuracy by language
 item_use <- trials |>
-  mutate(lang = substr(language, 1, 2)) |>
-  group_by(item_uid) |>
-  summarise(responses = n(), .groups = "drop")
+  group_by(item_uid, lang = if (by_language) lang else NA_character_) |>
+  summarise(responses = n(), calibrated = any(calibrated), .groups = "drop")
 item_lang <- trials |>
-  mutate(lang = substr(language, 1, 2)) |>
-  filter(!is.na(correct), chance > 0) |>
+  filter(check_chance, !is.na(correct), chance > 0) |>
   group_by(item_uid, lang) |>
   summarise(n = n(), accuracy = mean(correct), chance = mean(chance), .groups = "drop") |>
   filter(n >= 30) |>
@@ -118,7 +132,32 @@ item_lang <- trials |>
 n_runs <- nrow(runs)
 n_children <- n_distinct(runs$user_id)
 share_adaptive <- mean(runs$adaptive, na.rm = TRUE)
+share_calibrated <- mean(trials$calibrated)
+# items whose calibration rests on few responses
+min_calib <- 100
+thin_items <- items |> filter(n_responses < min_calib)
+item_key <- \(df) if (by_language) paste(df$item_uid, df$lang) else df$item_uid
+share_thin <- mean(item_key(trials) %in% item_key(thin_items))
+lang_names <- c(de = "German", en = "English", es = "Spanish")
+score_type_label <- c(ability = "IRT ability estimate",
+                      guessing_adjusted_rate_scaled = "guessing-adjusted rate of correct responses, scaled")[
+  names(sort(table(runs$score_type), decreasing = TRUE))[1]]
 minutes_median <- median(runs$minutes, na.rm = TRUE)
+
+# a range of values for prose: "a–b", or one value when they agree
+rng <- \(x, digits = 2) {
+  fmt <- if (digits == 0) \(v) as.character(round(v)) else f2
+  if (fmt(min(x)) == fmt(max(x))) fmt(min(x)) else paste0(fmt(min(x)), "–", fmt(max(x)))
+}
+
+# an open-issues bullet for items answered below chance, or nothing
+below_chance_issue <- function() {
+  k <- sum(item_lang$below_chance)
+  if (k == 0) return("")
+  paste0("- ", k, if (k == 1) " item-language combination is" else " item-language combinations are",
+         " answered below chance (@fig-item-health); their answer keys, pictures",
+         " and translations need checking.")
+}
 
 # a run's age, for trial-level summaries
 age_at_run <- \(ids) runs$age[match(ids, runs$run_id)]

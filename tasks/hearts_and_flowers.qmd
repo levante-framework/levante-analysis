@@ -89,6 +89,7 @@ hf |>
 
 # Open issues
 
+`r below_chance_issue()`
 - Which form a child receives follows the task variant, not the code
   version; the redesign that added a feedback sound and faster mixed blocks
   is evaluated in the

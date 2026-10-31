@@ -62,7 +62,10 @@ chapters. Older chapters are brought into line as they are revised.
   `params: task_id`, includes the template, and adds only a task-specific
   section, open issues with links to the relevant studies, and a revision
   history. A section every task needs goes in the template, not in one
-  page.
+  page. The template adapts to tasks calibrated by language (item
+  sections per language) and to scores without an item model or standard
+  errors; a page sets `check_chance: false` when accuracy against chance is
+  meaningless for its items (e.g. memory spans).
 
 ## Figures and tables
 

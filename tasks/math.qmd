@@ -66,6 +66,7 @@ math |>
 
 # Open issues
 
+`r below_chance_issue()`
 - Math items differ in difficulty across languages more than most tasks'
   items, plausibly because of curriculum
   ([items across languages](../monitor/languages.qmd)).

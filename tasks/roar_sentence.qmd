@@ -1,0 +1,70 @@
+---
+title: "ROAR-Sentence"
+params:
+  task_id: "sre"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    fig-width: 8
+    fig-height: 5
+execute:
+  warning: false
+  message: false
+---
+
+{{< include _task_report.qmd >}}
+
+# Speed and accuracy
+
+ROAR-Sentence is a timed reading task: the child reads short sentences and
+says whether each is true or false, as many as they can in the time
+allowed. The score is correct minus incorrect answers per second (the
+subtraction cancels guessing), scaled.
+
+```{r sre-runs}
+sre_runs <- trials |>
+  filter(!is.na(correct)) |>
+  group_by(run_id) |>
+  summarise(attempted = n(), accuracy = mean(correct), .groups = "drop") |>
+  inner_join(first_runs |> select(run_id, dataset, age, score), by = "run_id")
+sre_cor <- bind_rows(
+  sre_runs |> reframe(cor_ci(score, attempted)) |> mutate(with = "sentences attempted"),
+  sre_runs |> reframe(cor_ci(score, accuracy)) |> mutate(with = "accuracy"))
+```
+
+```{r sre-plot, fig.height=4}
+#| label: fig-sre-speed
+#| fig-cap: "Sentences attempted and accuracy on each child's first run, by age, with a smooth for each dataset."
+sre_runs |>
+  filter(!is.na(age)) |>
+  pivot_longer(c(attempted, accuracy), names_to = "measure") |>
+  mutate(measure = c(attempted = "Sentences attempted", accuracy = "Accuracy")[measure]) |>
+  by_ds() |>
+  ggplot(aes(x = age, y = value, colour = dataset)) +
+  geom_point(alpha = 0.15, size = 0.7) +
+  geom_smooth(method = "loess", span = 1, se = FALSE, linewidth = 0.9) +
+  facet_wrap(vars(measure), scales = "free_y") +
+  scale_colour_dataset(guide = "none") +
+  labs(x = "Age (years)", y = NULL)
+```
+
+On first runs, the score correlates
+`r with(sre_cor, paste0("r = ", f2(r), " with ", with, " (95% CI ", f2(lo), "–", f2(hi), ")", collapse = " and "))`
+(n = `r fmt_n(sre_cor$n[1])`). Children attempt a median of
+`r median(sre_runs$attempted)` sentences, at a median accuracy of
+`r f2(median(sre_runs$accuracy))`.
+
+# Open issues
+
+`r below_chance_issue()`
+- How the score should combine speed and accuracy, and how to handle
+  runs that stop early, is studied in
+  [ROAR-Sentence scoring](../studies/2026-07_sre-scoring/sre.qmd).
+
+# Revision history
+
+- **2026-10-30.** First version, from the standard task-report template
+  on the pinned release. Replaces the ROAR-Sentence half of the August
+  ROAR literacy page (now `archive/roar_literacy.qmd`).

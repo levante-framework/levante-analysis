@@ -1,3 +1,5 @@
+{{< include /_disclaimer.qmd >}}
+
 ```{r setup}
 #| code-summary: "Setup: the task's runs, trials and items"
 source(here::here("common.R"))
@@ -11,17 +13,14 @@ source(here::here("tasks/_task_report.R"))
 **Data:** `r data_ref`.
 
 - `r fmt_n(n_runs)` scored runs from `r fmt_n(n_children)` children in
-  `r n_distinct(runs$dataset)` datasets; `r fmt_pct(share_adaptive)` used
-  the adaptive form. A run takes a median of `r round(minutes_median, 1)`
+  `r n_distinct(runs$dataset)` datasets;
+  `r if (share_adaptive == 0) "all used the fixed form" else if (share_adaptive == 1) "all used the adaptive form" else paste(fmt_pct(share_adaptive), "used the adaptive form")`. A run takes a median of `r round(minutes_median, 1)`
   minutes.
-- Reliability of the scores is `r f2(min(reliability$reliability))`–`r f2(max(reliability$reliability))`
-  across datasets, and scores correlate with age at
-  r = `r f2(min(age_cor$r))`–`r f2(max(age_cor$r))`.
-- `r if (nrow(retest_big) > 0) paste0("Between a child's first two waves, scores correlate r = ", f2(min(retest_big$r)), "–", f2(max(retest_big$r)), " in the ", nrow(retest_big), " datasets with 50 or more children in two waves (median gaps ", round(min(retest_big$gap_months)), "–", round(max(retest_big$gap_months)), " months)", if (nrow(retest) > nrow(retest_big)) paste0("; ", nrow(retest) - nrow(retest_big), if (nrow(retest) - nrow(retest_big) == 1) " smaller dataset is shown below" else " smaller datasets are shown below") else "", ".") else "No dataset has 50 or more children with two waves of this task yet."`
-- The calibrated bank has `r fmt_n(nrow(items))` items;
-  `r fmt_pct(mean(trials$item_uid %in% items$item_uid), 1)` of responses are
-  to calibrated items, and `r sum(item_lang$below_chance)` item-language
-  combinations are answered below chance.
+- `r if (has_se) paste0("Reliability of the scores is ", rng(reliability$reliability), " across datasets, and scores") else paste0("The score is a ", score_type_label, ", not an IRT estimate, so it has no standard error and reliability is not estimated here. Scores")`
+  correlate with age at r = `r rng(age_cor$r)`.
+- `r if (nrow(retest_big) > 0) paste0("Between a child's first two waves, scores correlate r = ", rng(retest_big$r), if (nrow(retest_big) == 1) paste0(" in the one dataset (", dataset_labels_named[retest_big$dataset], ")") else paste0(" in the ", nrow(retest_big), " datasets"), " with 50 or more children in two waves (median gap ", rng(retest_big$gap_months, digits = 0), " months)", if (nrow(retest) > nrow(retest_big)) paste0("; ", nrow(retest) - nrow(retest_big), if (nrow(retest) - nrow(retest_big) == 1) " smaller dataset is shown below" else " smaller datasets are shown below") else "", ".") else "No dataset has 50 or more children with two waves of this task yet."`
+- `r if (!has_items) "There is no calibrated item bank." else if (by_language) paste0("Items are calibrated separately for each language, so scores are not on one scale across languages (", paste0(lang_names[item_langs], " ", count(items, lang)$n, collapse = ", "), " items); ", fmt_pct(share_calibrated, 1), " of responses are to calibrated items.") else paste0("The calibrated bank has ", fmt_n(nrow(items)), " items; ", fmt_pct(share_calibrated, 1), " of responses are to calibrated items.")`
+  `r if (!check_chance) "" else if (sum(item_lang$below_chance) == 0) "No item is answered below chance in any language." else paste0(sum(item_lang$below_chance), if (sum(item_lang$below_chance) == 1) " item-language combination is" else " item-language combinations are", " answered below chance.")`
 :::
 
 # Deployment and forms
@@ -75,30 +74,41 @@ this task in two or more waves (runs at least 90 days apart).
 
 # Item bank
 
-The calibrated item difficulties and the children's scores share one scale
-(@fig-wright). Items far below most children's scores tell us little about
-them, and children above the hardest items are at the bank's ceiling.
+```{r no-items, eval=!has_items, results="asis", echo=FALSE}
+cat("The score does not come from an item response model, so there is no",
+    "calibrated item bank. @fig-exposure shows how often each item was shown.\n")
+```
 
-```{r wright, fig.height=4.5}
+```{r wright-text, eval=has_items, results="asis", echo=FALSE}
+cat("The calibrated item difficulties and the children's scores share one scale",
+    if (by_language) "within each language" else "",
+    "(@fig-wright). Items far below most children's scores tell us little about",
+    "them, and children above the hardest items are at the bank's ceiling.\n")
+```
+
+```{r wright, eval=has_items, fig.height=if (by_language) 5 else 4.5}
 #| label: fig-wright
-#| fig-cap: "Calibrated item difficulties (top) and children's scores on their first run (bottom), on the same scale."
-lims <- range(c(items$difficulty, first_runs$score), na.rm = TRUE)
-p_items <- ggplot(items, aes(x = difficulty)) +
-  geom_histogram(binwidth = 0.25, fill = "#4477AA") +
-  coord_cartesian(xlim = lims) +
-  labs(x = NULL, y = "Items")
-p_kids <- ggplot(first_runs, aes(x = score)) +
-  geom_histogram(binwidth = 0.25, fill = "grey45") +
-  coord_cartesian(xlim = lims) +
-  labs(x = "Ability scale", y = "Children")
-patchwork::wrap_plots(p_items, p_kids, ncol = 1)
+#| fig-cap: "Calibrated item difficulties (top) and children's scores on their first run (bottom), on the same scale; one panel per language for tasks calibrated by language."
+wright <- bind_rows(
+  items |> transmute(what = "Items", value = difficulty, lang),
+  first_runs |> transmute(what = "Children", value = score,
+                          lang = if (by_language) substr(language, 1, 2) else NA)) |>
+  filter(!by_language | lang %in% item_langs) |>
+  mutate(what = factor(what, c("Items", "Children")),
+         language = if (by_language) lang_names[lang] else "All languages")
+ggplot(wright, aes(x = value, fill = what)) +
+  geom_histogram(binwidth = 0.25) +
+  facet_grid(what ~ language, scales = "free_y", switch = "y") +
+  scale_fill_manual(values = c(Items = "#4477AA", Children = "grey45"), guide = "none") +
+  labs(x = "Ability scale", y = NULL) +
+  theme(strip.placement = "outside")
 ```
 
 ```{r exposure, fig.height=3.5}
 #| label: fig-exposure
-#| fig-cap: "Responses per item in the release, calibrated and not."
+#| fig-cap: "Responses per item in the release, calibrated and not (per language for tasks calibrated by language)."
 item_use |>
-  mutate(calibrated = if_else(item_uid %in% items$item_uid, "calibrated", "not calibrated")) |>
+  mutate(calibrated = if_else(calibrated, "calibrated", "not calibrated")) |>
   ggplot(aes(x = responses, fill = calibrated)) +
   geom_histogram(bins = 40) +
   scale_x_log10(labels = scales::comma) +
@@ -108,22 +118,23 @@ item_use |>
   theme(legend.position = "top")
 ```
 
-Children answered `r fmt_n(nrow(item_use))` distinct items;
-`r sum(!item_use$item_uid %in% items$item_uid)` of them are not in the
-calibrated bank, and `r sum(!items$item_uid %in% item_use$item_uid)`
-calibrated items were never shown.
+`r if (has_items) paste0("Children answered ", fmt_n(nrow(item_use)), if (by_language) " distinct item-language combinations; " else " distinct items; ", sum(!item_use$calibrated), if (sum(!item_use$calibrated) == 1) " of them is" else " of them are", " not in the calibrated bank, and ", sum(!paste(items$item_uid, items$lang) %in% paste(item_use$item_uid, item_use$lang)), " calibrated ", if (by_language) "item-language combinations were" else "items were", " never shown. ", if (nrow(thin_items) > 0) paste0(nrow(thin_items), if (by_language) (if (nrow(thin_items) == 1) " item-language combination was" else " item-language combinations were") else if (nrow(thin_items) == 1) " item was" else " items were", " calibrated on fewer than ", min_calib, " responses, so their parameters are uncertain; they received ", fmt_pct(share_thin, 1), " of responses in this release.") else paste0("Every item was calibrated on ", min_calib, " or more responses.")) else paste0("Children answered ", fmt_n(nrow(item_use)), " distinct items.")`
 
 # Item health
 
-Items answered below chance in a language (the upper end of the 95% CI of
-accuracy is below chance; items with 30 or more responses in that language)
-suggest a wrong answer key, a misleading picture or a translation problem.
+```{r item-health-text, results="asis", echo=FALSE}
+cat(if (check_chance) paste(
+  "Items answered below chance in a language (the upper end of the 95% CI of",
+  "accuracy is below chance; items with 30 or more responses in that language)",
+  "suggest a wrong answer key, a misleading picture or a translation problem.")
+  else "Accuracy against chance is not meaningful for this task's items, so this check is not run.", "\n")
+```
 
-```{r item-health, fig.height=4}
+```{r item-health, eval=check_chance, fig.height=4}
 #| label: fig-item-health
 #| fig-cap: "Accuracy against chance for each item in each language; items answered below chance in red."
 item_lang |>
-  mutate(language = c(de = "German", en = "English", es = "Spanish")[lang]) |>
+  mutate(language = lang_names[lang]) |>
   ggplot(aes(x = chance, y = accuracy, colour = below_chance)) +
   geom_abline(lty = 2, colour = "grey60") +
   geom_jitter(width = 0.01, height = 0, alpha = 0.6) +
@@ -133,7 +144,7 @@ item_lang |>
   labs(x = "Chance", y = "Accuracy")
 ```
 
-`r if (any(item_lang$below_chance)) paste0("Answered below chance: ", with(filter(item_lang, below_chance), paste0(item_uid, " (", lang, ", ", f2(accuracy), " correct, n = ", n, ")", collapse = "; ")), ".") else "No item is answered below chance in any language."`
+`r if (!check_chance) "" else if (any(item_lang$below_chance)) paste0("Answered below chance: ", with(filter(item_lang, below_chance), paste0(item_uid, " (", lang, ", ", f2(accuracy), " correct, n = ", n, ")", collapse = "; ")), ".") else "No item is answered below chance in any language."`
 
 # Scores
 
@@ -152,7 +163,7 @@ first_runs |>
   theme(legend.position = "bottom")
 ```
 
-```{r score-se, fig.height=4}
+```{r score-se, eval=has_se, fig.height=4}
 #| label: fig-score-se
 #| fig-cap: "Standard error of each score against the score."
 first_runs |>
@@ -170,7 +181,7 @@ Within 5% of the score range from either end:
 
 ```{r psychometrics, fig.height=5}
 #| label: fig-psychometrics
-#| fig-cap: "Empirical reliability, correlation between a child's first two waves, and correlation with age, by dataset (95% CIs where available)."
+#| fig-cap: "Empirical reliability (for scores with standard errors), correlation between a child's first two waves, and correlation with age, by dataset (95% CIs where available)."
 bind_rows(
   reliability |> transmute(dataset, measure = "Reliability", r = reliability, lo = NA, hi = NA),
   retest |> transmute(dataset, measure = "Retest (first two waves)", r, lo, hi),

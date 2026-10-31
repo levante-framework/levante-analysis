@@ -1,0 +1,191 @@
+---
+title: "Sentence Understanding (TROG) — grammatical categories & cross-site DIF"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    fig-width: 9
+    fig-height: 6
+execute:
+  warning: false
+  message: false
+---
+
+{{< include /_disclaimer.qmd >}}
+
+# Question
+
+TROG (Test for Reception of Grammar) probes comprehension of specific
+grammatical structures: each item belongs to a **grammatical category**
+(`item_group`) such as negation, reversible passive, embedded/relative
+clauses, plurals, prepositions, etc. — 31 categories across 99 items, scored
+with a **multigroup-scalar Rasch** model (common scale across sites).
+
+Two questions, using cross-sectional first-observation data so we can include
+all three languages (German = Leipzig, Spanish = Bogotá + rural, English =
+Canada):
+
+1. Are the **grammatical-category difficulty effects consistent** across
+   languages?
+2. Do any **items carry DIF** (function differently across sites)?
+
+```{r setup}
+source(here::here("common.R"))
+library(mirt)
+sc <- read_rds(here("data/scores_all_sites.rds"))
+firstrun <- sc |> filter(task_id == "trog") |>
+  mutate(lang = case_when(dataset == "pilot_mpieva_de_main" ~ "German",
+                          str_detect(dataset, "uniandes_co") ~ "Spanish",
+                          dataset == "pilot_western_ca_main" ~ "English")) |>
+  filter(!is.na(lang)) |> group_by(user_id) |> arrange(age) |> slice(1) |>
+  ungroup() |> select(run_id, lang)
+tr <- load_levante_trials(task_ids = "trog") |>
+  inner_join(firstrun, by = "run_id") |>
+  mutate(correct = as.numeric(correct), category = item_group)
+```
+
+`r firstrun |> count(lang) |> mutate(s=paste0(lang,"=",n)) |> pull(s) |> paste(collapse=", ")`.
+
+# 1. Grammatical-category difficulty structure
+
+Pooled item difficulties (the released multigroup-scalar Rasch), aggregated to
+category.
+
+```{r cat-difficulty, fig.height=7}
+ip <- load_item_parameters() |> filter(task_id == "trog", subset == "all_items")
+catdiff <- ip |> left_join(tr |> distinct(item_uid, category), by = "item_uid") |>
+  group_by(category) |>
+  summarise(n_items = n(), mean_diff = mean(difficulty), .groups = "drop")
+catdiff |>
+  ggplot(aes(x = mean_diff, y = reorder(category, mean_diff))) +
+  geom_vline(xintercept = 0, lty = 3, color = "grey70") +
+  geom_segment(aes(xend = 0, yend = category), color = "grey80") +
+  geom_point(aes(size = n_items), color = "#268bd2") +
+  labs(x = "Mean item difficulty (logits)", y = NULL, size = "# items",
+       title = "TROG difficulty by grammatical category",
+       subtitle = "Simple combinations easiest; embedded/conditional/comparative structures hardest")
+```
+
+# 2. Are category effects consistent across languages?
+
+Per-language empirical accuracy by category (each child's first session),
+correlated across the three languages.
+
+```{r cat-consistency}
+catacc <- tr |> group_by(lang, category) |>
+  summarise(acc = mean(correct, na.rm = TRUE), n = n(), .groups = "drop") |>
+  filter(n >= 30) |> select(lang, category, acc) |>
+  pivot_wider(names_from = lang, values_from = acc)
+cc <- catacc |> drop_na()
+tibble(pair = c("German–Spanish","German–English","Spanish–English"),
+       r = c(cor(cc$German, cc$Spanish), cor(cc$German, cc$English),
+             cor(cc$Spanish, cc$English))) |>
+  knitr::kable(digits = 2,
+               caption = glue::glue("Category accuracy correlations across languages (n={nrow(cc)} categories)"))
+```
+
+```{r cat-consistency-plot, fig.height=5}
+cc |> pivot_longer(c(Spanish, English), names_to = "lang", values_to = "acc") |>
+  ggplot(aes(x = German, y = acc, color = lang)) +
+  geom_abline(slope = 1, intercept = 0, lty = 3, color = "grey50") +
+  geom_point(alpha = 0.8) +
+  geom_smooth(method = "lm", se = FALSE) +
+  scale_color_brewer(palette = "Set1", name = NULL) +
+  coord_equal() +
+  labs(x = "Category accuracy — German", y = "Category accuracy — other language",
+       title = "Grammatical-category difficulty is consistent across languages")
+```
+
+Category-level accuracy correlates **r ≈ 0.88–0.93** across the three
+languages — the *grammatical* difficulty ordering replicates well (simple
+combinations easy everywhere; embedding/conditional/comparative hard
+everywhere). The construct travels.
+
+# 3. Item-level DIF
+
+Fit a Rasch model **separately per language** and compare item difficulties.
+Differences (after centering each language's scale) are item-level DIF.
+
+```{r dif, cache=TRUE}
+fit_site <- function(L) {
+  m <- tr |> filter(lang == L) |> distinct(run_id, item_uid, .keep_all = TRUE) |>
+    select(run_id, item_uid, correct) |>
+    pivot_wider(names_from = item_uid, values_from = correct) |>
+    select(-run_id) |> as.matrix()
+  m <- m[, colMeans(!is.na(m)) > 0.05]
+  m <- m[, apply(m, 2, \(x) length(unique(x[!is.na(x)])) > 1)]
+  fit <- mirt(m, 1, itemtype = "Rasch", verbose = FALSE, technical = list(NCYCLES = 2000))
+  d <- coef(fit, simplify = TRUE)$items[, "d"]
+  tibble(item_uid = names(d), b = -d, lang = L)
+}
+bdiff <- map_dfr(c("German","Spanish","English"), fit_site) |>
+  group_by(lang) |> mutate(b_c = b - mean(b)) |> ungroup()  # center per language
+wide_b <- bdiff |> select(item_uid, lang, b_c) |>
+  pivot_wider(names_from = lang, values_from = b_c) |>
+  left_join(tr |> distinct(item_uid, category), by = "item_uid")
+
+wb <- wide_b |> select(German, Spanish, English) |> drop_na()
+tibble(pair = c("German–Spanish","German–English","Spanish–English"),
+       r = c(cor(wb$German, wb$Spanish), cor(wb$German, wb$English),
+             cor(wb$Spanish, wb$English))) |>
+  knitr::kable(digits = 2,
+               caption = glue::glue("Item-level difficulty correlations across languages (n={nrow(wb)} items)"))
+```
+
+```{r dif-scatter, fig.height=5.5}
+wide_b |> filter(!is.na(German), !is.na(Spanish)) |>
+  mutate(gap = German - Spanish) |>
+  ggplot(aes(x = Spanish, y = German)) +
+  geom_abline(slope = 1, intercept = 0, lty = 3, color = "grey50") +
+  geom_point(alpha = 0.6, color = "#268bd2") +
+  ggrepel::geom_text_repel(data = ~filter(.x, abs(gap) > 1.1),
+    aes(label = str_remove(item_uid, "^trog_")), size = 2.5, color = "firebrick",
+    max.overlaps = 20) +
+  labs(x = "Item difficulty — Spanish (centered)", y = "Item difficulty — German (centered)",
+       title = "Item-level DIF: German vs Spanish",
+       subtitle = "On-diagonal = invariant. Labeled (red) = |DIF| > 1.1 logits.")
+```
+
+```{r dif-top}
+wide_b |> filter(!is.na(German), !is.na(Spanish)) |>
+  mutate(`DE−ES gap` = German - Spanish) |>
+  arrange(desc(abs(`DE−ES gap`))) |>
+  select(item_uid, category, German, Spanish, `DE−ES gap`) |>
+  head(10) |> knitr::kable(digits = 2, caption = "Largest German-vs-Spanish item DIF")
+```
+
+Item difficulties correlate **r ≈ 0.82–0.88** across languages — good, but
+lower than the category level, i.e. translation introduces some item-specific
+DIF (expected; TROG reached *scalar* invariance overall, not perfect). Most DIF
+is modest (≈ 1–1.5 logits), **except one item that is clearly broken:**
+
+```{r broken-item}
+broken <- "trog_embedding_cat_cow_chase_black"
+tr |> filter(item_uid == broken) |>
+  group_by(lang) |>
+  summarise(n = n(), accuracy = round(mean(correct, na.rm = TRUE), 2), .groups = "drop") |>
+  knitr::kable(caption = glue::glue("{broken}: accuracy by language"))
+```
+
+`trog_embedding_cat_cow_chase_black` shows a **~6.5-logit** German-vs-Spanish
+difficulty gap — far beyond any other item. The accuracy breakdown shows it
+behaves completely differently in one language, the signature of a
+mistranslation or wrong answer key. **This item should be reviewed and likely
+excluded/fixed.**
+
+# Verdict
+
+- **Grammatical-category effects are consistent across German, Spanish, and
+  English** (category accuracy r ≈ 0.88–0.93): TROG measures the same
+  difficulty ordering of structures everywhere — good cross-linguistic
+  construct validity.
+- **Item-level DIF is mostly modest** (r ≈ 0.82–0.88), consistent with the
+  task's scalar-invariance status; translation adds some item-specific noise.
+- **One item is clearly broken** — `trog_embedding_cat_cow_chase_black`
+  (~6.5-logit DIF) — flag for review/exclusion.
+- No category systematically carries DIF; the issues are item-specific.
+
+```{r save}
+write_rds(wide_b, here::here("data", "trog_item_dif.rds"))
+```

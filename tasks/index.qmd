@@ -10,10 +10,10 @@ listing:
   filter-ui: false
 ---
 
-One page per task. Pages built from the standard task report (Hearts and
-Flowers, Math) share the same sections, all computed from the pinned
-release: deployment and forms, coverage, the item bank, item health,
-scores, reliability, stability and validity, and time, followed by a
-section specific to the task and its open issues. The other pages predate
-the template and are being moved onto it. Analyses of Same & Different,
-Stories, ROAR-Word and ROAR-Sentence are in [Studies](../studies/index.qmd).
+One page per task, each built from the standard task report and computed
+from the pinned release: deployment and forms, coverage, the item bank,
+item health, scores, reliability, stability and validity, and time,
+followed by a section specific to the task and its open issues. For tasks
+calibrated separately in each language (Vocabulary, ROAR-Phoneme), the
+item sections are per language. Analyses of Same & Different, Stories,
+Pattern Matching and ROAR-Word are in [Studies](../studies/index.qmd).

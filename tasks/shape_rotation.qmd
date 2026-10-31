@@ -1,188 +1,121 @@
 ---
-title: "Shape Rotation (Mental Rotation) — the angle effect and item validity"
+title: "Shape Rotation"
+params:
+  task_id: "mental-rotation"
 format:
   html:
     toc: true
-    toc-depth: 3
+    toc-depth: 2
     code-fold: true
-    fig-width: 9
-    fig-height: 5.5
+    fig-width: 8
+    fig-height: 5
 execute:
   warning: false
   message: false
 ---
 
-{{< include /_disclaimer.qmd >}}
+{{< include _task_report.qmd >}}
 
-# Question
+# The angle effect
 
-Shape Rotation (mental rotation) asks the child to pick which of two
-silhouettes matches a target when rotated. The canonical mental-rotation
-signature is that difficulty (and RT) increases monotonically with the
-**rotation angle**, and that 3-D figures are harder than 2-D. If the LEVANTE
-item difficulties show this, it's strong evidence the task measures what it
-should. Item structure: `mrot_{2d|3d}_{stimulus}_{angle}`.
+The child sees a target shape and picks which of two shapes is the same
+shape rotated. Items are 2-D animals, 2-D polygons and 3-D shapes, each
+at several rotation angles. If the task measures mental rotation, items
+should get harder as the angle grows.
 
-```{r setup}
-source(here::here("common.R"))
-ip <- load_item_parameters() |>
-  filter(task_id == "mental-rotation", subset == "all_items") |>
-  mutate(dim   = str_extract(item_uid, "2d|3d"),
-         stim  = str_extract(item_uid, "(?<=2d_|3d_)[a-z]+"),
-         angle = as.integer(str_extract(item_uid, "[0-9]+$")))
+```{r mrot-items}
+mrot_class <- \(uid) case_when(str_detect(uid, "polygon") ~ "2-D polygon",
+                               str_detect(uid, "_2d_") ~ "2-D animal",
+                               str_detect(uid, "_3d_") ~ "3-D shape")
+mrot_items <- items |>
+  mutate(stimulus = str_match(item_uid, "mrot_[23]d_([a-z0-9]+)_")[, 2],
+         class = mrot_class(item_uid),
+         angle = as.integer(str_extract(item_uid, "[0-9]+$")),
+         calibration = if_else(n_responses >= min_calib, "well calibrated", "few responses"))
+# the angle effect, on items calibrated on enough responses
+angle_fit <- lm(difficulty ~ I(angle / 45) * (class == "3-D shape") + stimulus,
+                filter(mrot_items, n_responses >= min_calib))
+angle_ci <- confint(angle_fit)
+slope_2d <- coef(angle_fit)["I(angle/45)"]
+slope_3d <- slope_2d + coef(angle_fit)["I(angle/45):class == \"3-D shape\"TRUE"]
+thin_mrot <- mrot_items |> filter(n_responses < min_calib)
+thin_use <- trials |>
+  filter(item_uid %in% thin_mrot$item_uid) |>
+  summarise(responses = n(), runs = n_distinct(run_id))
+mrot_acc <- trials |>
+  mutate(class = mrot_class(item_uid), angle = as.integer(str_extract(item_uid, "[0-9]+$"))) |>
+  filter(!is.na(class), !is.na(angle), !is.na(correct)) |>
+  group_by(class, angle) |>
+  summarise(accuracy = mean(correct), n = n(), .groups = "drop")
+acc_slope <- mrot_acc |>
+  group_by(class) |>
+  summarise(lo = accuracy[which.min(angle)], hi = accuracy[which.max(angle)],
+            from = min(angle), to = max(angle), .groups = "drop")
 ```
 
-# 1. The angle effect
-
-```{r angle-plot, fig.height=5}
-ip |>
-  ggplot(aes(x = angle, y = difficulty, color = stim, group = stim)) +
-  geom_hline(yintercept = 0, lty = 3, color = "grey70") +
-  geom_line(aes(linetype = dim), linewidth = 0.9) +
-  geom_point(size = 2.8) +
-  scale_color_brewer(palette = "Set2") +
-  scale_x_continuous(breaks = c(20,40,80,120,160)) +
-  labs(x = "Rotation angle (degrees)", y = "Item difficulty (logits)",
-       title = "Difficulty rises monotonically with rotation angle",
-       subtitle = "The canonical mental-rotation signature; 3-D ≫ 2-D",
-       color = "Stimulus", linetype = "Dimension")
+```{r mrot-angle, fig.height=4.5}
+#| label: fig-mrot-angle
+#| fig-cap: "Calibrated item difficulty by rotation angle for each stimulus. Open points are items calibrated on fewer than 100 responses."
+mrot_items |>
+  ggplot(aes(x = angle, y = difficulty, colour = class, group = interaction(stimulus, calibration))) +
+  geom_line(aes(linetype = calibration), linewidth = 0.8) +
+  geom_point(aes(shape = calibration), size = 2.2) +
+  scale_shape_manual(values = c(`well calibrated` = 16, `few responses` = 1), guide = "none") +
+  scale_linetype_manual(values = c(`well calibrated` = 1, `few responses` = 3), guide = "none") +
+  scale_colour_manual(values = c(`2-D animal` = "#4477AA", `2-D polygon` = "#228833",
+                                 `3-D shape` = "#CC6677"), name = NULL) +
+  scale_x_continuous(breaks = sort(unique(mrot_items$angle))) +
+  labs(x = "Rotation angle (degrees)", y = "Item difficulty")
 ```
 
-```{r angle-slopes}
-ip |> group_by(dim) |>
-  summarise(n_items = n(),
-            cor_angle_difficulty = cor(angle, difficulty),
-            logits_per_45deg = coef(lm(difficulty ~ angle))[2] * 45,
-            mean_discrimination = mean(discrimination),
-            .groups = "drop") |>
-  knitr::kable(digits = 3,
-               caption = "Angle effect by dimension (difficulty near-linear in angle)")
+On the items calibrated on `r min_calib` or more responses
+(`r paste(sort(unique(filter(mrot_items, n_responses >= min_calib)$stimulus)), collapse = ", ")`),
+difficulty rises `r f2(slope_2d)` per 45° of rotation for 2-D items (95% CI
+`r f2(angle_ci["I(angle/45)", 1])`–`r f2(angle_ci["I(angle/45)", 2])`) and
+`r f2(slope_3d)` per 45° for the 3-D shapes. The other
+`r nrow(thin_mrot)` items (`r paste(sort(unique(thin_mrot$stimulus)), collapse = ", ")`)
+were calibrated on `r min(thin_mrot$n_responses)`–`r max(thin_mrot$n_responses)`
+responses each. Their parameters are poorly determined (discriminations
+`r f2(min(thin_mrot$discrimination))`–`r f2(max(thin_mrot$discrimination))`,
+close to the model's default of 1) and don't show a consistent angle
+effect. They have since been shown
+`r fmt_n(thin_use$responses)` times in `r fmt_n(thin_use$runs)` runs.
+
+```{r mrot-acc, fig.height=4}
+#| label: fig-mrot-acc
+#| fig-cap: "Accuracy by rotation angle and stimulus class; point size shows the number of responses. The dotted line is chance."
+mrot_acc |>
+  ggplot(aes(x = angle, y = accuracy, colour = class)) +
+  geom_hline(yintercept = 0.5, lty = 3, colour = "grey50") +
+  geom_line(linewidth = 0.8) +
+  geom_point(aes(size = n)) +
+  scale_colour_manual(values = c(`2-D animal` = "#4477AA", `2-D polygon` = "#228833",
+                                 `3-D shape` = "#CC6677"), name = NULL) +
+  scale_size_area(max_size = 5, guide = "none") +
+  scale_x_continuous(breaks = sort(unique(mrot_acc$angle))) +
+  coord_cartesian(ylim = c(0.4, 1)) +
+  labs(x = "Rotation angle (degrees)", y = "Accuracy")
 ```
 
-The difficulty ordering is almost perfectly determined by rotation angle
-(2-D r ≈ 0.99, 3-D r ≈ 0.88), increasing ~0.85 logits per 45° for 2-D figures.
-3-D figures are much harder and shifted up. This is exactly the mental-rotation
-effect — a clean validity result.
+`r with(acc_slope, paste0(class, ": accuracy ", f2(lo), " at ", from, "° and ", f2(hi), " at ", to, "°", collapse = "; "))`.
+Because `r fmt_pct(share_adaptive)` of runs are adaptive, accuracy reflects which children saw
+which items as well as the items' difficulty; the calibrated difficulties
+in @fig-mrot-angle are the cleaner read.
 
-# 2. Accuracy by angle (the classic curve)
+# Open issues
 
-```{r acc-angle, fig.height=4.5}
-tr <- load_levante_trials(task_ids = "mental-rotation") |>
-  mutate(correct = as.numeric(correct),
-         dim = str_extract(item_uid, "2d|3d"),
-         angle = as.integer(str_extract(item_uid, "[0-9]+$")))
-tr |> filter(!is.na(dim), !is.na(angle), item_uid %in% ip$item_uid) |>
-  group_by(dim, angle) |>
-  summarise(acc = mean(correct, na.rm = TRUE), n = n(), .groups = "drop") |>
-  ggplot(aes(x = angle, y = acc, color = dim)) +
-  geom_hline(yintercept = 0.5, lty = 3, color = "red") +
-  geom_line(linewidth = 1) + geom_point(size = 3) +
-  scale_color_manual(values = c(`2d` = "#268bd2", `3d` = "#cb4b16")) +
-  scale_x_continuous(breaks = c(20,40,80,120,160)) +
-  labs(x = "Rotation angle (degrees)", y = "Accuracy",
-       title = "Accuracy declines with rotation angle",
-       subtitle = "Red = chance (2AFC). 3-D harder but above chance.",
-       color = "Dimension")
-```
+`r below_chance_issue()`
+- The goat and polygon items are scored with parameters from a handful of
+  responses, though the release now has thousands of responses to them.
+  Recalibrating them would put them on a sound footing.
+`r poly <- filter(acc_slope, class == "2-D polygon"); if (nrow(poly) == 1 && poly$hi > poly$lo) paste0("- Accuracy on the polygons rises with angle (", f2(poly$lo), " at ", poly$from, "° to ", f2(poly$hi), " at ", poly$to, "°), the reverse of the other stimuli. With the adaptive form this may partly reflect which children saw which items, but the polygon answer keys and rotations are worth checking.") else ""`
+- The bank has `r sum(mrot_items$class == "3-D shape")` 3-D items, and
+  only `r sum(mrot_items$difficulty > quantile(first_runs$score, .9))` items
+  are harder than the top 10% of children's scores (@fig-wright).
 
-# 3. Discrimination and the uncalibrated items
+# Revision history
 
-```{r disc}
-ip |> arrange(dim, angle) |>
-  select(item_uid, dim, stim, angle, difficulty, discrimination) |>
-  knitr::kable(digits = 2, caption = "2PL item parameters")
-```
-
-```{r uncalibrated}
-tr |> filter(!item_uid %in% ip$item_uid) |>
-  count(item_uid, name = "n_trials") |> arrange(desc(n_trials)) |>
-  knitr::kable(caption = "Items present in data but not calibrated (low-n polygon stimuli)")
-```
-
-Eight extra 2-D `polygon` stimuli appear in the data but weren't calibrated —
-all very low-n (≤ 66 trials). Discrimination is healthy for 2-D (≈ 1.5–2.6,
-higher at larger angles) and lower for 3-D (≈ 0.9–1.2), consistent with 3-D
-being harder and noisier.
-
-## Preliminary: are the new polygons "intermediate"?
-
-The polygons are new stimuli intended to sit **between** the 2-D animals (easy)
-and the 3-D shapes (hard). A quick accuracy-by-angle look across the three
-stimulus classes:
-
-```{r polygon-prelim, fig.height=4.5}
-cls <- tr |>
-  mutate(angle = as.integer(str_extract(item_uid, "[0-9]+$")),
-         klass = case_when(str_detect(item_uid, "polygon") ~ "2D polygon (new)",
-                           str_detect(item_uid, "_2d_") ~ "2D animal",
-                           str_detect(item_uid, "_3d_") ~ "3D shape")) |>
-  filter(!is.na(angle), !is.na(klass)) |>
-  group_by(klass, angle) |>
-  summarise(acc = mean(correct, na.rm = TRUE), n = n(), .groups = "drop")
-
-cls |>
-  ggplot(aes(x = angle, y = acc, color = klass, group = klass)) +
-  geom_hline(yintercept = 0.5, lty = 3, color = "red") +
-  geom_line(linewidth = 0.9) +
-  geom_point(aes(size = n), alpha = 0.85) +
-  scale_color_manual(values = c("2D animal" = "#268bd2",
-                                "2D polygon (new)" = "#6c71c4",
-                                "3D shape" = "#cb4b16")) +
-  scale_x_continuous(breaks = c(20,40,80,120,160)) +
-  labs(x = "Rotation angle (degrees)", y = "Accuracy",
-       title = "Accuracy by angle: animals vs new polygons vs 3-D",
-       subtitle = "Red = chance. Point size = n (polygons are very sparse).",
-       color = "Stimulus class", size = "n trials")
-```
-
-```{r polygon-tab}
-cls |> filter(klass == "2D polygon (new)") |>
-  knitr::kable(digits = 3, caption = "Polygon accuracy by angle (note tiny n)")
-```
-
-**Caveat — and a flag.** With only 10–108 trials per polygon cell this is
-preliminary, but two things stand out: (1) the polygons do *not* sit cleanly
-between animals and 3-D — at large angles their accuracy (≈ 0.78–0.82) is near
-the animals and above the 3-D shapes; and (2) polygon accuracy **rises** with
-angle (0.30 at 40° → 0.82 at 160°), the *reverse* of the normal mental-rotation
-effect seen for animals and 3-D. The 40° point is just 10 trials, so this could
-be noise — but a reversed angle gradient on a new stimulus warrants checking
-the polygon items (answer keys / rotation rendering) and gathering more data
-before calibrating them in.
-
-# 4. Cross-site consistency
-
-```{r site, fig.height=5}
-acc <- tr |>
-  filter(dataset %in% c("pilot_mpieva_de_main","pilot_uniandes_co_bogota"),
-         item_uid %in% ip$item_uid) |>
-  group_by(dataset_label, item_uid) |>
-  summarise(acc = mean(correct, na.rm = TRUE), .groups = "drop") |>
-  left_join(ip |> select(item_uid, dim, angle), by = "item_uid") |>
-  pivot_wider(names_from = dataset_label, values_from = acc)
-acc |>
-  ggplot(aes(x = `Colombia — Bogotá`, y = `Germany — Leipzig`,
-             color = dim, size = angle)) +
-  geom_abline(slope = 1, intercept = 0, lty = 3, color = "grey50") +
-  geom_point(alpha = 0.85) +
-  scale_color_manual(values = c(`2d` = "#268bd2", `3d` = "#cb4b16")) +
-  coord_equal() +
-  labs(x = "Item accuracy — Bogotá", y = "Item accuracy — Leipzig",
-       title = glue::glue("Item difficulty replicates across sites (r = {round(cor(acc$`Colombia — Bogotá`, acc$`Germany — Leipzig`, use='complete.obs'),2)})"),
-       color = "Dimension", size = "Angle")
-```
-
-# Verdict
-
-- **Shape Rotation is a clean, valid measure.** Item difficulty shows the
-  canonical mental-rotation **angle effect** (near-linear, r ≈ 0.99 for 2-D),
-  with 3-D figures appropriately harder.
-- 2PL discriminations are healthy; the model fits the design.
-- Difficulty **replicates across sites** (r ≈ 0.96).
-- Only housekeeping issue: a few low-n `polygon` stimuli are uncalibrated and
-  should be excluded from scoring.
-- No scoring concerns — usable as-is for growth/SEM.
-
-```{r save}
-write_rds(ip, here::here("data", "shape_rotation_item_params.rds"))
-```
+- **2026-10-30.** Rebuilt from the standard task-report template on the
+  pinned release. Replaces the August page on the angle effect and item
+  validity (now `archive/shape_rotation.qmd`). The 2-D polygon items, then
+  uncalibrated and sparse, are now in the calibrated bank.
